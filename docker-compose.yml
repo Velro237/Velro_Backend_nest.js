@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+    dev-db:
+      image: postgres:16-alpine # Use a specific version and a lightweight image
+      restart: always
+      environment:
+        POSTGRES_DB: velro # Replace with your desired database name
+        POSTGRES_USER: velro # Replace with your desired username
+        POSTGRES_PASSWORD: velro # Replace with a strong password
+      ports:
+        - "5432:5432" # Map host port 5432 to container port 5432
+      networks:
+        - velroDev
+networks:
+  velroDev:

@@ -1,0 +1,71 @@
+{
+  "welcome": "Welcome to Velro!",
+  "goodbye": "Thank you for using Velro!",
+  "hello": "Hello, {name}!",
+  "messages": {
+    "userCreated": "User created successfully",
+    "userNotFound": "User not found"
+  },
+  "auth": {
+    "signup": {
+      "success": "User created successfully",
+      "emailExists": "User with this email already exists",
+      "createFailed": "Failed to create user"
+    }
+  },
+  "trip": {
+    "create": {
+      "success": "Trip created successfully",
+      "failed": "Failed to create trip",
+      "userNotFound": "User not found",
+      "transportNotFound": "Transport type not found",
+      "tripItemNotFound": "One or more trip items not found"
+    },
+    "update": {
+      "success": "Trip updated successfully",
+      "failed": "Failed to update trip",
+      "notFound": "Trip not found",
+      "unauthorized": "You are not authorized to update this trip"
+    }
+  },
+  "transportType": {
+    "create": {
+      "success": "Transport type created successfully",
+      "failed": "Failed to create transport type"
+    },
+    "update": {
+      "success": "Transport type updated successfully",
+      "failed": "Failed to update transport type",
+      "notFound": "Transport type not found"
+    },
+    "getAll": {
+      "success": "Transport types retrieved successfully",
+      "failed": "Failed to retrieve transport types"
+    },
+    "getById": {
+      "success": "Transport type retrieved successfully",
+      "failed": "Failed to retrieve transport type",
+      "notFound": "Transport type not found"
+    }
+  },
+  "tripItem": {
+    "create": {
+      "success": "Trip item created successfully",
+      "failed": "Failed to create trip item"
+    },
+    "update": {
+      "success": "Trip item updated successfully",
+      "failed": "Failed to update trip item",
+      "notFound": "Trip item not found"
+    },
+    "getAll": {
+      "success": "Trip items retrieved successfully",
+      "failed": "Failed to retrieve trip items"
+    },
+    "getById": {
+      "success": "Trip item retrieved successfully",
+      "failed": "Failed to retrieve trip item",
+      "notFound": "Trip item not found"
+    }
+  }
+}

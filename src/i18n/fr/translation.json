@@ -1,0 +1,71 @@
+{
+  "welcome": "Bienvenue sur Velro!",
+  "goodbye": "Merci d'utiliser Velro!",
+  "hello": "Bonjour, {name}!",
+  "messages": {
+    "userCreated": "Utilisateur créé avec succès",
+    "userNotFound": "Utilisateur non trouvé"
+  },
+  "auth": {
+    "signup": {
+      "success": "Utilisateur créé avec succès",
+      "emailExists": "Un utilisateur avec cet email existe déjà",
+      "createFailed": "Échec de la création de l'utilisateur"
+    }
+  },
+  "trip": {
+    "create": {
+      "success": "Voyage créé avec succès",
+      "failed": "Échec de la création du voyage",
+      "userNotFound": "Utilisateur non trouvé",
+      "transportNotFound": "Type de transport non trouvé",
+      "tripItemNotFound": "Un ou plusieurs articles de voyage non trouvés"
+    },
+    "update": {
+      "success": "Voyage mis à jour avec succès",
+      "failed": "Échec de la mise à jour du voyage",
+      "notFound": "Voyage non trouvé",
+      "unauthorized": "Vous n'êtes pas autorisé à modifier ce voyage"
+    }
+  },
+  "transportType": {
+    "create": {
+      "success": "Type de transport créé avec succès",
+      "failed": "Échec de la création du type de transport"
+    },
+    "update": {
+      "success": "Type de transport mis à jour avec succès",
+      "failed": "Échec de la mise à jour du type de transport",
+      "notFound": "Type de transport non trouvé"
+    },
+    "getAll": {
+      "success": "Types de transport récupérés avec succès",
+      "failed": "Échec de la récupération des types de transport"
+    },
+    "getById": {
+      "success": "Type de transport récupéré avec succès",
+      "failed": "Échec de la récupération du type de transport",
+      "notFound": "Type de transport non trouvé"
+    }
+  },
+  "tripItem": {
+    "create": {
+      "success": "Article de voyage créé avec succès",
+      "failed": "Échec de la création de l'article de voyage"
+    },
+    "update": {
+      "success": "Article de voyage mis à jour avec succès",
+      "failed": "Échec de la mise à jour de l'article de voyage",
+      "notFound": "Article de voyage non trouvé"
+    },
+    "getAll": {
+      "success": "Articles de voyage récupérés avec succès",
+      "failed": "Échec de la récupération des articles de voyage"
+    },
+    "getById": {
+      "success": "Article de voyage récupéré avec succès",
+      "failed": "Échec de la récupération de l'article de voyage",
+      "notFound": "Article de voyage non trouvé"
+    }
+  }
+}

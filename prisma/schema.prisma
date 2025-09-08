@@ -1,0 +1,102 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  trips     Trip[]
+}
+
+model Trip {
+  id                   String     @id @default(uuid())
+  user_id              String
+  pickup               Json?
+  destination          Json?
+  travel_date          DateTime
+  travel_time          String
+  mode_of_transport_id String
+  maximum_weight_in_kg Decimal?   @db.Decimal(5, 2)
+  notes                String?
+  fullSuitcaseOnly     Boolean    @default(false)
+  price_per_kg         Decimal    @db.Decimal(10, 2)
+  status               TripStatus @default(PUBLISHED)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  // Relations
+  user              User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  mode_of_transport TransportType   @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
+  trip_items        TripItemsList[]
+}
+
+// Trip Item Model - Predefined items that can be added to travel listings
+model TripItem {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  image_url   String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  trip_items_list TripItemsList[]
+}
+
+// Junction table for TravelListing and TripItem with custom pricing
+model TripItemsList {
+  trip_id      String
+  trip_item_id String
+  price        Decimal  @db.Decimal(10, 2)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relations
+  trip      Trip     @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  trip_item TripItem @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
+
+  @@id([trip_id, trip_item_id])
+}
+
+model TransportType {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  trips Trip[]
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum userStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TripStatus {
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+  FULLY_BOOKED
+}
