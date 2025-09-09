@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   InternalServerErrorException,
+  ConflictException,
 } from '@nestjs/common';
 import { CreateTripDto, CreateTripResponseDto } from './dto/create-trip.dto';
 import { UpdateTripDto, UpdateTripResponseDto } from './dto/update-trip.dto';
@@ -22,6 +23,8 @@ import {
   UpdateTripItemDto,
   UpdateTripItemResponseDto,
 } from './dto/update-trip-item.dto';
+import { GetTripsQueryDto, GetTripsResponseDto } from './dto/get-trips.dto';
+import { GetTripByIdResponseDto } from './dto/get-trip-by-id.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
 
@@ -246,6 +249,21 @@ export class TripService {
     createTransportTypeDto: CreateTransportTypeDto,
     lang?: string,
   ): Promise<CreateTransportTypeResponseDto> {
+    // Check if transport type with this name already exists
+    const existingTransportType = await this.prisma.transportType.findUnique({
+      where: { name: createTransportTypeDto.name },
+    });
+
+    if (existingTransportType) {
+      const message = await this.i18n.translate(
+        'translation.transportType.create.nameExists',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
+
     try {
       const transportType = await this.prisma.transportType.create({
         data: createTransportTypeDto,
@@ -253,7 +271,6 @@ export class TripService {
           id: true,
           name: true,
           description: true,
-          created_at: true,
         },
       });
 
@@ -299,6 +316,27 @@ export class TripService {
       throw new NotFoundException(message);
     }
 
+    // Check if name is being updated and if it conflicts with existing name
+    if (
+      updateTransportTypeDto.name &&
+      updateTransportTypeDto.name !== existingTransportType.name
+    ) {
+      const conflictingTransportType =
+        await this.prisma.transportType.findUnique({
+          where: { name: updateTransportTypeDto.name },
+        });
+
+      if (conflictingTransportType) {
+        const message = await this.i18n.translate(
+          'translation.transportType.update.nameExists',
+          {
+            lang,
+          },
+        );
+        throw new ConflictException(message);
+      }
+    }
+
     try {
       const transportType = await this.prisma.transportType.update({
         where: { id: transportTypeId },
@@ -307,7 +345,6 @@ export class TripService {
           id: true,
           name: true,
           description: true,
-          updated_at: true,
         },
       });
 
@@ -338,6 +375,21 @@ export class TripService {
     createTripItemDto: CreateTripItemDto,
     lang?: string,
   ): Promise<CreateTripItemResponseDto> {
+    // Check if trip item with this name already exists
+    const existingTripItem = await this.prisma.tripItem.findUnique({
+      where: { name: createTripItemDto.name },
+    });
+
+    if (existingTripItem) {
+      const message = await this.i18n.translate(
+        'translation.tripItem.create.nameExists',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
+
     try {
       const tripItem = await this.prisma.tripItem.create({
         data: createTripItemDto,
@@ -346,7 +398,6 @@ export class TripService {
           name: true,
           description: true,
           image_url: true,
-          created_at: true,
         },
       });
 
@@ -392,6 +443,26 @@ export class TripService {
       throw new NotFoundException(message);
     }
 
+    // Check if name is being updated and if it conflicts with existing name
+    if (
+      updateTripItemDto.name &&
+      updateTripItemDto.name !== existingTripItem.name
+    ) {
+      const conflictingTripItem = await this.prisma.tripItem.findUnique({
+        where: { name: updateTripItemDto.name },
+      });
+
+      if (conflictingTripItem) {
+        const message = await this.i18n.translate(
+          'translation.tripItem.update.nameExists',
+          {
+            lang,
+          },
+        );
+        throw new ConflictException(message);
+      }
+    }
+
     try {
       const tripItem = await this.prisma.tripItem.update({
         where: { id: tripItemId },
@@ -401,7 +472,6 @@ export class TripService {
           name: true,
           description: true,
           image_url: true,
-          updated_at: true,
         },
       });
 
@@ -435,8 +505,6 @@ export class TripService {
           id: true,
           name: true,
           description: true,
-          created_at: true,
-          updated_at: true,
         },
         orderBy: {
           created_at: 'desc',
@@ -474,8 +542,6 @@ export class TripService {
           id: true,
           name: true,
           description: true,
-          created_at: true,
-          updated_at: true,
         },
       });
 
@@ -523,8 +589,6 @@ export class TripService {
           name: true,
           description: true,
           image_url: true,
-          created_at: true,
-          updated_at: true,
         },
         orderBy: {
           created_at: 'desc',
@@ -563,8 +627,6 @@ export class TripService {
           name: true,
           description: true,
           image_url: true,
-          created_at: true,
-          updated_at: true,
         },
       });
 
@@ -598,6 +660,173 @@ export class TripService {
         {
           lang,
         },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  // Get trips with pagination and country filtering
+  async getTrips(
+    query: GetTripsQueryDto,
+    lang?: string,
+  ): Promise<GetTripsResponseDto> {
+    try {
+      const { country, page = 1, limit = 10 } = query;
+      const skip = (page - 1) * limit;
+
+      // Build where clause for country filtering
+      const whereClause: any = {
+        status: 'PUBLISHED', // Only show published trips
+      };
+
+      if (country) {
+        whereClause.OR = [
+          { pickup: { path: ['country_code'], equals: country } },
+          { destination: { path: ['country_code'], equals: country } },
+        ];
+      }
+
+      // Get trips with transport type information
+      const [trips, total] = await Promise.all([
+        this.prisma.trip.findMany({
+          where: whereClause,
+          include: {
+            mode_of_transport: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.trip.count({ where: whereClause }),
+      ]);
+
+      // Transform trips to summary format
+      const tripSummaries = trips.map((trip) => ({
+        id: trip.id,
+        user_id: trip.user_id,
+        pickup: trip.pickup,
+        destination: trip.destination,
+        travel_date: trip.travel_date,
+        travel_time: trip.travel_time,
+        price_per_kg: Number(trip.price_per_kg),
+        status: trip.status,
+        transport_type_name: trip.mode_of_transport.name,
+        createdAt: trip.createdAt,
+      }));
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.trip.getAll.success',
+        { lang },
+      );
+      return {
+        message,
+        trips: tripSummaries,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.trip.getAll.failed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  // Get trip by ID with full details
+  async getTripById(
+    tripId: string,
+    lang?: string,
+  ): Promise<GetTripByIdResponseDto> {
+    try {
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+        include: {
+          mode_of_transport: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
+          trip_items: {
+            include: {
+              trip_item: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  image_url: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!trip) {
+        const message = await this.i18n.translate(
+          'translation.trip.getById.notFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Transform trip items
+      const tripItems = trip.trip_items.map((item) => ({
+        trip_item_id: item.trip_item_id,
+        price: Number(item.price),
+        trip_item: item.trip_item,
+      }));
+
+      const message = await this.i18n.translate(
+        'translation.trip.getById.success',
+        { lang },
+      );
+      return {
+        message,
+        trip: {
+          id: trip.id,
+          user_id: trip.user_id,
+          pickup: trip.pickup,
+          destination: trip.destination,
+          travel_date: trip.travel_date,
+          travel_time: trip.travel_time,
+          mode_of_transport_id: trip.mode_of_transport_id,
+          maximum_weight_in_kg: trip.maximum_weight_in_kg
+            ? Number(trip.maximum_weight_in_kg)
+            : null,
+          notes: trip.notes,
+          fullSuitcaseOnly: trip.fullSuitcaseOnly,
+          price_per_kg: Number(trip.price_per_kg),
+          status: trip.status,
+          createdAt: trip.createdAt,
+          updatedAt: trip.updatedAt,
+          transport_type: trip.mode_of_transport,
+          trip_items: tripItems,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.trip.getById.failed',
+        { lang },
       );
       throw new InternalServerErrorException(message);
     }

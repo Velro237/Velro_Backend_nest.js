@@ -17,7 +17,6 @@ export class UpdateTripItemResponseDto {
       name: 'Electronics',
       description: 'Updated electronic devices and gadgets',
       image_url: 'https://example.com/images/electronics-updated.jpg',
-      updated_at: '2024-01-15T10:30:00.000Z',
     },
   })
   tripItem: {
@@ -25,6 +24,5 @@ export class UpdateTripItemResponseDto {
     name: string;
     description: string | null;
     image_url: string | null;
-    updated_at: Date;
   };
 }

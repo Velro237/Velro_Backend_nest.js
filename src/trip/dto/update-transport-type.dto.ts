@@ -18,13 +18,11 @@ export class UpdateTransportTypeResponseDto {
       id: '123e4567-e89b-12d3-a456-426614174000',
       name: 'Airplane',
       description: 'Updated commercial airline transportation',
-      updated_at: '2024-01-15T10:30:00.000Z',
     },
   })
   transportType: {
     id: string;
     name: string;
     description: string | null;
-    updated_at: Date;
   };
 }

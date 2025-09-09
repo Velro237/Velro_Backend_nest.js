@@ -11,6 +11,8 @@ export class TripItemListDto {
   @ApiProperty({
     description: 'Trip item ID',
     example: '123e4567-e89b-12d3-a456-426614174000',
+    type: 'string',
+    format: 'uuid',
   })
   @IsString()
   @IsUUID()
@@ -20,6 +22,7 @@ export class TripItemListDto {
   @ApiProperty({
     description: 'Price for this trip item',
     example: 15.5,
+    type: 'number',
   })
   @IsNumber()
   @IsPositive()

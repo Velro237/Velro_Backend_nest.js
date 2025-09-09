@@ -45,7 +45,6 @@ export class CreateTripItemResponseDto {
       name: 'Electronics',
       description: 'Electronic devices and gadgets',
       image_url: 'https://example.com/images/electronics.jpg',
-      created_at: '2024-01-15T10:30:00.000Z',
     },
   })
   tripItem: {
@@ -53,6 +52,5 @@ export class CreateTripItemResponseDto {
     name: string;
     description: string | null;
     image_url: string | null;
-    created_at: Date;
   };
 }

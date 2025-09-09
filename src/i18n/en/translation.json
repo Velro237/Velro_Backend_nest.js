@@ -19,24 +19,35 @@
       "failed": "Failed to create trip",
       "userNotFound": "User not found",
       "transportNotFound": "Transport type not found",
-      "tripItemNotFound": "One or more trip items not found"
+        "tripItemNotFound": "One or more trip items not found"
+      },
+      "update": {
+        "success": "Trip updated successfully",
+        "failed": "Failed to update trip",
+        "notFound": "Trip not found",
+        "unauthorized": "You are not authorized to update this trip"
+      },
+      "getAll": {
+        "success": "Trips retrieved successfully",
+        "failed": "Failed to retrieve trips"
+      },
+      "getById": {
+        "success": "Trip retrieved successfully",
+        "failed": "Failed to retrieve trip",
+        "notFound": "Trip not found"
+      }
     },
-    "update": {
-      "success": "Trip updated successfully",
-      "failed": "Failed to update trip",
-      "notFound": "Trip not found",
-      "unauthorized": "You are not authorized to update this trip"
-    }
-  },
   "transportType": {
     "create": {
       "success": "Transport type created successfully",
-      "failed": "Failed to create transport type"
+      "failed": "Failed to create transport type",
+      "nameExists": "Transport type with this name already exists"
     },
     "update": {
       "success": "Transport type updated successfully",
       "failed": "Failed to update transport type",
-      "notFound": "Transport type not found"
+      "notFound": "Transport type not found",
+      "nameExists": "Transport type with this name already exists"
     },
     "getAll": {
       "success": "Transport types retrieved successfully",
@@ -51,12 +62,14 @@
   "tripItem": {
     "create": {
       "success": "Trip item created successfully",
-      "failed": "Failed to create trip item"
+      "failed": "Failed to create trip item",
+      "nameExists": "Trip item with this name already exists"
     },
     "update": {
       "success": "Trip item updated successfully",
       "failed": "Failed to update trip item",
-      "notFound": "Trip item not found"
+      "notFound": "Trip item not found",
+      "nameExists": "Trip item with this name already exists"
     },
     "getAll": {
       "success": "Trip items retrieved successfully",

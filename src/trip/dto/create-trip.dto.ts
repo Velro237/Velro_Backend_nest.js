@@ -180,8 +180,24 @@ export class CreateTripDto {
 
   @ApiProperty({
     description: 'List of trip items with their prices',
-    type: [TripItemListDto],
-    isArray: true,
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        trip_item_id: {
+          type: 'string',
+          format: 'uuid',
+          description: 'Trip item ID',
+          example: '123e4567-e89b-12d3-a456-426614174000',
+        },
+        price: {
+          type: 'number',
+          description: 'Price for this trip item',
+          example: 15.5,
+        },
+      },
+      required: ['trip_item_id', 'price'],
+    },
     example: [
       {
         trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
