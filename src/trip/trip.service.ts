@@ -39,8 +39,13 @@ export class TripService {
     createTripDto: CreateTripDto,
     lang?: string,
   ): Promise<CreateTripResponseDto> {
-    const { user_id, mode_of_transport_id, trip_items, ...tripData } =
-      createTripDto;
+    const {
+      user_id,
+      mode_of_transport_id,
+      trip_items: originalTripItems,
+      ...tripData
+    } = createTripDto;
+    let trip_items = originalTripItems;
 
     // Check if user exists
     const user = await this.prisma.user.findUnique({
@@ -72,8 +77,33 @@ export class TripService {
       throw new NotFoundException(message);
     }
 
-    // Validate trip items if provided
-    if (trip_items && trip_items.length > 0) {
+    // Validate fullSuitcaseOnly business rules
+    if (tripData.fullSuitcaseOnly) {
+      // If fullSuitcaseOnly is true, price_per_kg and maximum_weight_in_kg are required
+      if (!tripData.price_per_kg || !tripData.maximum_weight_in_kg) {
+        const message = await this.i18n.translate(
+          'translation.trip.create.fullSuitcaseOnlyRequiresPricing',
+          {
+            lang,
+          },
+        );
+        throw new ConflictException(message);
+      }
+      // When fullSuitcaseOnly is true, trip items should be null/empty (no validation needed)
+      trip_items = [];
+    } else {
+      // If fullSuitcaseOnly is false, validate trip items
+      if (!trip_items || trip_items.length === 0) {
+        const message = await this.i18n.translate(
+          'translation.trip.create.partialSuitcaseRequiresTripItems',
+          {
+            lang,
+          },
+        );
+        throw new ConflictException(message);
+      }
+
+      // Validate trip items exist in database
       const tripItemIds = trip_items.map((item) => item.trip_item_id);
       const existingTripItems = await this.prisma.tripItem.findMany({
         where: { id: { in: tripItemIds } },
@@ -101,18 +131,26 @@ export class TripService {
             mode_of_transport_id,
             pickup: tripData.pickup,
             destination: tripData.destination,
-            travel_date: new Date(tripData.travel_date),
-            travel_time: tripData.travel_time,
+            departure: tripData.departure,
+            departure_date: new Date(tripData.departure_date),
+            departure_time: tripData.departure_time,
+            arrival_date: tripData.arrival_date
+              ? new Date(tripData.arrival_date)
+              : null,
+            arrival_time: tripData.arrival_time || null,
             maximum_weight_in_kg: tripData.maximum_weight_in_kg || null,
             notes: tripData.notes || null,
             fullSuitcaseOnly: tripData.fullSuitcaseOnly || false,
+            meetup_flexible: tripData.meetup_flexible || false,
             price_per_kg: tripData.price_per_kg,
           },
           select: {
             id: true,
             user_id: true,
-            travel_date: true,
-            travel_time: true,
+            departure_date: true,
+            departure_time: true,
+            arrival_date: true,
+            arrival_time: true,
             price_per_kg: true,
             createdAt: true,
           },
@@ -195,9 +233,9 @@ export class TripService {
     try {
       const updateData: any = { ...updateTripDto };
 
-      // Convert travel_date string to Date if provided
-      if (updateData.travel_date) {
-        updateData.travel_date = new Date(updateData.travel_date);
+      // Convert departure_date string to Date if provided
+      if (updateData.departure_date) {
+        updateData.departure_date = new Date(updateData.departure_date);
       }
 
       // Handle JSON fields properly
@@ -214,8 +252,8 @@ export class TripService {
         select: {
           id: true,
           user_id: true,
-          travel_date: true,
-          travel_time: true,
+          departure_date: true,
+          departure_time: true,
           price_per_kg: true,
           status: true,
           updatedAt: true,
@@ -391,13 +429,23 @@ export class TripService {
     }
 
     try {
+      const { image_id, ...tripItemData } = createTripItemDto;
       const tripItem = await this.prisma.tripItem.create({
-        data: createTripItemDto,
+        data: {
+          ...tripItemData,
+          image_id: image_id || null,
+        },
         select: {
           id: true,
           name: true,
           description: true,
-          image_url: true,
+          image: {
+            select: {
+              id: true,
+              url: true,
+              alt_text: true,
+            },
+          },
         },
       });
 
@@ -464,14 +512,24 @@ export class TripService {
     }
 
     try {
+      const { image_id, ...tripItemData } = updateTripItemDto;
       const tripItem = await this.prisma.tripItem.update({
         where: { id: tripItemId },
-        data: updateTripItemDto,
+        data: {
+          ...tripItemData,
+          image_id: image_id !== undefined ? image_id : undefined,
+        },
         select: {
           id: true,
           name: true,
           description: true,
-          image_url: true,
+          image: {
+            select: {
+              id: true,
+              url: true,
+              alt_text: true,
+            },
+          },
         },
       });
 
@@ -588,7 +646,13 @@ export class TripService {
           id: true,
           name: true,
           description: true,
-          image_url: true,
+          image: {
+            select: {
+              id: true,
+              url: true,
+              alt_text: true,
+            },
+          },
         },
         orderBy: {
           created_at: 'desc',
@@ -626,7 +690,13 @@ export class TripService {
           id: true,
           name: true,
           description: true,
-          image_url: true,
+          image: {
+            select: {
+              id: true,
+              url: true,
+              alt_text: true,
+            },
+          },
         },
       });
 
@@ -674,46 +744,99 @@ export class TripService {
       const { country, page = 1, limit = 10 } = query;
       const skip = (page - 1) * limit;
 
-      // Build where clause for country filtering
-      const whereClause: any = {
-        status: 'PUBLISHED', // Only show published trips
+      // Base where clause for published trips
+      const baseWhereClause = {
+        status: 'PUBLISHED' as const, // Only show published trips
       };
 
-      if (country) {
-        whereClause.OR = [
-          { pickup: { path: ['country_code'], equals: country } },
-          { destination: { path: ['country_code'], equals: country } },
-        ];
-      }
+      let trips: any[] = [];
+      let total = 0;
 
-      // Get trips with transport type information
-      const [trips, total] = await Promise.all([
-        this.prisma.trip.findMany({
-          where: whereClause,
-          include: {
-            mode_of_transport: {
-              select: {
-                id: true,
-                name: true,
-                description: true,
+      if (country) {
+        // First, try to get trips from the specified country
+        const countryWhereClause = {
+          ...baseWhereClause,
+          OR: [
+            { pickup: { path: ['country_code'], equals: country } },
+            { destination: { path: ['country_code'], equals: country } },
+          ],
+        };
+
+        const [countryTrips, countryTotal] = await Promise.all([
+          this.prisma.trip.findMany({
+            where: countryWhereClause,
+            include: {
+              mode_of_transport: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                },
               },
             },
-          },
-          orderBy: { createdAt: 'desc' },
-          skip,
-          take: limit,
-        }),
-        this.prisma.trip.count({ where: whereClause }),
-      ]);
+            orderBy: { createdAt: 'desc' },
+          }),
+          this.prisma.trip.count({ where: countryWhereClause }),
+        ]);
+
+        if (countryTrips.length > 0) {
+          // If there are trips from the specified country, use them
+          trips = countryTrips;
+          total = countryTotal;
+        } else {
+          // If no trips from the specified country, get all trips
+          const [allTrips, allTotal] = await Promise.all([
+            this.prisma.trip.findMany({
+              where: baseWhereClause,
+              include: {
+                mode_of_transport: {
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                  },
+                },
+              },
+              orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.trip.count({ where: baseWhereClause }),
+          ]);
+          trips = allTrips;
+          total = allTotal;
+        }
+      } else {
+        // No country specified, get all trips
+        const [allTrips, allTotal] = await Promise.all([
+          this.prisma.trip.findMany({
+            where: baseWhereClause,
+            include: {
+              mode_of_transport: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+          }),
+          this.prisma.trip.count({ where: baseWhereClause }),
+        ]);
+        trips = allTrips;
+        total = allTotal;
+      }
+
+      // Apply pagination
+      const paginatedTrips = trips.slice(skip, skip + limit);
 
       // Transform trips to summary format
-      const tripSummaries = trips.map((trip) => ({
+      const tripSummaries = paginatedTrips.map((trip) => ({
         id: trip.id,
         user_id: trip.user_id,
         pickup: trip.pickup,
         destination: trip.destination,
-        travel_date: trip.travel_date,
-        travel_time: trip.travel_time,
+        departure_date: trip.departure_date,
+        departure_time: trip.departure_time,
         price_per_kg: Number(trip.price_per_kg),
         status: trip.status,
         transport_type_name: trip.mode_of_transport.name,
@@ -770,7 +893,13 @@ export class TripService {
                   id: true,
                   name: true,
                   description: true,
-                  image_url: true,
+                  image: {
+                    select: {
+                      id: true,
+                      url: true,
+                      alt_text: true,
+                    },
+                  },
                 },
               },
             },
@@ -804,14 +933,17 @@ export class TripService {
           user_id: trip.user_id,
           pickup: trip.pickup,
           destination: trip.destination,
-          travel_date: trip.travel_date,
-          travel_time: trip.travel_time,
+          departure_date: trip.departure_date,
+          departure_time: trip.departure_time,
+          arrival_date: trip.arrival_date,
+          arrival_time: trip.arrival_time,
           mode_of_transport_id: trip.mode_of_transport_id,
           maximum_weight_in_kg: trip.maximum_weight_in_kg
             ? Number(trip.maximum_weight_in_kg)
             : null,
           notes: trip.notes,
           fullSuitcaseOnly: trip.fullSuitcaseOnly,
+          meetup_flexible: trip.meetup_flexible,
           price_per_kg: Number(trip.price_per_kg),
           status: trip.status,
           createdAt: trip.createdAt,

@@ -16,13 +16,21 @@ export class UpdateTripItemResponseDto {
       id: '123e4567-e89b-12d3-a456-426614174000',
       name: 'Electronics',
       description: 'Updated electronic devices and gadgets',
-      image_url: 'https://example.com/images/electronics-updated.jpg',
+      image: {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        url: 'https://example.com/images/electronics-updated.jpg',
+        alt_text: 'Updated electronics image',
+      },
     },
   })
   tripItem: {
     id: string;
     name: string;
     description: string | null;
-    image_url: string | null;
+    image?: {
+      id: string;
+      url: string;
+      alt_text?: string;
+    };
   };
 }

@@ -19,7 +19,9 @@
       "failed": "Échec de la création du voyage",
       "userNotFound": "Utilisateur non trouvé",
       "transportNotFound": "Type de transport non trouvé",
-      "tripItemNotFound": "Un ou plusieurs articles de voyage non trouvés"
+      "tripItemNotFound": "Un ou plusieurs articles de voyage non trouvés",
+      "fullSuitcaseOnlyRequiresPricing": "Pour les voyages de valise complète, veuillez fournir le prix par kg et le poids maximum",
+      "partialSuitcaseRequiresTripItems": "Pour les voyages de valise partielle, veuillez sélectionner au moins un article à transporter"
     },
     "update": {
       "success": "Voyage mis à jour avec succès",
@@ -31,12 +33,26 @@
       "success": "Voyages récupérés avec succès",
       "failed": "Échec de la récupération des voyages"
     },
-    "getById": {
-      "success": "Voyage récupéré avec succès",
-      "failed": "Échec de la récupération du voyage",
-      "notFound": "Voyage non trouvé"
-    }
-  },
+      "getById": {
+        "success": "Voyage récupéré avec succès",
+        "failed": "Échec de la récupération du voyage",
+        "notFound": "Voyage non trouvé"
+      },
+      "request": {
+        "createSuccess": "Demande de voyage créée avec succès",
+        "createFailed": "Échec de la création de la demande de voyage",
+        "getSuccess": "Demandes de voyage récupérées avec succès",
+        "getFailed": "Échec de la récupération des demandes de voyage",
+        "updateSuccess": "Demande de voyage mise à jour avec succès",
+        "updateFailed": "Échec de la mise à jour de la demande de voyage",
+        "tripNotFound": "Voyage non trouvé",
+        "userNotFound": "Utilisateur non trouvé",
+        "notFound": "Demande de voyage non trouvée",
+        "cannotRequestOwnTrip": "Vous ne pouvez pas demander des articles de votre propre voyage",
+        "itemsRequired": "Les articles de voyage sont requis pour les voyages de valise partielle",
+        "itemNotAvailable": "Un ou plusieurs articles demandés ne sont pas disponibles dans ce voyage"
+      }
+    },
   "transportType": {
     "create": {
       "success": "Type de transport créé avec succès",

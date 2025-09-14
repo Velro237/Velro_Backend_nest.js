@@ -77,16 +77,16 @@ export class TripSummaryDto {
   destination: any;
 
   @ApiProperty({
-    description: 'Travel date',
+    description: 'Departure date',
     example: '2024-02-15T10:00:00.000Z',
   })
-  travel_date: Date;
+  departure_date: Date;
 
   @ApiProperty({
-    description: 'Travel time',
+    description: 'Departure time',
     example: '10:00 AM',
   })
-  travel_time: string;
+  departure_time: string;
 
   @ApiProperty({
     description: 'Price per kg',

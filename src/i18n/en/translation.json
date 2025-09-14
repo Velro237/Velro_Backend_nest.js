@@ -19,8 +19,10 @@
       "failed": "Failed to create trip",
       "userNotFound": "User not found",
       "transportNotFound": "Transport type not found",
-        "tripItemNotFound": "One or more trip items not found"
-      },
+      "tripItemNotFound": "One or more trip items not found",
+      "fullSuitcaseOnlyRequiresPricing": "For full suitcase trips, please provide both price per kg and maximum weight",
+      "partialSuitcaseRequiresTripItems": "For partial suitcase trips, please select at least one item to transport"
+    },
       "update": {
         "success": "Trip updated successfully",
         "failed": "Failed to update trip",
@@ -35,6 +37,20 @@
         "success": "Trip retrieved successfully",
         "failed": "Failed to retrieve trip",
         "notFound": "Trip not found"
+      },
+      "request": {
+        "createSuccess": "Trip request created successfully",
+        "createFailed": "Failed to create trip request",
+        "getSuccess": "Trip requests retrieved successfully",
+        "getFailed": "Failed to retrieve trip requests",
+        "updateSuccess": "Trip request updated successfully",
+        "updateFailed": "Failed to update trip request",
+        "tripNotFound": "Trip not found",
+        "userNotFound": "User not found",
+        "notFound": "Trip request not found",
+        "cannotRequestOwnTrip": "You cannot request items from your own trip",
+        "itemsRequired": "Trip items are required for non-full suitcase trips",
+        "itemNotAvailable": "One or more requested items are not available in this trip"
       }
     },
   "transportType": {

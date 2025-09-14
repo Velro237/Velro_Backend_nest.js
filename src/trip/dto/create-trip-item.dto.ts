@@ -21,14 +21,13 @@ export class CreateTripItemDto {
   description?: string;
 
   @ApiProperty({
-    description: 'Trip item image URL',
-    example: 'https://example.com/images/electronics.jpg',
+    description: 'Trip item image ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
     required: false,
   })
   @IsString()
-  @IsUrl()
   @IsOptional()
-  image_url?: string;
+  image_id?: string;
 }
 
 export class CreateTripItemResponseDto {
@@ -44,13 +43,21 @@ export class CreateTripItemResponseDto {
       id: '123e4567-e89b-12d3-a456-426614174000',
       name: 'Electronics',
       description: 'Electronic devices and gadgets',
-      image_url: 'https://example.com/images/electronics.jpg',
+      image: {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        url: 'https://example.com/images/electronics.jpg',
+        alt_text: 'Electronics image',
+      },
     },
   })
   tripItem: {
     id: string;
     name: string;
     description: string | null;
-    image_url: string | null;
+    image?: {
+      id: string;
+      url: string;
+      alt_text?: string;
+    };
   };
 }

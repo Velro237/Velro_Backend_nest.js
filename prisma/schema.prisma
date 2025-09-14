@@ -15,12 +15,13 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  role      UserRole @default(USER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String        @id @default(uuid())
+  email     String        @unique
+  role      UserRole      @default(USER)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
   trips     Trip[]
+  requests  TripRequest[]
 }
 
 model Trip {
@@ -28,12 +29,17 @@ model Trip {
   user_id              String
   pickup               Json?
   destination          Json?
-  travel_date          DateTime
-  travel_time          String
+  departure            Json?
+  delivery             Json?
+  departure_date       DateTime
+  departure_time       String
+  arrival_date         DateTime?
+  arrival_time         String?
   mode_of_transport_id String
   maximum_weight_in_kg Decimal?   @db.Decimal(5, 2)
   notes                String?
   fullSuitcaseOnly     Boolean    @default(false)
+  meetup_flexible      Boolean    @default(false)
   price_per_kg         Decimal    @db.Decimal(10, 2)
   status               TripStatus @default(PUBLISHED)
   createdAt            DateTime   @default(now())
@@ -43,6 +49,21 @@ model Trip {
   user              User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
   mode_of_transport TransportType   @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
   trip_items        TripItemsList[]
+  requests          TripRequest[]
+}
+
+// Image Model - For storing image references
+model Image {
+  id         String   @id @default(uuid())
+  object_id  String   @unique // ObjectId pointing to the schema having the image
+  url        String
+  alt_text   String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  trip_items TripItem[]
+  requests   TripRequest[]
 }
 
 // Trip Item Model - Predefined items that can be added to travel listings
@@ -50,12 +71,14 @@ model TripItem {
   id          String   @id @default(uuid())
   name        String   @unique
   description String?
-  image_url   String?
+  image_id    String?
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
   // Relations
   trip_items_list TripItemsList[]
+  request_items   TripRequestItem[]
+  image           Image?            @relation(fields: [image_id], references: [id], onDelete: SetNull)
 }
 
 // Junction table for TravelListing and TripItem with custom pricing
@@ -71,6 +94,37 @@ model TripItemsList {
   trip_item TripItem @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
 
   @@id([trip_id, trip_item_id])
+}
+
+// Trip Request Model - For users to request items from trips
+model TripRequest {
+  id         String        @id @default(uuid())
+  trip_id    String
+  user_id    String
+  status     RequestStatus @default(PENDING)
+  message    String?
+  created_at DateTime      @default(now())
+  updated_at DateTime      @updatedAt
+
+  // Relations
+  trip          Trip              @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  user          User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  request_items TripRequestItem[]
+  images        Image[]
+}
+
+// Trip Request Item Model - For storing quantities of requested items
+model TripRequestItem {
+  request_id    String
+  trip_item_id  String
+  quantity      Int
+  special_notes String?
+
+  // Relations
+  request   TripRequest @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  trip_item TripItem    @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
+
+  @@id([request_id, trip_item_id])
 }
 
 model TransportType {
@@ -99,4 +153,11 @@ enum TripStatus {
   CANCELLED
   COMPLETED
   FULLY_BOOKED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
 }

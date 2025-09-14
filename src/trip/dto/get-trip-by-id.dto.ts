@@ -19,14 +19,22 @@ export class TripItemDto {
       id: '123e4567-e89b-12d3-a456-426614174000',
       name: 'Electronics',
       description: 'Electronic devices and gadgets',
-      image_url: 'https://example.com/images/electronics.jpg',
+      image: {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        url: 'https://example.com/images/electronics.jpg',
+        alt_text: 'Electronics image',
+      },
     },
   })
   trip_item: {
     id: string;
     name: string;
     description: string;
-    image_url: string;
+    image?: {
+      id: string;
+      url: string;
+      alt_text?: string;
+    };
   };
 }
 
@@ -70,16 +78,28 @@ export class TripDetailsDto {
   destination: any;
 
   @ApiProperty({
-    description: 'Travel date',
+    description: 'Departure date',
     example: '2024-02-15T10:00:00.000Z',
   })
-  travel_date: Date;
+  departure_date: Date;
 
   @ApiProperty({
-    description: 'Travel time',
+    description: 'Departure time',
     example: '10:00 AM',
   })
-  travel_time: string;
+  departure_time: string;
+
+  @ApiProperty({
+    description: 'Arrival date',
+    example: '2024-02-16T14:00:00.000Z',
+  })
+  arrival_date?: Date;
+
+  @ApiProperty({
+    description: 'Arrival time',
+    example: '2:00 PM',
+  })
+  arrival_time?: string;
 
   @ApiProperty({
     description: 'Mode of transport ID',
@@ -104,6 +124,12 @@ export class TripDetailsDto {
     example: false,
   })
   fullSuitcaseOnly: boolean;
+
+  @ApiProperty({
+    description: 'Meetup time is flexible',
+    example: false,
+  })
+  meetup_flexible: boolean;
 
   @ApiProperty({
     description: 'Price per kg',

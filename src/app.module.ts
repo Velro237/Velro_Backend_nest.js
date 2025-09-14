@@ -9,6 +9,7 @@ import {
   HeaderResolver,
 } from 'nestjs-i18n';
 import { TripModule } from './trip/trip.module';
+import { RequestModule } from './request/request.module';
 import * as path from 'path';
 
 @Module({
@@ -29,6 +30,7 @@ import * as path from 'path';
     UserModule,
     AuthModule,
     TripModule,
+    RequestModule,
   ],
   controllers: [],
   providers: [],

@@ -67,6 +67,15 @@ export class LocationDto {
   @IsNumber()
   @IsOptional()
   lat?: number;
+
+  @ApiProperty({
+    description: 'Landmark or notable location',
+    example: 'Near Golden Gate Bridge',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  landmark?: string;
 }
 
 // Type for the JSON structure that matches Prisma schema
@@ -77,6 +86,7 @@ export type LocationType = {
   address?: string;
   lng?: number;
   lat?: number;
+  landmark?: string;
 };
 
 export class CreateTripDto {
@@ -122,19 +132,57 @@ export class CreateTripDto {
   destination: LocationType;
 
   @ApiProperty({
-    description: 'Travel date',
+    description: 'Departure location details (required)',
+    type: 'object',
+    properties: {
+      country: { type: 'string', example: 'United States' },
+      country_code: { type: 'string', example: 'US' },
+      region: { type: 'string', example: 'California' },
+      address: {
+        type: 'string',
+        example: '123 Main St, San Francisco, CA 94105',
+      },
+      lng: { type: 'number', example: -122.4194 },
+      lat: { type: 'number', example: 37.7749 },
+      landmark: { type: 'string', example: 'Near Golden Gate Bridge' },
+    },
+  })
+  @IsObject()
+  departure: LocationType;
+
+  @ApiProperty({
+    description: 'Departure date',
     example: '2024-02-15T10:00:00.000Z',
     format: 'date-time',
   })
   @IsDateString()
-  travel_date: string;
+  departure_date: string;
 
   @ApiProperty({
-    description: 'Travel time',
+    description: 'Departure time',
     example: '10:00 AM',
   })
   @IsString()
-  travel_time: string;
+  departure_time: string;
+
+  @ApiProperty({
+    description: 'Arrival date (optional)',
+    example: '2024-02-16T14:00:00.000Z',
+    format: 'date-time',
+    required: false,
+  })
+  @IsDateString()
+  @IsOptional()
+  arrival_date?: string;
+
+  @ApiProperty({
+    description: 'Arrival time (optional)',
+    example: '2:00 PM',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  arrival_time?: string;
 
   @ApiProperty({
     description: 'Transport type ID',
@@ -163,13 +211,23 @@ export class CreateTripDto {
   notes?: string;
 
   @ApiProperty({
-    description: 'Full suitcase only',
+    description:
+      'Full suitcase only - when true, requires price_per_kg and maximum_weight_in_kg (trip items will be ignored); when false, requires at least one trip item',
     example: false,
     default: false,
   })
   @IsBoolean()
   @IsOptional()
   fullSuitcaseOnly?: boolean = false;
+
+  @ApiProperty({
+    description: 'Meetup time is flexible',
+    example: false,
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  meetup_flexible?: boolean = false;
 
   @ApiProperty({
     description: 'Price per kilogram',
@@ -229,8 +287,10 @@ export class CreateTripResponseDto {
     example: {
       id: '123e4567-e89b-12d3-a456-426614174000',
       user_id: '123e4567-e89b-12d3-a456-426614174000',
-      travel_date: '2024-02-15T10:00:00.000Z',
-      travel_time: '10:00 AM',
+      departure_date: '2024-02-15T10:00:00.000Z',
+      departure_time: '10:00 AM',
+      arrival_date: '2024-02-16T14:00:00.000Z',
+      arrival_time: '2:00 PM',
       price_per_kg: 15.5,
       createdAt: '2024-01-15T10:30:00.000Z',
       trip_items: [
@@ -248,8 +308,10 @@ export class CreateTripResponseDto {
   trip: {
     id: string;
     user_id: string;
-    travel_date: Date;
-    travel_time: string;
+    departure_date: Date;
+    departure_time: string;
+    arrival_date?: Date;
+    arrival_time?: string;
     price_per_kg: any; // Decimal from Prisma
     createdAt: Date;
     trip_items?: {

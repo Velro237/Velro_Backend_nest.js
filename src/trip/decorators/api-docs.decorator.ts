@@ -28,7 +28,7 @@ export const ApiCreateTrip = () =>
     ApiOperation({
       summary: 'Create a new trip',
       description:
-        'Create a new trip for a user with required pickup/destination locations, travel details, and pricing.',
+        'Create a new trip for a user with required pickup/destination locations, travel details, and pricing. Business rules: If fullSuitcaseOnly is true, both price_per_kg and maximum_weight_in_kg are required (trip items are not validated). If fullSuitcaseOnly is false, at least one trip item must be provided.',
     }),
     ApiBody({
       type: CreateTripDto,
@@ -46,8 +46,8 @@ export const ApiCreateTrip = () =>
             trip: {
               id: '123e4567-e89b-12d3-a456-426614174000',
               user_id: '123e4567-e89b-12d3-a456-426614174000',
-              travel_date: '2024-02-15T10:00:00.000Z',
-              travel_time: '10:00 AM',
+              departure_date: '2024-02-15T10:00:00.000Z',
+              departure_time: '10:00 AM',
               price_per_kg: 15.5,
               createdAt: '2024-01-15T10:30:00.000Z',
               trip_items: [
@@ -101,6 +101,31 @@ export const ApiCreateTrip = () =>
             ],
           },
           error: { type: 'string', example: 'Bad Request' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 409,
+      description:
+        'Business rule validation error (message will be translated)',
+      schema: {
+        type: 'object',
+        properties: {
+          statusCode: { type: 'number', example: 409 },
+          message: {
+            type: 'string',
+            examples: {
+              fullSuitcaseOnlyRequiresPricing: {
+                value:
+                  'For full suitcase trips, please provide both price per kg and maximum weight',
+              },
+              partialSuitcaseRequiresTripItems: {
+                value:
+                  'For partial suitcase trips, please select at least one item to transport',
+              },
+            },
+          },
+          error: { type: 'string', example: 'Conflict' },
         },
       },
     }),
@@ -164,8 +189,8 @@ export const ApiUpdateTrip = () =>
             trip: {
               id: '123e4567-e89b-12d3-a456-426614174000',
               user_id: '123e4567-e89b-12d3-a456-426614174000',
-              travel_date: '2024-02-15T10:00:00.000Z',
-              travel_time: '10:00 AM',
+              departure_date: '2024-02-15T10:00:00.000Z',
+              departure_time: '10:00 AM',
               price_per_kg: 20.0,
               status: 'CANCELLED',
               updatedAt: '2024-01-15T10:30:00.000Z',
@@ -542,7 +567,11 @@ export const ApiCreateTripItem = () =>
           value: {
             name: 'Electronics',
             description: 'Electronic devices and gadgets',
-            image_url: 'https://example.com/images/electronics.jpg',
+            image: {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              url: 'https://example.com/images/electronics.jpg',
+              alt_text: 'Electronics image',
+            },
           },
         },
         clothing: {
@@ -550,7 +579,11 @@ export const ApiCreateTripItem = () =>
           value: {
             name: 'Clothing',
             description: 'Clothes and accessories',
-            image_url: 'https://example.com/images/clothing.jpg',
+            image: {
+              id: '123e4567-e89b-12d3-a456-426614174001',
+              url: 'https://example.com/images/clothing.jpg',
+              alt_text: 'Clothing image',
+            },
           },
         },
       },
@@ -569,7 +602,11 @@ export const ApiCreateTripItem = () =>
               id: '123e4567-e89b-12d3-a456-426614174000',
               name: 'Electronics',
               description: 'Electronic devices and gadgets',
-              image_url: 'https://example.com/images/electronics.jpg',
+              image: {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                url: 'https://example.com/images/electronics.jpg',
+                alt_text: 'Electronics image',
+              },
             },
           },
         },
@@ -631,7 +668,11 @@ export const ApiUpdateTripItem = () =>
         imageUpdate: {
           summary: 'Update trip item image',
           value: {
-            image_url: 'https://example.com/images/electronics-updated.jpg',
+            image: {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              url: 'https://example.com/images/electronics-updated.jpg',
+              alt_text: 'Updated electronics image',
+            },
           },
         },
       },
@@ -650,7 +691,11 @@ export const ApiUpdateTripItem = () =>
               id: '123e4567-e89b-12d3-a456-426614174000',
               name: 'Electronic Devices',
               description: 'Electronic devices and gadgets',
-              image_url: 'https://example.com/images/electronics-updated.jpg',
+              image: {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                url: 'https://example.com/images/electronics-updated.jpg',
+                alt_text: 'Updated electronics image',
+              },
             },
           },
         },
@@ -725,7 +770,14 @@ export const ApiGetAllTripItems = () =>
                 id: { type: 'string' },
                 name: { type: 'string' },
                 description: { type: 'string' },
-                image_url: { type: 'string' },
+                image: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    url: { type: 'string' },
+                    alt_text: { type: 'string' },
+                  },
+                },
               },
             },
           },
@@ -741,13 +793,21 @@ export const ApiGetAllTripItems = () =>
                   id: '123e4567-e89b-12d3-a456-426614174000',
                   name: 'Electronics',
                   description: 'Electronic devices and gadgets',
-                  image_url: 'https://example.com/images/electronics.jpg',
+                  image: {
+                    id: '123e4567-e89b-12d3-a456-426614174000',
+                    url: 'https://example.com/images/electronics.jpg',
+                    alt_text: 'Electronics image',
+                  },
                 },
                 {
                   id: '123e4567-e89b-12d3-a456-426614174001',
                   name: 'Clothing',
                   description: 'Clothes and accessories',
-                  image_url: 'https://example.com/images/clothing.jpg',
+                  image: {
+                    id: '123e4567-e89b-12d3-a456-426614174001',
+                    url: 'https://example.com/images/clothing.jpg',
+                    alt_text: 'Clothing image',
+                  },
                 },
               ],
               count: 2,
@@ -811,7 +871,11 @@ export const ApiGetTripItemById = () =>
                 id: '123e4567-e89b-12d3-a456-426614174000',
                 name: 'Electronics',
                 description: 'Electronic devices and gadgets',
-                image_url: 'https://example.com/images/electronics.jpg',
+                image: {
+                  id: '123e4567-e89b-12d3-a456-426614174000',
+                  url: 'https://example.com/images/electronics.jpg',
+                  alt_text: 'Electronics image',
+                },
               },
             },
           },
