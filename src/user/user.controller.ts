@@ -6,12 +6,18 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { I18nLang, I18nService, I18n, I18nContext } from 'nestjs-i18n';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ApiTags } from '@nestjs/swagger';
+import { ApiUserWelcome } from './decorators/api-docs.decorator';
 
+@ApiTags('User')
 @Controller('user')
 export class UserController {
   constructor(
@@ -19,15 +25,26 @@ export class UserController {
     private i18n: I18nService,
   ) {}
 
-  @Get('welcome')
-  async getWelcome(@I18nLang() lang: string) {
-    // That's it! Just use i18n.t()
-    // const message = await i18n.t('translation.welcome');
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiUserWelcome()
+  async getMe(@Request() req: any, @I18nLang() lang: string) {
+    const user = req.user; // User info from JWT strategy
+
     const message = await this.i18n.translate('translation.hello', {
       lang,
-      args: { name: 'prince' },
+      args: { name: user.email.split('@')[0] }, // Use email prefix as name
     });
-    return { message };
+
+    return {
+      message,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    };
   }
 
   // // Method 1: @I18n() decorator (SHORTHAND - Most Popular)

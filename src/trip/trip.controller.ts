@@ -50,11 +50,30 @@ import {
   ApiGetAllTripItems,
   ApiGetTripItemById,
 } from './decorators/api-docs.decorator';
-import { GetTripsQueryDto, GetTripsResponseDto } from './dto/get-trips.dto';
+import {
+  GetTripsQueryDto,
+  GetTripsResponseDto,
+  UserInfoDto,
+  ModeOfTransportDto,
+} from './dto/get-trips.dto';
+import {
+  GetTransportTypesQueryDto,
+  GetTransportTypesResponseDto,
+} from './dto/get-transport-types.dto';
+import {
+  GetTripItemsQueryDto,
+  GetTripItemsResponseDto,
+} from './dto/get-trip-items.dto';
 import { GetTripByIdResponseDto } from './dto/get-trip-by-id.dto';
 
 @ApiTags('Trips')
-@ApiExtraModels(TripItemListDto)
+@ApiExtraModels(
+  TripItemListDto,
+  GetTransportTypesQueryDto,
+  GetTransportTypesResponseDto,
+  GetTripItemsQueryDto,
+  GetTripItemsResponseDto,
+)
 @Controller('trip')
 export class TripController {
   constructor(private readonly tripService: TripService) {}
@@ -136,8 +155,11 @@ export class TripController {
   // GET endpoints for TransportType
   @Get('transport-types')
   @ApiGetAllTransportTypes()
-  async getAllTransportTypes(@I18nLang() lang: string) {
-    return this.tripService.getAllTransportTypes(lang);
+  async getAllTransportTypes(
+    @Query() query: GetTransportTypesQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<GetTransportTypesResponseDto> {
+    return this.tripService.getAllTransportTypes(query, lang);
   }
 
   @Get('transport-types/:id')
@@ -152,8 +174,11 @@ export class TripController {
   // GET endpoints for TripItem
   @Get('trip-items')
   @ApiGetAllTripItems()
-  async getAllTripItems(@I18nLang() lang: string) {
-    return this.tripService.getAllTripItems(lang);
+  async getAllTripItems(
+    @Query() query: GetTripItemsQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<GetTripItemsResponseDto> {
+    return this.tripService.getAllTripItems(query, lang);
   }
 
   @Get('trip-items/:id')
@@ -168,9 +193,9 @@ export class TripController {
   // Get trips with pagination and country filtering
   @Get('trips')
   @ApiOperation({
-    summary: 'Get trips with pagination and country filtering',
+    summary: 'Get trips with pagination, search, and country prioritization',
     description:
-      'Retrieve trips with optional country filtering and pagination. Perfect for mobile app infinite scroll.',
+      'Retrieve all published trips with optional search, country prioritization, and pagination. Search by departure_date, arrival_date, delivery/pickup/destination country name, code, or address. All searches are case-insensitive. When country is specified (without search), trips from that country are shown first, followed by all other trips. When search is used, country prioritization is disabled and results are returned in natural order. Perfect for mobile app infinite scroll.',
   })
   @ApiResponse({
     status: 200,

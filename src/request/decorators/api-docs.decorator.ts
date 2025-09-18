@@ -10,9 +10,11 @@ import {
   CreateTripRequestDto,
   CreateTripRequestResponseDto,
   CreateTripRequestImageDto,
+} from '../dto/create-trip-request.dto';
+import {
   TripItemImageDto,
   TripItemDetailsDto,
-} from '../dto/create-trip-request.dto';
+} from '../../shared/dto/common.dto';
 import {
   GetTripRequestsQueryDto,
   GetTripRequestsResponseDto,

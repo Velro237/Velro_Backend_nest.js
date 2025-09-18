@@ -1,0 +1,35 @@
+# Development Dockerfile
+FROM node:20-alpine
+
+# Install necessary packages
+RUN apk add --no-cache bash
+
+# Create working directory
+WORKDIR /app
+
+# Copy package files first for better caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --force
+
+# Copy source code
+COPY . .
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Expose NestJS port
+EXPOSE 3000
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+  echo "Waiting for database to be ready..."\n\
+  sleep 15\n\
+  echo "Running Prisma migrations..."\n\
+  npx prisma migrate deploy\n\
+  echo "Starting application..."\n\
+  npm run start:dev' > /app/start.sh && chmod +x /app/start.sh
+
+# Run the startup script
+CMD ["/bin/bash", "/app/start.sh"]

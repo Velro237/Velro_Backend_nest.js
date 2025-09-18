@@ -16,9 +16,8 @@ import {
   CreateTripRequestDto,
   CreateTripRequestResponseDto,
   CreateTripRequestImageDto,
-  TripItemImageDto,
-  TripItemDetailsDto,
 } from './dto/create-trip-request.dto';
+import { TripItemImageDto, TripItemDetailsDto } from '../shared/dto/common.dto';
 import {
   GetTripRequestsQueryDto,
   GetTripRequestsResponseDto,

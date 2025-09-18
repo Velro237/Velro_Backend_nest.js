@@ -11,6 +11,10 @@
       "success": "Utilisateur créé avec succès",
       "emailExists": "Un utilisateur avec cet email existe déjà",
       "createFailed": "Échec de la création de l'utilisateur"
+    },
+    "login": {
+      "success": "Connexion réussie",
+      "invalidCredentials": "Email ou mot de passe invalide"
     }
   },
   "trip": {

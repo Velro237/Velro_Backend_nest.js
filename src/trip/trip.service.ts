@@ -24,6 +24,14 @@ import {
   UpdateTripItemResponseDto,
 } from './dto/update-trip-item.dto';
 import { GetTripsQueryDto, GetTripsResponseDto } from './dto/get-trips.dto';
+import {
+  GetTransportTypesQueryDto,
+  GetTransportTypesResponseDto,
+} from './dto/get-transport-types.dto';
+import {
+  GetTripItemsQueryDto,
+  GetTripItemsResponseDto,
+} from './dto/get-trip-items.dto';
 import { GetTripByIdResponseDto } from './dto/get-trip-by-id.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
@@ -556,18 +564,33 @@ export class TripService {
   }
 
   // GET methods for TransportType
-  async getAllTransportTypes(lang?: string) {
+  async getAllTransportTypes(
+    query: GetTransportTypesQueryDto,
+    lang?: string,
+  ): Promise<GetTransportTypesResponseDto> {
     try {
-      const transportTypes = await this.prisma.transportType.findMany({
-        select: {
-          id: true,
-          name: true,
-          description: true,
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-      });
+      const { page = 1, limit = 10 } = query;
+      const skip = (page - 1) * limit;
+
+      const [transportTypes, total] = await Promise.all([
+        this.prisma.transportType.findMany({
+          select: {
+            id: true,
+            name: true,
+            description: true,
+          },
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.transportType.count(),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
 
       const message = await this.i18n.translate(
         'translation.transportType.getAll.success',
@@ -579,7 +602,14 @@ export class TripService {
       return {
         message,
         transportTypes,
-        count: transportTypes.length,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+        },
       };
     } catch (error) {
       const message = await this.i18n.translate(
@@ -639,25 +669,40 @@ export class TripService {
   }
 
   // GET methods for TripItem
-  async getAllTripItems(lang?: string) {
+  async getAllTripItems(
+    query: GetTripItemsQueryDto,
+    lang?: string,
+  ): Promise<GetTripItemsResponseDto> {
     try {
-      const tripItems = await this.prisma.tripItem.findMany({
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          image: {
-            select: {
-              id: true,
-              url: true,
-              alt_text: true,
+      const { page = 1, limit = 10 } = query;
+      const skip = (page - 1) * limit;
+
+      const [tripItems, total] = await Promise.all([
+        this.prisma.tripItem.findMany({
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            image: {
+              select: {
+                id: true,
+                url: true,
+                alt_text: true,
+              },
             },
           },
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-      });
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.tripItem.count(),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
 
       const message = await this.i18n.translate(
         'translation.tripItem.getAll.success',
@@ -669,7 +714,14 @@ export class TripService {
       return {
         message,
         tripItems,
-        count: tripItems.length,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+        },
       };
     } catch (error) {
       const message = await this.i18n.translate(
@@ -741,105 +793,225 @@ export class TripService {
     lang?: string,
   ): Promise<GetTripsResponseDto> {
     try {
-      const { country, page = 1, limit = 10 } = query;
+      const { country, searchKey, page = 1, limit = 10 } = query;
       const skip = (page - 1) * limit;
 
       // Base where clause for published trips
-      const baseWhereClause = {
+      const baseWhereClause: any = {
         status: 'PUBLISHED' as const, // Only show published trips
       };
 
-      let trips: any[] = [];
-      let total = 0;
+      // Add search filters if searchKey is provided
+      if (searchKey && searchKey.trim() !== '') {
+        try {
+          const searchFilters = [];
 
-      if (country) {
-        // First, try to get trips from the specified country
-        const countryWhereClause = {
-          ...baseWhereClause,
-          OR: [
-            { pickup: { path: ['country_code'], equals: country } },
-            { destination: { path: ['country_code'], equals: country } },
-          ],
-        };
+          // Check if searchKey is a valid date
+          const searchDate = new Date(searchKey);
+          const isValidDate = !isNaN(searchDate.getTime());
 
-        const [countryTrips, countryTotal] = await Promise.all([
-          this.prisma.trip.findMany({
-            where: countryWhereClause,
-            include: {
-              mode_of_transport: {
-                select: {
-                  id: true,
-                  name: true,
-                  description: true,
-                },
+          // Only add date filters if searchKey is a valid date
+          if (isValidDate) {
+            // Search in departure_date (convert to string for partial matching)
+            searchFilters.push({
+              departure_date: {
+                gte: searchDate, // Greater than or equal to search date
               },
+            });
+
+            // Search in arrival_date (convert to string for partial matching)
+            searchFilters.push({
+              arrival_date: {
+                gte: searchDate, // Greater than or equal to search date
+              },
+            });
+          }
+
+          // Search in delivery JSON fields (country name, code, address) - case insensitive
+          searchFilters.push({
+            delivery: {
+              path: ['country_name'],
+              string_contains: searchKey,
+              mode: 'insensitive',
             },
-            orderBy: { createdAt: 'desc' },
-          }),
-          this.prisma.trip.count({ where: countryWhereClause }),
-        ]);
+          });
 
-        if (countryTrips.length > 0) {
-          // If there are trips from the specified country, use them
-          trips = countryTrips;
-          total = countryTotal;
-        } else {
-          // If no trips from the specified country, get all trips
-          const [allTrips, allTotal] = await Promise.all([
-            this.prisma.trip.findMany({
-              where: baseWhereClause,
-              include: {
-                mode_of_transport: {
-                  select: {
-                    id: true,
-                    name: true,
-                    description: true,
-                  },
-                },
-              },
-              orderBy: { createdAt: 'desc' },
-            }),
-            this.prisma.trip.count({ where: baseWhereClause }),
-          ]);
-          trips = allTrips;
-          total = allTotal;
+          searchFilters.push({
+            delivery: {
+              path: ['country_code'],
+              string_contains: searchKey,
+              mode: 'insensitive',
+            },
+          });
+
+          searchFilters.push({
+            delivery: {
+              path: ['address'],
+              string_contains: searchKey,
+              mode: 'insensitive',
+            },
+          });
+
+          // Search in pickup JSON fields (country name, code, address) - case insensitive
+          searchFilters.push({
+            pickup: {
+              path: ['country_name'],
+              string_contains: searchKey,
+              mode: 'insensitive',
+            },
+          });
+
+          searchFilters.push({
+            pickup: {
+              path: ['country_code'],
+              string_contains: searchKey,
+              mode: 'insensitive',
+            },
+          });
+
+          searchFilters.push({
+            pickup: {
+              path: ['address'],
+              string_contains: searchKey,
+              mode: 'insensitive',
+            },
+          });
+
+          // Search in destination JSON fields (country name, code, address) - case insensitive
+          searchFilters.push({
+            destination: {
+              path: ['country_name'],
+              string_contains: searchKey,
+              mode: 'insensitive',
+            },
+          });
+
+          searchFilters.push({
+            destination: {
+              path: ['country_code'],
+              string_contains: searchKey,
+              mode: 'insensitive',
+            },
+          });
+
+          searchFilters.push({
+            destination: {
+              path: ['address'],
+              string_contains: searchKey,
+              mode: 'insensitive',
+            },
+          });
+
+          // Add OR condition for all search filters
+          baseWhereClause.OR = searchFilters;
+        } catch (error) {
+          // If search filter creation fails, log error but continue without search
+          console.error('Error creating search filters:', error);
         }
-      } else {
-        // No country specified, get all trips
-        const [allTrips, allTotal] = await Promise.all([
-          this.prisma.trip.findMany({
-            where: baseWhereClause,
-            include: {
-              mode_of_transport: {
-                select: {
-                  id: true,
-                  name: true,
-                  description: true,
-                },
-              },
-            },
-            orderBy: { createdAt: 'desc' },
-          }),
-          this.prisma.trip.count({ where: baseWhereClause }),
-        ]);
-        trips = allTrips;
-        total = allTotal;
       }
 
-      // Apply pagination
-      const paginatedTrips = trips.slice(skip, skip + limit);
+      // Get trips with normal Prisma pagination
+      const [allTrips, total] = await Promise.all([
+        this.prisma.trip.findMany({
+          where: baseWhereClause,
+          select: {
+            id: true,
+            departure_date: true,
+            departure_time: true,
+            arrival_date: true,
+            arrival_time: true,
+            pickup: true,
+            destination: true,
+            createdAt: true,
+            mode_of_transport: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.trip.count({ where: baseWhereClause }),
+      ]);
+
+      let trips: any[] = allTrips;
+
+      // If country is specified and no search key, reorder to put matching trips at the top
+      if (country && (!searchKey || searchKey.trim() === '')) {
+        const countryTrips = allTrips.filter((trip) => {
+          const pickupCountry =
+            trip.pickup &&
+            typeof trip.pickup === 'object' &&
+            'country_code' in trip.pickup
+              ? (trip.pickup as any).country_code
+              : null;
+          const destinationCountry =
+            trip.destination &&
+            typeof trip.destination === 'object' &&
+            'country_code' in trip.destination
+              ? (trip.destination as any).country_code
+              : null;
+
+          return (
+            pickupCountry?.toLowerCase() === country.toLowerCase() ||
+            destinationCountry?.toLowerCase() === country.toLowerCase()
+          );
+        });
+
+        const otherTrips = allTrips.filter((trip) => {
+          const pickupCountry =
+            trip.pickup &&
+            typeof trip.pickup === 'object' &&
+            'country_code' in trip.pickup
+              ? (trip.pickup as any).country_code
+              : null;
+          const destinationCountry =
+            trip.destination &&
+            typeof trip.destination === 'object' &&
+            'country_code' in trip.destination
+              ? (trip.destination as any).country_code
+              : null;
+
+          return (
+            pickupCountry?.toLowerCase() !== country.toLowerCase() &&
+            destinationCountry?.toLowerCase() !== country.toLowerCase()
+          );
+        });
+
+        // Put country-specific trips at the top, then other trips
+        trips = [...countryTrips, ...otherTrips];
+      }
 
       // Transform trips to summary format
-      const tripSummaries = paginatedTrips.map((trip) => ({
+      const tripSummaries = trips.map((trip) => ({
         id: trip.id,
-        user_id: trip.user_id,
-        pickup: trip.pickup,
-        destination: trip.destination,
+        user: {
+          id: trip.user.id,
+          email: trip.user.email,
+          role: trip.user.role,
+        },
         departure_date: trip.departure_date,
         departure_time: trip.departure_time,
-        price_per_kg: Number(trip.price_per_kg),
-        status: trip.status,
-        transport_type_name: trip.mode_of_transport.name,
+        arrival_date: trip.arrival_date,
+        arrival_time: trip.arrival_time,
+        mode_of_transport: {
+          id: trip.mode_of_transport.id,
+          name: trip.mode_of_transport.name,
+          description: trip.mode_of_transport.description,
+        },
+        pickup: trip.pickup,
+        destination: trip.destination,
         createdAt: trip.createdAt,
       }));
 
@@ -953,6 +1125,7 @@ export class TripService {
         },
       };
     } catch (error) {
+      console.error('Error getting trip item by id:', error);
       if (error instanceof NotFoundException) {
         throw error;
       }

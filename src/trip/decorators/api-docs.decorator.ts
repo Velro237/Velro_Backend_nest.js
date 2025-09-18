@@ -20,6 +20,14 @@ import {
   UpdateTripItemResponseDto,
 } from '../dto/update-trip-item.dto';
 import { GetTripsQueryDto, GetTripsResponseDto } from '../dto/get-trips.dto';
+import {
+  GetTransportTypesQueryDto,
+  GetTransportTypesResponseDto,
+} from '../dto/get-transport-types.dto';
+import {
+  GetTripItemsQueryDto,
+  GetTripItemsResponseDto,
+} from '../dto/get-trip-items.dto';
 import { GetTripByIdResponseDto } from '../dto/get-trip-by-id.dto';
 
 // Trip Documentation Decorators
@@ -412,48 +420,39 @@ export const ApiUpdateTransportType = () =>
 export const ApiGetAllTransportTypes = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Get all transport types',
-      description: 'Retrieve all available transport types.',
+      summary: 'Get all transport types with pagination',
+      description:
+        'Retrieve all available transport types with pagination support.',
     }),
     ApiResponse({
       status: 200,
       description:
         'Transport types retrieved successfully (message will be translated)',
-      schema: {
-        type: 'object',
-        properties: {
-          message: { type: 'string' },
-          transportTypes: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                id: { type: 'string' },
-                name: { type: 'string' },
-                description: { type: 'string' },
+      type: GetTransportTypesResponseDto,
+      examples: {
+        success: {
+          summary: 'Successful response with pagination',
+          value: {
+            message: 'Transport types retrieved successfully',
+            transportTypes: [
+              {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                name: 'Airplane',
+                description: 'Commercial airline transportation',
               },
-            },
-          },
-          count: { type: 'number' },
-        },
-        examples: {
-          success: {
-            summary: 'Transport types retrieved successfully',
-            value: {
-              message: 'Transport types retrieved successfully',
-              transportTypes: [
-                {
-                  id: '123e4567-e89b-12d3-a456-426614174000',
-                  name: 'Airplane',
-                  description: 'Commercial airline transportation',
-                },
-                {
-                  id: '123e4567-e89b-12d3-a456-426614174001',
-                  name: 'Train',
-                  description: 'Railway transportation',
-                },
-              ],
-              count: 2,
+              {
+                id: '123e4567-e89b-12d3-a456-426614174001',
+                name: 'Train',
+                description: 'Railway transportation',
+              },
+            ],
+            pagination: {
+              page: 1,
+              limit: 10,
+              total: 25,
+              totalPages: 3,
+              hasNext: true,
+              hasPrev: false,
             },
           },
         },
@@ -751,66 +750,48 @@ export const ApiUpdateTripItem = () =>
 export const ApiGetAllTripItems = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Get all trip items',
-      description: 'Retrieve all available trip items.',
+      summary: 'Get all trip items with pagination',
+      description: 'Retrieve all available trip items with pagination support.',
     }),
     ApiResponse({
       status: 200,
       description:
         'Trip items retrieved successfully (message will be translated)',
-      schema: {
-        type: 'object',
-        properties: {
-          message: { type: 'string' },
-          tripItems: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                id: { type: 'string' },
-                name: { type: 'string' },
-                description: { type: 'string' },
+      type: GetTripItemsResponseDto,
+      examples: {
+        success: {
+          summary: 'Successful response with pagination',
+          value: {
+            message: 'Trip items retrieved successfully',
+            tripItems: [
+              {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                name: 'Electronics',
+                description: 'Electronic devices and gadgets',
                 image: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string' },
-                    url: { type: 'string' },
-                    alt_text: { type: 'string' },
-                  },
+                  id: '123e4567-e89b-12d3-a456-426614174000',
+                  url: 'https://example.com/images/electronics.jpg',
+                  alt_text: 'Electronics image',
                 },
               },
-            },
-          },
-          count: { type: 'number' },
-        },
-        examples: {
-          success: {
-            summary: 'Trip items retrieved successfully',
-            value: {
-              message: 'Trip items retrieved successfully',
-              tripItems: [
-                {
-                  id: '123e4567-e89b-12d3-a456-426614174000',
-                  name: 'Electronics',
-                  description: 'Electronic devices and gadgets',
-                  image: {
-                    id: '123e4567-e89b-12d3-a456-426614174000',
-                    url: 'https://example.com/images/electronics.jpg',
-                    alt_text: 'Electronics image',
-                  },
-                },
-                {
+              {
+                id: '123e4567-e89b-12d3-a456-426614174001',
+                name: 'Clothing',
+                description: 'Clothes and accessories',
+                image: {
                   id: '123e4567-e89b-12d3-a456-426614174001',
-                  name: 'Clothing',
-                  description: 'Clothes and accessories',
-                  image: {
-                    id: '123e4567-e89b-12d3-a456-426614174001',
-                    url: 'https://example.com/images/clothing.jpg',
-                    alt_text: 'Clothing image',
-                  },
+                  url: 'https://example.com/images/clothing.jpg',
+                  alt_text: 'Clothing image',
                 },
-              ],
-              count: 2,
+              },
+            ],
+            pagination: {
+              page: 1,
+              limit: 10,
+              total: 25,
+              totalPages: 3,
+              hasNext: true,
+              hasPrev: false,
             },
           },
         },

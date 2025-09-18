@@ -1,0 +1,45 @@
+services:
+  dev-db:
+    image: postgres:16-alpine5
+    restart: always
+    environment:
+      POSTGRES_DB: velro
+      POSTGRES_USER: velro
+      POSTGRES_PASSWORD: velro
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - velroDev
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U velro -d velro']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: velro-app-dev
+    restart: always
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: postgres://velro:velro@dev-db:5432/velro
+      NODE_ENV: development
+    depends_on:
+      dev-db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/node_modules
+    networks:
+      - velroDev
+
+volumes:
+  postgres_data:
+
+networks:
+  velroDev:

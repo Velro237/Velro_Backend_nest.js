@@ -5,8 +5,9 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/prisma"
+  provider      = "prisma-client-js"
+  output        = "../generated/prisma"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -17,6 +18,7 @@ datasource db {
 model User {
   id        String        @id @default(uuid())
   email     String        @unique
+  password  String
   role      UserRole      @default(USER)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt

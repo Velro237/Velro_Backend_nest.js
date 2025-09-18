@@ -11,6 +11,10 @@
       "success": "User created successfully",
       "emailExists": "User with this email already exists",
       "createFailed": "Failed to create user"
+    },
+    "login": {
+      "success": "Login successful",
+      "invalidCredentials": "Invalid email or password"
     }
   },
   "trip": {

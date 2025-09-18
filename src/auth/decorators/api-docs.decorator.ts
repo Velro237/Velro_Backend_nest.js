@@ -1,116 +1,117 @@
 import { applyDecorators } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiBearerAuth,
+  ApiSecurity,
+} from '@nestjs/swagger';
 import { SignupDto, SignupResponseDto } from '../dto/signup.dto';
+import { LoginDto, LoginResponseDto } from '../dto/login.dto';
 
-// Auth Documentation Decorators
-export const ApiSignup = () =>
-  applyDecorators(
+export function ApiSignup() {
+  return applyDecorators(
     ApiOperation({
-      summary: 'Create a new user account',
-      description:
-        'Register a new user with email, password, and optional role. Password will be hashed before storage.',
+      summary: 'User registration',
+      description: 'Create a new user account with email and password',
     }),
-    ApiBody({
-      type: SignupDto,
-      description: 'User registration data',
-      examples: {
-        user: {
-          summary: 'Regular user signup',
-          value: {
-            email: 'john.doe@example.com',
-            password: 'SecurePassword123!',
-            role: 'USER',
-          },
-        },
-        admin: {
-          summary: 'Admin user signup',
-          value: {
-            email: 'admin@example.com',
-            password: 'AdminPassword123!',
-            role: 'ADMIN',
-          },
-        },
-      },
-    }),
+    ApiBody({ type: SignupDto }),
     ApiResponse({
       status: 201,
-      description:
-        'User created successfully (message will be translated based on language)',
+      description: 'User created successfully',
       type: SignupResponseDto,
-      examples: {
-        english: {
-          summary: 'English response',
-          value: {
-            message: 'User created successfully',
-            user: {
-              id: '123e4567-e89b-12d3-a456-426614174000',
-              email: 'john.doe@example.com',
-              role: 'USER',
-              createdAt: '2024-01-15T10:30:00.000Z',
-            },
-          },
-        },
-        french: {
-          summary: 'French response',
-          value: {
-            message: 'Utilisateur créé avec succès',
-            user: {
-              id: '123e4567-e89b-12d3-a456-426614174000',
-              email: 'john.doe@example.com',
-              role: 'USER',
-              createdAt: '2024-01-15T10:30:00.000Z',
-            },
-          },
-        },
-      },
     }),
     ApiResponse({
       status: 409,
-      description:
-        'User with this email already exists (message will be translated)',
+      description: 'User with this email already exists',
       schema: {
         type: 'object',
         properties: {
-          statusCode: { type: 'number', example: 409 },
           message: {
             type: 'string',
-            examples: {
-              english: { value: 'User with this email already exists' },
-              french: { value: 'Un utilisateur avec cet email existe déjà' },
-            },
+            example: 'User with this email already exists',
           },
-          error: { type: 'string', example: 'Conflict' },
+          error: {
+            type: 'string',
+            example: 'Conflict',
+          },
+          statusCode: {
+            type: 'number',
+            example: 409,
+          },
         },
       },
     }),
     ApiResponse({
       status: 400,
-      description: 'Validation error',
+      description: 'Bad Request - Invalid input data',
       schema: {
         type: 'object',
         properties: {
-          statusCode: { type: 'number', example: 400 },
-          message: { type: 'array', items: { type: 'string' } },
-          error: { type: 'string', example: 'Bad Request' },
+          message: {
+            type: 'array',
+            items: {
+              type: 'string',
+            },
+            example: [
+              'Please provide a valid email address',
+              'Password must be at least 8 characters long',
+            ],
+          },
+          error: {
+            type: 'string',
+            example: 'Bad Request',
+          },
+          statusCode: {
+            type: 'number',
+            example: 400,
+          },
         },
       },
     }),
     ApiResponse({
       status: 500,
-      description: 'Internal server error (message will be translated)',
+      description: 'Internal server error',
       schema: {
         type: 'object',
         properties: {
-          statusCode: { type: 'number', example: 500 },
           message: {
             type: 'string',
-            examples: {
-              english: { value: 'Failed to create user' },
-              french: { value: "Échec de la création de l'utilisateur" },
-            },
+            example: 'Failed to create user',
           },
-          error: { type: 'string', example: 'Internal Server Error' },
+          error: {
+            type: 'string',
+            example: 'Internal Server Error',
+          },
+          statusCode: {
+            type: 'number',
+            example: 500,
+          },
         },
       },
     }),
   );
+}
+
+export function ApiLogin() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'User login',
+      description: 'Authenticate user with email and password',
+    }),
+    ApiBody({ type: LoginDto }),
+    ApiResponse({
+      status: 200,
+      description: 'Login successful',
+      type: LoginResponseDto,
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'Invalid credentials',
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+    }),
+  );
+}
