@@ -11,6 +11,7 @@ import {
 } from 'nestjs-i18n';
 import { TripModule } from './trip/trip.module';
 import { RequestModule } from './request/request.module';
+import { ChatModule } from './chat/chat.module';
 import * as path from 'path';
 
 @Module({
@@ -35,6 +36,7 @@ import * as path from 'path';
     AuthModule,
     TripModule,
     RequestModule,
+    ChatModule,
   ],
   controllers: [],
   providers: [],

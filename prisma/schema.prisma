@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider      = "prisma-client-js"
   output        = "../generated/prisma"
@@ -24,6 +18,68 @@ model User {
   updatedAt DateTime      @updatedAt
   trips     Trip[]
   requests  TripRequest[]
+  messages  Message[]
+  chats ChatMember[]
+}
+
+model Chat {
+  id          String       @id @default(uuid())
+  name        String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     ChatMember[]
+  messages    Message[]
+}
+
+model ChatMember {
+  id        String   @id @default(uuid())
+  chat_id   String
+  user_id   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  joinedAt  DateTime @default(now())
+
+  @@unique([user_id, chat_id]) // Prevent duplicate memberships
+
+  // Relations
+  chat      Chat     @relation(fields: [chat_id], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id         String      @id @default(uuid())
+
+  chat_id    String
+  sender_id  String
+  chat       Chat        @relation(fields: [chat_id], references: [id], onDelete: Cascade)
+  sender     User        @relation(fields: [sender_id], references: [id], onDelete: Cascade)
+
+  content    String?     // Text message
+  image_url  String?     // Optional for media messages
+  request_id String?     // Optional for request messages
+
+  type       MessageType @default(TEXT)
+
+  isRead     Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+
+  // Optional: for threaded messages/replies
+  reply_to_id String?
+  reply_to    Message?   @relation("MessageReplies", fields: [reply_to_id], references: [id])
+  replies     Message[]  @relation("MessageReplies")
+
+  // Relation to TripRequest (if the message references a trip request)
+  request     TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  REQUEST
+  PAYMENT
 }
 
 model Trip {
@@ -54,10 +110,9 @@ model Trip {
   requests          TripRequest[]
 }
 
-// Image Model - For storing image references
 model Image {
   id         String   @id @default(uuid())
-  object_id  String   @unique // ObjectId pointing to the schema having the image
+  object_id  String   // optional pointer to external object if needed
   url        String
   alt_text   String?
   created_at DateTime @default(now())
@@ -65,10 +120,9 @@ model Image {
 
   // Relations
   trip_items TripItem[]
-  requests   TripRequest[]
+  requestLinks TripRequestImage[]
 }
 
-// Trip Item Model - Predefined items that can be added to travel listings
 model TripItem {
   id          String   @id @default(uuid())
   name        String   @unique
@@ -83,7 +137,6 @@ model TripItem {
   image           Image?            @relation(fields: [image_id], references: [id], onDelete: SetNull)
 }
 
-// Junction table for TravelListing and TripItem with custom pricing
 model TripItemsList {
   trip_id      String
   trip_item_id String
@@ -98,7 +151,6 @@ model TripItemsList {
   @@id([trip_id, trip_item_id])
 }
 
-// Trip Request Model - For users to request items from trips
 model TripRequest {
   id         String        @id @default(uuid())
   trip_id    String
@@ -112,10 +164,10 @@ model TripRequest {
   trip          Trip              @relation(fields: [trip_id], references: [id], onDelete: Cascade)
   user          User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
   request_items TripRequestItem[]
-  images        Image[]
+  images        TripRequestImage[]
+  messages      Message[]         // messages that reference this request via request_id
 }
 
-// Trip Request Item Model - For storing quantities of requested items
 model TripRequestItem {
   request_id    String
   trip_item_id  String
@@ -127,6 +179,18 @@ model TripRequestItem {
   trip_item TripItem    @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
 
   @@id([request_id, trip_item_id])
+}
+
+// join table to attach images to trip requests (explicit FK)
+model TripRequestImage {
+  trip_request_id String
+  image_id        String
+  created_at      DateTime @default(now())
+
+  tripRequest TripRequest @relation(fields: [trip_request_id], references: [id], onDelete: Cascade)
+  image       Image       @relation(fields: [image_id], references: [id], onDelete: Cascade)
+
+  @@id([trip_request_id, image_id])
 }
 
 model TransportType {
@@ -145,7 +209,7 @@ enum UserRole {
   ADMIN
 }
 
-enum userStatus {
+enum UserStatus {
   ACTIVE
   INACTIVE
 }

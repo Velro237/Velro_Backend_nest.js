@@ -17,6 +17,22 @@
       "invalidCredentials": "Email ou mot de passe invalide"
     }
   },
+  "chat": {
+    "create": {
+      "success": "Chat créé avec succès",
+      "failed": "Échec de la création du chat",
+      "userNotFound": "Un ou plusieurs utilisateurs non trouvés"
+    },
+    "getAll": {
+      "success": "Chats récupérés avec succès",
+      "failed": "Échec de la récupération des chats"
+    },
+    "messages": {
+      "success": "Messages récupérés avec succès",
+      "failed": "Échec de la récupération des messages",
+      "unauthorized": "Pas membre de ce chat"
+    }
+  },
   "trip": {
     "create": {
       "success": "Voyage créé avec succès",

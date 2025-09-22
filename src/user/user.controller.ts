@@ -7,7 +7,6 @@ import {
   Param,
   Delete,
   UseGuards,
-  Request,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -16,6 +15,8 @@ import { I18nLang, I18nService, I18n, I18nContext } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags } from '@nestjs/swagger';
 import { ApiUserWelcome } from './decorators/api-docs.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from 'generated/prisma';
 
 @ApiTags('User')
 @Controller('user')
@@ -28,9 +29,7 @@ export class UserController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiUserWelcome()
-  async getMe(@Request() req: any, @I18nLang() lang: string) {
-    const user = req.user; // User info from JWT strategy
-
+  async getMe(@CurrentUser() user: User, @I18nLang() lang: string) {
     const message = await this.i18n.translate('translation.hello', {
       lang,
       args: { name: user.email.split('@')[0] }, // Use email prefix as name
@@ -46,7 +45,7 @@ export class UserController {
       },
     };
   }
-
+ 
   // // Method 1: @I18n() decorator (SHORTHAND - Most Popular)
   // @Get('welcome-shorthand')
   // async getWelcomeShorthand(@I18n() i18n: I18nContext) {

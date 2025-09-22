@@ -17,6 +17,22 @@
       "invalidCredentials": "Invalid email or password"
     }
   },
+  "chat": {
+    "create": {
+      "success": "Chat created successfully",
+      "failed": "Failed to create chat",
+      "userNotFound": "One or more users not found"
+    },
+    "getAll": {
+      "success": "Chats retrieved successfully",
+      "failed": "Failed to retrieve chats"
+    },
+    "messages": {
+      "success": "Messages retrieved successfully",
+      "failed": "Failed to retrieve messages",
+      "unauthorized": "Not a member of this chat"
+    }
+  },
   "trip": {
     "create": {
       "success": "Trip created successfully",

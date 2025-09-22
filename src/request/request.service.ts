@@ -250,10 +250,14 @@ export class RequestService {
               },
             },
             images: {
-              select: {
-                id: true,
-                url: true,
-                alt_text: true,
+              include: {
+                image: {
+                  select: {
+                    id: true,
+                    url: true,
+                    alt_text: true,
+                  },
+                },
               },
             },
           },
@@ -304,9 +308,9 @@ export class RequestService {
           },
         })),
         images: request.images.map((image) => ({
-          id: image.id,
-          url: image.url,
-          alt_text: image.alt_text,
+          id: image.image.id,
+          url: image.image.url,
+          alt_text: image.image.alt_text,
         })),
       }));
 
