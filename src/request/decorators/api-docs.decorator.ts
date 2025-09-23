@@ -5,6 +5,7 @@ import {
   ApiBody,
   ApiParam,
   ApiQuery,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import {
   CreateTripRequestDto,
@@ -30,6 +31,7 @@ import {
 
 export const ApiCreateTripRequest = () =>
   applyDecorators(
+    ApiBearerAuth('JWT-auth'),
     ApiOperation({
       summary: 'Create a trip request',
       description:

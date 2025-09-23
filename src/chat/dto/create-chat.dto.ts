@@ -12,16 +12,22 @@ export class CreateChatDto {
   name?: string;
 
   @ApiProperty({
-    description: 'Array of user IDs to add to the chat',
-    example: [
-      '123e4567-e89b-12d3-a456-426614174000',
-      '987fcdeb-51a2-43d1-b456-426614174000',
-    ],
-    type: [String],
+    description: 'User ID to start a direct chat with (only one user allowed)',
+    example: '123e4567-e89b-12d3-a456-426614174000',
   })
-  @IsArray()
-  @IsUUID('4', { each: true })
-  memberIds: string[];
+  @IsString()
+  @IsUUID('4')
+  otherUserId: string;
+
+  @ApiProperty({
+    description: 'Trip ID to associate with this chat (optional)',
+    example: '123e4567-e89b-12d3-a456-426614174001',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @IsUUID('4')
+  tripId?: string;
 }
 
 export class CreateChatResponseDto {

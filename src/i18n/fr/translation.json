@@ -21,7 +21,9 @@
     "create": {
       "success": "Chat créé avec succès",
       "failed": "Échec de la création du chat",
-      "userNotFound": "Un ou plusieurs utilisateurs non trouvés"
+      "userNotFound": "Utilisateur non trouvé",
+      "cannotChatWithSelf": "Impossible de créer un chat avec vous-même",
+      "chatAlreadyExists": "Un chat existe déjà entre ces deux utilisateurs"
     },
     "getAll": {
       "success": "Chats récupérés avec succès",
@@ -30,7 +32,11 @@
     "messages": {
       "success": "Messages récupérés avec succès",
       "failed": "Échec de la récupération des messages",
-      "unauthorized": "Pas membre de ce chat"
+      "unauthorized": "Pas membre de ce chat",
+      "newTripRequest": "Nouvelle demande de voyage"
+    },
+    "chatName": {
+      "to": "vers"
     }
   },
   "trip": {

@@ -8,6 +8,8 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -38,6 +40,7 @@ import {
   UpdateTripItemResponseDto,
 } from './dto/update-trip-item.dto';
 import { I18nLang } from 'nestjs-i18n';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   ApiCreateTrip,
   ApiUpdateTrip,
@@ -65,6 +68,8 @@ import {
   GetTripItemsResponseDto,
 } from './dto/get-trip-items.dto';
 import { GetTripByIdResponseDto } from './dto/get-trip-by-id.dto';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { User } from 'generated/prisma';
 
 @ApiTags('Trips')
 @ApiExtraModels(
@@ -80,12 +85,14 @@ export class TripController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard)
   @ApiCreateTrip()
   async createTrip(
     @Body() createTripDto: CreateTripDto,
+    @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<CreateTripResponseDto> {
-    return this.tripService.createTrip(createTripDto, lang);
+    return this.tripService.createTrip(createTripDto, user.id, lang);
   }
 
   @Patch(':id')

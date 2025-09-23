@@ -57,7 +57,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Optionally: auto-join the user to rooms for chats they are members of
     // (so they receive events automatically)
     const memberChats = await this.chatService.getChatIdsForUser(user.id);
-    console.log('chats', memberChats);
     memberChats.forEach((chatId) => client.join(this.roomName(chatId)));
   }
 
@@ -111,7 +110,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: SendMessageDto,
   ) {
     const user = (client.handshake as any).user;
-    console.log('user', user);
     try {
       // persist
       const message = await this.chatService.createMessage({
@@ -129,7 +127,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Optionally: ack to sender with the saved message (id, timestamps)
       client.emit('message:ack', message);
     } catch (err) {
-      console.log('err', err);
       client.emit('error', {
         message: 'Could not send message',
         details: err.message,

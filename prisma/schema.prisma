@@ -19,18 +19,20 @@ model User {
   trips     Trip[]
   requests  TripRequest[]
   messages  Message[]
-  chats ChatMember[]
+  chats     ChatMember[]
 }
 
 model Chat {
-  id          String       @id @default(uuid())
-  name        String?
+  id      String  @id @default(uuid())
+  name    String?
+  trip_id String? @unique // Optional: link to trip request (unique for one-to-one)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  members     ChatMember[]
-  messages    Message[]
+  members  ChatMember[]
+  messages Message[]
+  trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
 }
 
 model ChatMember {
@@ -40,39 +42,39 @@ model ChatMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  joinedAt  DateTime @default(now())
-
-  @@unique([user_id, chat_id]) // Prevent duplicate memberships
+  joinedAt DateTime @default(now())
 
   // Relations
-  chat      Chat     @relation(fields: [chat_id], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  chat Chat @relation(fields: [chat_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, chat_id]) // Prevent duplicate memberships
 }
 
 model Message {
-  id         String      @id @default(uuid())
+  id String @id @default(uuid())
 
-  chat_id    String
-  sender_id  String
-  chat       Chat        @relation(fields: [chat_id], references: [id], onDelete: Cascade)
-  sender     User        @relation(fields: [sender_id], references: [id], onDelete: Cascade)
+  chat_id   String
+  sender_id String
+  chat      Chat   @relation(fields: [chat_id], references: [id], onDelete: Cascade)
+  sender    User   @relation(fields: [sender_id], references: [id], onDelete: Cascade)
 
-  content    String?     // Text message
-  image_url  String?     // Optional for media messages
-  request_id String?     // Optional for request messages
+  content    String? // Text message
+  image_url  String? // Optional for media messages
+  request_id String? // Optional for request messages
 
-  type       MessageType @default(TEXT)
+  type MessageType @default(TEXT)
 
-  isRead     Boolean     @default(false)
-  createdAt  DateTime    @default(now())
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
 
   // Optional: for threaded messages/replies
   reply_to_id String?
-  reply_to    Message?   @relation("MessageReplies", fields: [reply_to_id], references: [id])
-  replies     Message[]  @relation("MessageReplies")
+  reply_to    Message?  @relation("MessageReplies", fields: [reply_to_id], references: [id])
+  replies     Message[] @relation("MessageReplies")
 
   // Relation to TripRequest (if the message references a trip request)
-  request     TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
 }
 
 enum MessageType {
@@ -108,18 +110,19 @@ model Trip {
   mode_of_transport TransportType   @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
   trip_items        TripItemsList[]
   requests          TripRequest[]
+  chats             Chat[]
 }
 
 model Image {
   id         String   @id @default(uuid())
-  object_id  String   // optional pointer to external object if needed
+  object_id  String // optional pointer to external object if needed
   url        String
   alt_text   String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   // Relations
-  trip_items TripItem[]
+  trip_items   TripItem[]
   requestLinks TripRequestImage[]
 }
 
@@ -161,11 +164,11 @@ model TripRequest {
   updated_at DateTime      @updatedAt
 
   // Relations
-  trip          Trip              @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  user          User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  trip          Trip               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  user          User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
   request_items TripRequestItem[]
   images        TripRequestImage[]
-  messages      Message[]         // messages that reference this request via request_id
+  messages      Message[] // messages that reference this request via request_id
 }
 
 model TripRequestItem {

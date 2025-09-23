@@ -8,10 +8,13 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { ApiTags, ApiExtraModels } from '@nestjs/swagger';
 import { RequestService } from './request.service';
 import { I18nLang } from 'nestjs-i18n';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   CreateTripRequestDto,
   CreateTripRequestResponseDto,
@@ -55,12 +58,18 @@ export class RequestController {
   // Trip Request endpoints
   @Post('trip')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard)
   @ApiCreateTripRequest()
   async createTripRequest(
     @Body() createTripRequestDto: CreateTripRequestDto,
+    @Request() req: any,
     @I18nLang() lang: string,
   ): Promise<CreateTripRequestResponseDto> {
-    return this.requestService.createTripRequest(createTripRequestDto, lang);
+    return this.requestService.createTripRequest(
+      createTripRequestDto,
+      req.user.id,
+      lang,
+    );
   }
 
   @Get('trip')

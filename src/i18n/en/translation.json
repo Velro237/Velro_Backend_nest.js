@@ -17,12 +17,14 @@
       "invalidCredentials": "Invalid email or password"
     }
   },
-  "chat": {
-    "create": {
-      "success": "Chat created successfully",
-      "failed": "Failed to create chat",
-      "userNotFound": "One or more users not found"
-    },
+    "chat": {
+      "create": {
+        "success": "Chat created successfully",
+        "failed": "Failed to create chat",
+        "userNotFound": "User not found",
+        "cannotChatWithSelf": "Cannot create a chat with yourself",
+        "chatAlreadyExists": "Chat already exists between these two users"
+      },
     "getAll": {
       "success": "Chats retrieved successfully",
       "failed": "Failed to retrieve chats"
@@ -30,7 +32,11 @@
     "messages": {
       "success": "Messages retrieved successfully",
       "failed": "Failed to retrieve messages",
-      "unauthorized": "Not a member of this chat"
+      "unauthorized": "Not a member of this chat",
+      "newTripRequest": "New trip request"
+    },
+    "chatName": {
+      "to": "to"
     }
   },
   "trip": {

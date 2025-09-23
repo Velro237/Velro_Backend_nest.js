@@ -110,4 +110,22 @@ export class MessageResponseDto {
     example: '2024-01-15T10:30:00.000Z',
   })
   createdAt: Date;
+
+  @ApiProperty({
+    description: 'Trip data for REQUEST type messages',
+    required: false,
+  })
+  tripData?: {
+    id: string;
+    pickup: any;
+    destination: any;
+    departure_date: Date;
+    departure_time: string;
+    price_per_kg: number;
+    fullSuitcaseOnly: boolean;
+    user?: {
+      id: string;
+      email: string;
+    };
+  };
 }

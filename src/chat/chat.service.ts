@@ -36,15 +36,24 @@ export class ChatService {
     userId: string,
     lang?: string,
   ): Promise<CreateChatResponseDto> {
-    const { name, memberIds } = createChatDto;
+    const { name, otherUserId, tripId } = createChatDto;
 
-    // Check if all member IDs exist
-    const users = await this.prisma.user.findMany({
-      where: { id: { in: memberIds } },
+    // Prevent users from creating a chat with themselves
+    if (userId === otherUserId) {
+      const message = await this.i18n.translate(
+        'translation.chat.create.cannotChatWithSelf',
+        { lang },
+      );
+      throw new ConflictException(message);
+    }
+
+    // Check if the other user exists
+    const otherUser = await this.prisma.user.findUnique({
+      where: { id: otherUserId },
       select: { id: true, email: true, role: true },
     });
 
-    if (users.length !== memberIds.length) {
+    if (!otherUser) {
       const message = await this.i18n.translate(
         'translation.chat.create.userNotFound',
         { lang },
@@ -52,24 +61,24 @@ export class ChatService {
       throw new NotFoundException(message);
     }
 
-    // Add the creator to the member list if not already included
-    const allMemberIds = [...new Set([userId, ...memberIds])];
+    // Allow users to create multiple chats together (removed existing chat check)
 
     try {
       const chat = await this.prisma.$transaction(async (prisma) => {
         // Create the chat
         const newChat = await prisma.chat.create({
           data: {
-            name,
+            name: name || null, // Direct messages don't need names
+            trip_id: tripId || null, // Link to trip if provided
           },
         });
 
-        // Add all members
+        // Add both users as members
         await prisma.chatMember.createMany({
-          data: allMemberIds.map((memberId) => ({
-            chat_id: newChat.id,
-            user_id: memberId,
-          })),
+          data: [
+            { chat_id: newChat.id, user_id: userId },
+            { chat_id: newChat.id, user_id: otherUserId },
+          ],
         });
 
         // Fetch the chat with members
@@ -165,6 +174,23 @@ export class ChatService {
                 createdAt: true,
               },
             },
+            trip: {
+              select: {
+                id: true,
+                pickup: true,
+                destination: true,
+                departure_date: true,
+                departure_time: true,
+                price_per_kg: true,
+                fullSuitcaseOnly: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                  },
+                },
+              },
+            },
             _count: {
               select: {
                 messages: {
@@ -195,6 +221,23 @@ export class ChatService {
           role: member.user.role,
         })),
         createdAt: chat.createdAt,
+        trip: chat.trip
+          ? {
+              id: chat.trip.id,
+              pickup: chat.trip.pickup,
+              destination: chat.trip.destination,
+              departure_date: chat.trip.departure_date,
+              departure_time: chat.trip.departure_time,
+              price_per_kg: Number(chat.trip.price_per_kg),
+              fullSuitcaseOnly: chat.trip.fullSuitcaseOnly,
+              user: chat.trip.user
+                ? {
+                    id: chat.trip.user.id,
+                    email: chat.trip.user.email,
+                  }
+                : undefined,
+            }
+          : undefined,
       }));
 
       const totalPages = Math.ceil(total / limit);
@@ -254,6 +297,27 @@ export class ChatService {
                 email: true,
               },
             },
+            request: {
+              include: {
+                trip: {
+                  select: {
+                    id: true,
+                    pickup: true,
+                    destination: true,
+                    departure_date: true,
+                    departure_time: true,
+                    price_per_kg: true,
+                    fullSuitcaseOnly: true,
+                    user: {
+                      select: {
+                        id: true,
+                        email: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
           skip,
@@ -262,19 +326,48 @@ export class ChatService {
         this.prisma.message.count({ where: { chat_id: chatId } }),
       ]);
 
-      const messageResponses: MessageResponseDto[] = messages.map(
-        (message) => ({
-          id: message.id,
-          chatId: message.chat_id,
-          sender: {
-            id: message.sender.id,
-            email: message.sender.email,
-          },
-          content: message.content,
-          imageUrl: message.image_url,
-          type: message.type,
-          isRead: message.isRead,
-          createdAt: message.createdAt,
+      const messageResponses: MessageResponseDto[] = await Promise.all(
+        messages.map(async (message) => {
+          let content = message.content;
+
+          // Translate content for REQUEST type messages
+          if (message.type === 'REQUEST') {
+            content = await this.i18n.translate(
+              'translation.chat.messages.newTripRequest',
+              { lang },
+            );
+          }
+
+          return {
+            id: message.id,
+            chatId: message.chat_id,
+            sender: {
+              id: message.sender.id,
+              email: message.sender.email,
+            },
+            content,
+            imageUrl: message.image_url,
+            type: message.type,
+            isRead: message.isRead,
+            createdAt: message.createdAt,
+            tripData: message.request?.trip
+              ? {
+                  id: message.request.trip.id,
+                  pickup: message.request.trip.pickup,
+                  destination: message.request.trip.destination,
+                  departure_date: message.request.trip.departure_date,
+                  departure_time: message.request.trip.departure_time,
+                  price_per_kg: Number(message.request.trip.price_per_kg),
+                  fullSuitcaseOnly: message.request.trip.fullSuitcaseOnly,
+                  user: message.request.trip.user
+                    ? {
+                        id: message.request.trip.user.id,
+                        email: message.request.trip.user.email,
+                      }
+                    : undefined,
+                }
+              : undefined,
+          };
         }),
       );
 

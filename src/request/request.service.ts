@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
+import { ChatService } from '../chat/chat.service';
+import { MessageType as PrismaMessageType } from 'generated/prisma';
 import {
   CreateTripRequestDto,
   CreateTripRequestResponseDto,
@@ -24,14 +26,16 @@ export class RequestService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly chatService: ChatService,
   ) {}
 
   // Trip Request methods
   async createTripRequest(
     createTripRequestDto: CreateTripRequestDto,
+    userId: string,
     lang?: string,
   ): Promise<CreateTripRequestResponseDto> {
-    const { trip_id, user_id, request_items, images, ...requestData } =
+    const { trip_id, request_items, images, ...requestData } =
       createTripRequestDto;
 
     // Check if trip exists
@@ -58,7 +62,7 @@ export class RequestService {
 
     // Check if user exists
     const user = await this.prisma.user.findUnique({
-      where: { id: user_id },
+      where: { id: userId },
     });
 
     if (!user) {
@@ -72,7 +76,7 @@ export class RequestService {
     }
 
     // Check if user is not the trip owner
-    if (trip.user_id === user_id) {
+    if (trip.user_id === userId) {
       const message = await this.i18n.translate(
         'translation.trip.request.cannotRequestOwnTrip',
         {
@@ -124,7 +128,7 @@ export class RequestService {
         const request = await prisma.tripRequest.create({
           data: {
             trip_id,
-            user_id,
+            user_id: userId,
             message: requestData.message,
             status: 'PENDING',
           },
@@ -177,6 +181,105 @@ export class RequestService {
           images: createdImages,
         };
       });
+
+      // Create chat between request user and trip owner, and add a request message
+      try {
+        // Create chat name from trip departure and destination countries
+        const pickupData = trip.pickup as any;
+        const destinationData = trip.destination as any;
+        const departureCountry = pickupData?.country || 'Unknown';
+        const destinationCountry = destinationData?.country || 'Unknown';
+        const toWord = await this.i18n.translate(
+          'translation.chat.chatName.to',
+          { lang },
+        );
+        const chatName = `${departureCountry} ${toWord} ${destinationCountry}`;
+
+        // Check if there's already a chat between these users for this trip
+        let existingChat = await this.prisma.chat.findFirst({
+          where: {
+            trip_id: trip.id,
+            members: {
+              every: {
+                user_id: {
+                  in: [userId, trip.user_id],
+                },
+              },
+            },
+          },
+          include: {
+            members: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        let chatResult;
+        if (existingChat) {
+          // Use existing chat
+          chatResult = {
+            message: await this.i18n.translate(
+              'translation.chat.create.chatAlreadyExists',
+              { lang },
+            ),
+            chat: {
+              id: existingChat.id,
+              name: existingChat.name,
+              createdAt: existingChat.createdAt,
+              members: existingChat.members.map((member) => ({
+                id: member.user_id,
+                email: member.user?.email || '',
+                role: member.user?.role || 'USER',
+              })),
+            },
+          };
+        } else {
+          // Create new chat
+          chatResult = await this.chatService.createChat(
+            {
+              name: chatName,
+              otherUserId: trip.user_id,
+              tripId: trip.id,
+            },
+            userId,
+            lang,
+          );
+        }
+
+        // Create a REQUEST type message in the chat with the request ID
+        await this.chatService.createMessage({
+          chatId: chatResult.chat.id,
+          senderId: userId,
+          content: chatName,
+          type: PrismaMessageType.REQUEST,
+          replyToId: undefined,
+          imageUrl: undefined,
+        });
+
+        // Update the message with the request_id (we need to do this separately since createMessage doesn't support request_id)
+        await this.prisma.message.updateMany({
+          where: {
+            chat_id: chatResult.chat.id,
+            sender_id: userId,
+            type: 'REQUEST',
+            request_id: null, // Only update messages that don't already have a request_id
+          },
+          data: {
+            request_id: result.request.id,
+          },
+        });
+      } catch (chatError) {
+        // Log the error but don't fail the request creation
+        console.error('Failed to create chat/message for request:', chatError);
+      }
 
       const message = await this.i18n.translate(
         'translation.trip.request.createSuccess',
