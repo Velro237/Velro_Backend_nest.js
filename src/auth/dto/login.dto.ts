@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
 
 export class LoginDto {
   @ApiProperty({
@@ -48,4 +48,68 @@ export class LoginResponseDto {
     role: string;
     createdAt: Date;
   };
+}
+
+export class TokenLoginDto {
+  @ApiProperty({
+    description: 'ID token émis par Google/Apple (JWT côté client)',
+    example:
+      'eyJhbGciOiJSUzI1NiIsImtpZCI6IkpXVCJ9.eyJzdWIiOiJhYmMxMjMiLCJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20ifQ.sgn...',
+  })
+  @IsString()
+  @IsNotEmpty()
+  idToken!: string;
+}
+
+export class RefreshDto {
+  @ApiProperty({
+    description: "Refresh token émis par l'API",
+    example: '1b7f9f3d0e2b4c0a1f2e3d4c5b6a7f8e9d0c1b2a3e4f5...',
+  })
+  @IsString()
+  @IsNotEmpty()
+  refreshToken!: string;
+}
+
+export class TokenPairDto {
+  @ApiProperty({
+    description: "JWT d'accès (Authorization: Bearer ...)",
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9....',
+  })
+  accessToken!: string;
+
+  @ApiProperty({
+    description: 'Refresh token opaque (à stocker côté client avec soin)',
+    example: '1b7f9f3d0e2b4c0a1f2e3d4c5b6a7f8e9d0c1b2a3e4f5...',
+  })
+  refreshToken!: string;
+}
+export class JwtPayloadDto {
+  @ApiProperty({
+    description: 'Identifiant utilisateur (sub)',
+    example: 'ckzxy123abc456',
+  })
+  sub!: string;
+
+  @ApiProperty({
+    description: 'Email si présent dans le token',
+    example: 'user@example.com',
+    nullable: true,
+    required: false,
+  })
+  email?: string | null;
+
+  @ApiProperty({
+    description: 'Issued At (timestamp)',
+    example: 1732712345,
+    required: false,
+  })
+  iat?: number;
+
+  @ApiProperty({
+    description: 'Expiration (timestamp)',
+    example: 1732715945,
+    required: false,
+  })
+  exp?: number;
 }

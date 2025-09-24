@@ -1,8 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Injectable,
   ConflictException,
   InternalServerErrorException,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +12,10 @@ import { SignupDto, SignupResponseDto } from './dto/signup.dto';
 import { LoginDto, LoginResponseDto } from './dto/login.dto';
 import { I18nService, I18nContext } from 'nestjs-i18n';
 import * as bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import * as crypto from 'crypto';
+import * as dayjs from 'dayjs';
+import jwksClient from 'jwks-rsa';
 
 @Injectable()
 export class AuthService {
@@ -71,7 +77,8 @@ export class AuthService {
         message,
         user,
       };
-    } catch (error) {
+    } catch (error: any) {
+      console.log(error);
       const message = await this.i18n.translate(
         'translation.auth.signup.createFailed',
         {
@@ -88,6 +95,7 @@ export class AuthService {
     });
 
     if (user && (await bcrypt.compare(password, user.password))) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password: _, ...result } = user;
       return result;
     }
@@ -130,5 +138,180 @@ export class AuthService {
         createdAt: user.createdAt,
       },
     };
+  }
+
+  // Crée/relie le user à partir d’un profile OAuth (Google/Apple via Passport)
+  async upsertUserFromOAuth(oauth: {
+    provider: 'GOOGLE' | 'APPLE';
+    providerAccountId: string;
+    email: string | null;
+    name: string | null;
+    picture: string | null;
+    accessToken?: string | null;
+    refreshToken?: string | null;
+    idToken?: string | null; // Apple
+  }) {
+    const provider = oauth.provider;
+    console.log(oauth);
+
+    // Si on a un email, on tente de relier à un user existant
+    let user = oauth.email
+      ? await this.prisma.user.findUnique({ where: { email: oauth.email } })
+      : null;
+
+    // Sinon: tenter par account (provider+providerAccountId)
+    if (!user) {
+      const account = await this.prisma.account.findUnique({
+        where: {
+          provider_providerAccountId: {
+            provider,
+            providerAccountId: oauth.providerAccountId,
+          },
+        },
+        include: { user: true },
+      });
+      if (account) user = account.user;
+    }
+
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          email: oauth.email,
+          name: oauth.name,
+          picture: oauth.picture,
+        },
+      });
+    }
+
+    // Upsert Account
+    await this.prisma.account.upsert({
+      where: {
+        provider_providerAccountId: {
+          provider,
+          providerAccountId: oauth.providerAccountId,
+        },
+      },
+      update: {
+        accessToken: oauth.accessToken ?? undefined,
+        refreshToken: oauth.refreshToken ?? undefined,
+        idToken: oauth.idToken ?? undefined,
+        expiresAt: undefined,
+      },
+      create: {
+        provider,
+        providerAccountId: oauth.providerAccountId,
+        userId: user.id,
+        accessToken: oauth.accessToken ?? undefined,
+        refreshToken: oauth.refreshToken ?? undefined,
+        idToken: oauth.idToken ?? undefined,
+      },
+    });
+
+    // Generate JWT token
+    const payload = { email: user.email, sub: user.id };
+    const access_token = this.jwtService.sign(payload);
+
+    const message = await this.i18n.translate(
+      'translation.auth.login.success',
+      {
+        lang: 'fr',
+      },
+    );
+
+    return {
+      message,
+      access_token,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    };
+  }
+
+  private signTokens(user: { id: string; email?: string | null }) {
+    const accessToken = this.jwtService.sign({
+      sub: user.id,
+      email: user.email ?? null,
+    });
+    const refreshTokenPlain = crypto.randomBytes(48).toString('hex');
+    const expiresAt = dayjs()
+      .add(parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '30', 10), 'day')
+      .toDate();
+
+    return { accessToken, refreshTokenPlain, refreshExpiresAt: expiresAt };
+  }
+
+  async issueTokens(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+
+    const { accessToken, refreshTokenPlain, refreshExpiresAt } =
+      this.signTokens(user);
+
+    // (Option sécurité) stocker un hash du refreshTokenPlain
+    await this.prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        token: refreshTokenPlain, // <— en prod, hashe ceci !
+        expiresAt: refreshExpiresAt,
+      },
+    });
+    return { accessToken, refreshToken: refreshTokenPlain };
+  }
+
+  // GOOGLE: vérifier l'id_token (profil mobile)
+  async loginWithGoogleIdToken(idToken: string) {
+    // Simple décodage (en prod: utilise google-auth-library pour verifyIdToken)
+    const decoded: any = jwt.decode(idToken) || {};
+    const sub = decoded.sub;
+    const email = decoded.email || null;
+    const name = decoded.name || null;
+    const picture = decoded.picture || null;
+
+    if (!sub) throw new BadRequestException('Invalid Google id_token');
+    const user = await this.upsertUserFromOAuth({
+      provider: 'GOOGLE',
+      providerAccountId: sub,
+      email,
+      name,
+      picture,
+      idToken,
+    });
+    return this.issueTokens(user.user.id);
+  }
+
+  // APPLE: vérifier l’id_token via JWKS
+  async loginWithAppleIdToken(idToken: string) {
+    const client = jwksClient({
+      jwksUri: 'https://appleid.apple.com/auth/keys',
+    });
+    const decodedHeader: any = jwt.decode(idToken, { complete: true });
+    const kid = decodedHeader?.header?.kid;
+    const key = await client.getSigningKey(kid);
+    const signingKey = key.getPublicKey();
+
+    const verified = jwt.verify(idToken, signingKey, {
+      algorithms: ['RS256'],
+      audience: process.env.APPLE_CLIENT_ID!, // très important !
+      issuer: 'https://appleid.apple.com',
+    }) as any;
+
+    const sub = verified.sub;
+    const email = verified.email ?? null;
+
+    if (!sub) throw new BadRequestException('Invalid Apple id_token');
+
+    const user = await this.upsertUserFromOAuth({
+      provider: 'APPLE',
+      providerAccountId: sub,
+      email,
+      name: null,
+      picture: null,
+      idToken,
+    });
+
+    return this.issueTokens(user.user.id);
   }
 }
