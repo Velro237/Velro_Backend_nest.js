@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ChatService } from './chat.service';
+import { ChatGateway } from './chat.gateway';
 import { CreateChatDto, CreateChatResponseDto } from './dto/create-chat.dto';
 import { GetChatsQueryDto, GetChatsResponseDto } from './dto/get-chats.dto';
 import {
@@ -30,7 +31,10 @@ import {
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -40,7 +44,20 @@ export class ChatController {
     @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<CreateChatResponseDto> {
-    return this.chatService.createChat(createChatDto, user.id, lang);
+    const result = await this.chatService.createChat(
+      createChatDto,
+      user.id,
+      lang,
+    );
+
+    // Notify users about the new chat
+    await this.chatGateway.notifyChatCreated(
+      result.chat.id,
+      [user.id, createChatDto.otherUserId],
+      result.chat.name || 'New Chat',
+    );
+
+    return result;
   }
 
   @Get()

@@ -16,6 +16,7 @@ import { SendMessageDto, MessageType } from './dto/send-message.dto';
 import { MessageType as PrismaMessageType } from 'generated/prisma';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../redis/redis.service';
 
 @WebSocketGateway({
   cors: { origin: '*' }, // restrict in production
@@ -31,6 +32,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly chatService: ChatService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly redis: RedisService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -51,21 +53,145 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    const user = (client.handshake as any).user as { id: string };
-    this.socketUser.set(client.id, user.id);
+    const user = (client.handshake as any).user as {
+      sub: string;
+      email?: string;
+    };
+    this.socketUser.set(client.id, user.sub);
+
+    // Set user as online in Redis
+    await this.redis.setUserOnline(user.sub, client.id);
 
     // Optionally: auto-join the user to rooms for chats they are members of
     // (so they receive events automatically)
-    const memberChats = await this.chatService.getChatIdsForUser(user.id);
-    memberChats.forEach((chatId) => client.join(this.roomName(chatId)));
+    const memberChats = await this.chatService.getChatIdsForUser(user.sub);
+    memberChats.forEach((chatId) => {
+      client.join(this.roomName(chatId));
+
+      // Notify OTHER users in each chat that this user came online (exclude current user)
+      client.to(this.roomName(chatId)).emit('user:online', {
+        chatId,
+        userId: user.sub,
+        userEmail: user.email || 'Unknown',
+        timestamp: new Date().toISOString(),
+        message: `${user.email || 'User'} is now online`,
+      });
+    });
   }
 
   async handleDisconnect(client: Socket) {
+    const userId = this.socketUser.get(client.id);
+    if (userId) {
+      // Set user as offline in Redis
+      await this.redis.setUserOffline(userId);
+
+      // Get user's chat rooms and notify others that user went offline
+      try {
+        const memberChats = await this.chatService.getChatIdsForUser(userId);
+        memberChats.forEach((chatId) => {
+          this.server.to(this.roomName(chatId)).emit('user:offline', {
+            chatId,
+            userId,
+            timestamp: new Date().toISOString(),
+            message: `User went offline`,
+          });
+        });
+      } catch (error) {
+        console.error('Failed to notify offline status:', error);
+      }
+    }
     this.socketUser.delete(client.id);
   }
 
   roomName(chatId: string) {
     return `chat:${chatId}`;
+  }
+
+  // Method to send message programmatically (without WebSocket client)
+  async sendMessageProgrammatically(data: {
+    chatId: string;
+    senderId: string;
+    content: string;
+    type?: any;
+    replyToId?: string;
+    imageUrl?: string;
+    requestId?: string;
+  }): Promise<any> {
+    try {
+      // Create message using chat service
+      const message = await this.chatService.createMessage({
+        chatId: data.chatId,
+        senderId: data.senderId,
+        content: data.content,
+        type: data.type ?? PrismaMessageType.TEXT,
+        replyToId: data.replyToId,
+        imageUrl: data.imageUrl,
+        requestId: data.requestId,
+      });
+
+      // Broadcast to all users in the chat room
+      this.server.to(this.roomName(data.chatId)).emit('message:new', message);
+
+      return message;
+    } catch (error) {
+      console.error('Failed to send message programmatically:', error);
+      throw error;
+    }
+  }
+
+  // Helper method to find socket by user ID
+  private findSocketByUserId(userId: string): Socket | null {
+    try {
+      for (const [socketId, socketUserId] of this.socketUser.entries()) {
+        if (socketUserId === userId) {
+          // Use the correct Socket.IO API to get socket by ID
+          if (this.server?.sockets?.sockets) {
+            const socket = this.server.sockets.sockets.get(socketId);
+            return socket || null;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error finding socket by user ID:', error);
+    }
+    return null;
+  }
+
+  // Method to notify users when a new chat is created
+  async notifyChatCreated(
+    chatId: string,
+    userIds: string[],
+    chatName?: string,
+  ): Promise<void> {
+    console.log('notifyChatCreated', chatId, userIds, chatName);
+    try {
+      // Get user information for all users
+      const users = await Promise.all(
+        userIds.map(async (userId) => {
+          const user = await this.chatService.getUserById(userId);
+          return user ? { id: user.id, email: user.email } : null;
+        }),
+      );
+
+      const validUsers = users.filter((user) => user !== null);
+
+      // Notify each user about the new chat
+      validUsers.forEach((user) => {
+        // Find the socket for this user and send the notification
+        const userSocket = this.findSocketByUserId(user.id);
+        if (userSocket) {
+          userSocket.emit('chat:created', {
+            chatId,
+            chatName: chatName || 'New Chat',
+            members: validUsers,
+            timestamp: new Date().toISOString(),
+            message: `You were added to a new chat: ${chatName || 'New Chat'}`,
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Failed to notify chat creation:', error);
+    }
   }
 
   // Client asks to join a chat
@@ -74,18 +200,37 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { chatId: string },
   ) {
-    const user = (client.handshake as any).user;
+    const user = (client.handshake as any).user as {
+      sub: string;
+      email?: string;
+    };
     const { chatId } = payload;
     // Optionally verify membership
-    const isMember = await this.chatService.isUserMemberOfChat(user.id, chatId);
+    const isMember = await this.chatService.isUserMemberOfChat(
+      user.sub,
+      chatId,
+    );
     if (!isMember) {
       client.emit('error', { message: 'Not a member of this chat' });
       return;
     }
+
+    // Mark all messages as read when user joins the chat
+    try {
+      await this.chatService.markAllMessagesAsRead(user.sub, chatId);
+    } catch (error) {
+      console.error('Failed to mark messages as read:', error);
+    }
+
     client.join(this.roomName(chatId));
-    this.server.to(this.roomName(chatId)).emit('member:joined', {
+
+    // Notify all OTHER users in the chat that someone joined (exclude current user)
+    client.to(this.roomName(chatId)).emit('member:joined', {
       chatId,
-      userId: user.id,
+      userId: user.sub,
+      userEmail: user.email || 'Unknown',
+      timestamp: new Date().toISOString(),
+      message: `${user.email || 'User'} joined the chat`,
     });
   }
 
@@ -96,10 +241,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const { chatId } = payload;
     client.leave(this.roomName(chatId));
-    const user = (client.handshake as any).user;
-    this.server.to(this.roomName(chatId)).emit('member:left', {
+    const user = (client.handshake as any).user as {
+      sub: string;
+      email?: string;
+    };
+
+    // Notify all OTHER users in the chat that someone left (exclude current user)
+    client.to(this.roomName(chatId)).emit('member:left', {
       chatId,
-      userId: user.id,
+      userId: user.sub,
+      userEmail: user.email || 'Unknown',
+      timestamp: new Date().toISOString(),
+      message: `${user.email || 'User'} left the chat`,
     });
   }
 
@@ -109,7 +262,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: SendMessageDto,
   ) {
-    const user = (client.handshake as any).user;
+    const user = (client.handshake as any).user as {
+      sub: string;
+      email?: string;
+    };
     try {
       // persist
       const message = await this.chatService.createMessage({
@@ -119,6 +275,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         type: data.type ?? PrismaMessageType.TEXT,
         replyToId: data.replyToId,
         imageUrl: data.imageUrl,
+        requestId: data.requestId,
       });
 
       // broadcast to room
@@ -140,11 +297,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { chatId: string; typing: boolean },
   ) {
-    const user = (client.handshake as any).user;
-    this.server.to(this.roomName(payload.chatId)).emit('message:typing', {
+    const user = (client.handshake as any).user as {
+      sub: string;
+      email?: string;
+    };
+
+    // Update typing status in Redis
+    await this.redis.setTypingStatus(payload.chatId, user.sub, payload.typing);
+
+    // Get all typing users for this chat
+    const typingUsers = await this.redis.getTypingUsers(payload.chatId);
+
+    client.to(this.roomName(payload.chatId)).emit('message:typing', {
       chatId: payload.chatId,
-      userId: user.id,
+      userId: user.sub,
       typing: payload.typing,
+      typingUsers: typingUsers.filter((id) => id !== user.sub), // Exclude current user
     });
   }
 
@@ -154,16 +322,108 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { chatId: string; messageId: string },
   ) {
-    const user = (client.handshake as any).user;
+    const user = (client.handshake as any).user as {
+      sub: string;
+      email?: string;
+    };
     await this.chatService.markMessageRead(
-      user.id,
+      user.sub,
       payload.chatId,
       payload.messageId,
     );
-    this.server.to(this.roomName(payload.chatId)).emit('message:read', {
+
+    // Update read status in Redis
+    await this.redis.setMessageReadStatus(payload.messageId, user.sub);
+
+    client.to(this.roomName(payload.chatId)).emit('message:read', {
       chatId: payload.chatId,
-      userId: user.id,
+      userId: user.sub,
       messageId: payload.messageId,
     });
+  }
+
+  // Mark all messages as read
+  @SubscribeMessage('messages:read-all')
+  async handleReadAll(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { chatId: string },
+  ) {
+    const user = (client.handshake as any).user as {
+      sub: string;
+      email?: string;
+    };
+    try {
+      await this.chatService.markAllMessagesAsRead(user.sub, payload.chatId);
+      client.to(this.roomName(payload.chatId)).emit('messages:read-all', {
+        chatId: payload.chatId,
+        userId: user.sub,
+      });
+    } catch (error) {
+      client.emit('error', {
+        message: 'Could not mark messages as read',
+        details: error.message,
+      });
+    }
+  }
+
+  // Handle when a user is added to a chat
+  @SubscribeMessage('user:added-to-chat')
+  async handleUserAddedToChat(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { chatId: string; userId: string },
+  ) {
+    const user = (client.handshake as any).user as {
+      sub: string;
+      email?: string;
+    };
+
+    try {
+      // Verify the user is a member of the chat
+      const isMember = await this.chatService.isUserMemberOfChat(
+        user.sub,
+        payload.chatId,
+      );
+      if (!isMember) {
+        client.emit('error', { message: 'Not a member of this chat' });
+        return;
+      }
+
+      // Get user information
+      const addedUser = await this.chatService.getUserById(payload.userId);
+      if (!addedUser) {
+        client.emit('error', { message: 'User not found' });
+        return;
+      }
+
+      // Notify all members of the chat that a user was added
+      this.server.to(this.roomName(payload.chatId)).emit('user:added-to-chat', {
+        chatId: payload.chatId,
+        addedUser: {
+          id: addedUser.id,
+          email: addedUser.email,
+        },
+        addedBy: {
+          id: user.sub,
+          email: user.email || 'Unknown',
+        },
+        timestamp: new Date().toISOString(),
+        message: `${addedUser.email} was added to the chat`,
+      });
+
+      // Also notify the added user directly if they're connected
+      const addedUserSocket = this.socketUser.get(client.id);
+      if (addedUserSocket === payload.userId) {
+        client.emit('chat:joined', {
+          chatId: payload.chatId,
+          message: `You were added to the chat`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      client.emit('error', {
+        message: 'Could not notify user added to chat',
+        details: error.message,
+      });
+    }
   }
 }

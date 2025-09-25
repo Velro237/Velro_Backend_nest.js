@@ -1,15 +1,43 @@
 version: '3.8'
+
 services:
-    dev-db:
-      image: postgres:16-alpine # Use a specific version and a lightweight image
-      restart: always
-      environment:
-        POSTGRES_DB: velro # Replace with your desired database name
-        POSTGRES_USER: velro # Replace with your desired username
-        POSTGRES_PASSWORD: velro # Replace with a strong password
-      ports:
-        - "5432:5432" # Map host port 5432 to container port 5432
-      networks:
-        - velroDev
+  dev-db:
+    image: postgres:16-alpine # Lightweight PostgreSQL image
+    restart: always
+    environment:
+      POSTGRES_DB: velro           # Database name
+      POSTGRES_USER: velro         # Database username
+      POSTGRES_PASSWORD: velro     # Database password
+    ports:
+      - '5432:5432'                # Map local port 5432 to container port 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - velroDev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U velro"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - '6379:6379'                # Map Redis default port
+    volumes:
+      - redis_data:/data
+    networks:
+      - velroDev
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   velroDev:
+
+volumes:
+  postgres_data:
+  redis_data:

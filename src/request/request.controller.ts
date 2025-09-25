@@ -32,6 +32,10 @@ import {
   UpdateTripRequestResponseDto,
 } from './dto/update-trip-request.dto';
 import {
+  ChangeRequestStatusDto,
+  ChangeRequestStatusResponseDto,
+} from './dto/change-request-status.dto';
+import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
   ApiUpdateTripRequest,
@@ -91,6 +95,22 @@ export class RequestController {
     return this.requestService.updateTripRequest(
       requestId,
       updateTripRequestDto,
+      lang,
+    );
+  }
+
+  @Patch('status')
+  @HttpCode(HttpStatus.OK)
+  @ApiExtraModels(ChangeRequestStatusResponseDto)
+  async changeRequestStatus(
+    @Body() changeRequestStatusDto: ChangeRequestStatusDto,
+    @Request() req: any,
+    @I18nLang() lang: string,
+  ): Promise<ChangeRequestStatusResponseDto> {
+    return this.requestService.changeRequestStatus(
+      changeRequestStatusDto.chatId,
+      changeRequestStatusDto.status,
+      req.user.id,
       lang,
     );
   }

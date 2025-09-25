@@ -32,6 +32,44 @@
 $ npm install
 ```
 
+## Environment Configuration
+
+Create a `.env` file in the root directory with the following variables:
+
+```bash
+# Database
+DATABASE_URL="postgres://velro:velro@localhost:5432/velro"
+
+# Redis
+REDIS_URL="redis://localhost:6379"
+
+# JWT
+JWT_SECRET="your-secret-key"
+
+# Environment
+NODE_ENV="development"
+```
+
+## Redis Integration
+
+This project now includes Redis integration for enhanced chat functionality:
+
+- **Caching**: Chat data and messages are cached for improved performance
+- **Real-time messaging**: Redis pub/sub for real-time message broadcasting
+- **Online user tracking**: Track which users are currently online
+- **Typing indicators**: Real-time typing status across chat participants
+- **Message read status**: Track message read receipts
+
+### Starting with Docker
+
+```bash
+# Start all services including Redis
+$ docker-compose -f docker-compose.dev.yml up
+
+# Or start only Redis
+$ docker-compose -f docker-compose.dev.yml up redis
+```
+
 ## Compile and run the project
 
 ```bash

@@ -51,6 +51,15 @@ export class SendMessageDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @ApiProperty({
+    description: 'Request ID to link message to a trip request',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    required: false,
+  })
+  @IsOptional()
+  @IsUUID('4')
+  requestId?: string;
 }
 
 export class MessageResponseDto {

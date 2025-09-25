@@ -33,7 +33,9 @@
       "success": "Messages récupérés avec succès",
       "failed": "Échec de la récupération des messages",
       "unauthorized": "Pas membre de ce chat",
-      "newTripRequest": "Nouvelle demande de voyage"
+      "newTripRequest": "Nouvelle demande de voyage",
+      "newTripRequestNotification": "Bonjour ! Je suis intéressé par votre voyage. Pourriez-vous me donner plus de détails ?",
+      "requestStatusChanged": "Le statut de la demande a été changé en {status}"
     },
     "chatName": {
       "to": "vers"
@@ -76,7 +78,12 @@
         "notFound": "Demande de voyage non trouvée",
         "cannotRequestOwnTrip": "Vous ne pouvez pas demander des articles de votre propre voyage",
         "itemsRequired": "Les articles de voyage sont requis pour les voyages de valise partielle",
-        "itemNotAvailable": "Un ou plusieurs articles demandés ne sont pas disponibles dans ce voyage"
+        "itemNotAvailable": "Un ou plusieurs articles demandés ne sont pas disponibles dans ce voyage",
+        "chatNotFound": "Chat non trouvé",
+        "unauthorized": "Seul le propriétaire du voyage peut changer le statut de la demande",
+        "notPending": "Le statut de la demande ne peut être changé que s'il est actuellement en attente",
+        "statusChanged": "Statut de la demande mis à jour avec succès",
+        "statusChangeFailed": "Échec de la mise à jour du statut de la demande"
       }
     },
   "transportType": {

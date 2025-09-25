@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
+import { RedisService } from '../redis/redis.service';
 import { CreateChatDto, CreateChatResponseDto } from './dto/create-chat.dto';
 import {
   SendMessageDto,
@@ -29,6 +30,7 @@ export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly redis: RedisService,
   ) {}
 
   async createChat(
@@ -135,6 +137,13 @@ export class ChatService {
     try {
       const { page = 1, limit = 10, search } = query;
       const skip = (page - 1) * limit;
+
+      // Try to get from cache first
+      const cacheKey = `user:${userId}:chats:${page}:${limit}:${search || ''}`;
+      const cachedResult = await this.redis.getChatCache(cacheKey);
+      if (cachedResult) {
+        return cachedResult;
+      }
 
       const whereClause: any = {
         members: {
@@ -247,7 +256,7 @@ export class ChatService {
         { lang },
       );
 
-      return {
+      const result = {
         message,
         chats: chatSummaries,
         pagination: {
@@ -259,6 +268,11 @@ export class ChatService {
           hasPrev: page > 1,
         },
       };
+
+      // Cache the result for 5 minutes
+      await this.redis.setChatCache(cacheKey, result, 300);
+
+      return result;
     } catch (error) {
       const message = await this.i18n.translate(
         'translation.chat.getAll.failed',
@@ -284,6 +298,13 @@ export class ChatService {
         { lang },
       );
       throw new ForbiddenException(message);
+    }
+
+    // Try to get from cache first
+    const cacheKey = `chat:${chatId}:messages:${page}:${limit}`;
+    const cachedResult = await this.redis.getChatCache(cacheKey);
+    if (cachedResult) {
+      return cachedResult;
     }
 
     try {
@@ -348,7 +369,7 @@ export class ChatService {
             content,
             imageUrl: message.image_url,
             type: message.type,
-            isRead: message.isRead,
+            isRead: message.sender_id === userId ? true : message.isRead,
             createdAt: message.createdAt,
             tripData: message.request?.trip
               ? {
@@ -378,7 +399,7 @@ export class ChatService {
         { lang },
       );
 
-      return {
+      const result = {
         message: message_text,
         messages: messageResponses,
         pagination: {
@@ -390,6 +411,11 @@ export class ChatService {
           hasPrev: page > 1,
         },
       };
+
+      // Cache the result for 2 minutes
+      await this.redis.setChatCache(cacheKey, result, 120);
+
+      return result;
     } catch (error) {
       const message = await this.i18n.translate(
         'translation.chat.messages.failed',
@@ -406,8 +432,10 @@ export class ChatService {
     type: PrismaMessageType;
     replyToId?: string;
     imageUrl?: string;
+    requestId?: string;
   }): Promise<MessageResponseDto> {
-    const { chatId, senderId, content, type, replyToId, imageUrl } = data;
+    const { chatId, senderId, content, type, replyToId, imageUrl, requestId } =
+      data;
 
     // Check if user is a member of the chat
     const isMember = await this.isUserMemberOfChat(senderId, chatId);
@@ -423,6 +451,7 @@ export class ChatService {
           content,
           type,
           image_url: imageUrl,
+          request_id: requestId,
         },
         include: {
           sender: {
@@ -431,10 +460,31 @@ export class ChatService {
               email: true,
             },
           },
+          request: {
+            include: {
+              trip: {
+                select: {
+                  id: true,
+                  pickup: true,
+                  destination: true,
+                  departure_date: true,
+                  departure_time: true,
+                  price_per_kg: true,
+                  fullSuitcaseOnly: true,
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       });
 
-      return {
+      const result = {
         id: message.id,
         chatId: message.chat_id,
         sender: {
@@ -444,9 +494,31 @@ export class ChatService {
         content: message.content,
         imageUrl: message.image_url,
         type: message.type,
-        isRead: message.isRead,
+        isRead: true, // Messages are always "read" by the sender
         createdAt: message.createdAt,
+        tripData: message.request?.trip
+          ? {
+              id: message.request.trip.id,
+              pickup: message.request.trip.pickup,
+              destination: message.request.trip.destination,
+              departure_date: message.request.trip.departure_date,
+              departure_time: message.request.trip.departure_time,
+              price_per_kg: Number(message.request.trip.price_per_kg),
+              fullSuitcaseOnly: message.request.trip.fullSuitcaseOnly,
+              user: message.request.trip.user
+                ? {
+                    id: message.request.trip.user.id,
+                    email: message.request.trip.user.email,
+                  }
+                : undefined,
+            }
+          : undefined,
       };
+
+      // Invalidate cache for this chat
+      await this.redis.invalidateChatCache(chatId);
+
+      return result;
     } catch (error) {
       throw new InternalServerErrorException('Failed to create message');
     }
@@ -475,6 +547,25 @@ export class ChatService {
     });
   }
 
+  async markAllMessagesAsRead(userId: string, chatId: string): Promise<void> {
+    // Check if user is a member of the chat
+    const isMember = await this.isUserMemberOfChat(userId, chatId);
+    if (!isMember) {
+      throw new ForbiddenException('Not a member of this chat');
+    }
+
+    await this.prisma.message.updateMany({
+      where: {
+        chat_id: chatId,
+        sender_id: { not: userId }, // Don't mark own messages as read
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+      },
+    });
+  }
+
   async isUserMemberOfChat(userId: string, chatId: string): Promise<boolean> {
     const membership = await this.prisma.chatMember.findUnique({
       where: {
@@ -495,5 +586,19 @@ export class ChatService {
     });
 
     return memberships.map((membership) => membership.chat_id);
+  }
+
+  async getUserById(
+    userId: string,
+  ): Promise<{ id: string; email: string } | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+      },
+    });
+
+    return user;
   }
 }

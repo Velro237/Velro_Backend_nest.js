@@ -33,7 +33,9 @@
       "success": "Messages retrieved successfully",
       "failed": "Failed to retrieve messages",
       "unauthorized": "Not a member of this chat",
-      "newTripRequest": "New trip request"
+      "newTripRequest": "New trip request",
+      "newTripRequestNotification": "Hello! I'm interested in your trip. Could you please provide more details?",
+      "requestStatusChanged": "Request status has been changed to {status}"
     },
     "chatName": {
       "to": "to"
@@ -76,7 +78,12 @@
         "notFound": "Trip request not found",
         "cannotRequestOwnTrip": "You cannot request items from your own trip",
         "itemsRequired": "Trip items are required for non-full suitcase trips",
-        "itemNotAvailable": "One or more requested items are not available in this trip"
+        "itemNotAvailable": "One or more requested items are not available in this trip",
+        "chatNotFound": "Chat not found",
+        "unauthorized": "Only the trip owner can change request status",
+        "notPending": "Request status can only be changed if it is currently pending",
+        "statusChanged": "Request status updated successfully",
+        "statusChangeFailed": "Failed to update request status"
       }
     },
   "transportType": {
