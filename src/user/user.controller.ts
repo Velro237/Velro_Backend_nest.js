@@ -7,14 +7,22 @@ import {
   Param,
   Delete,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { I18nLang, I18nService, I18n, I18nContext } from 'nestjs-i18n';
+import { I18nLang, I18nService } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags } from '@nestjs/swagger';
-import { ApiUserWelcome } from './decorators/api-docs.decorator';
+import {
+  ApiCreateUser,
+  ApiFindAllUsers,
+  ApiFindOneUser,
+  ApiRemoveUser,
+  ApiUpdateUser,
+  ApiUserWelcome,
+} from './decorators/api-docs.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 
@@ -45,7 +53,40 @@ export class UserController {
       },
     };
   }
- 
+
+  @ApiCreateUser()
+  @Post()
+  create(@Body() dto: CreateUserDto) {
+    return this.userService.create(dto);
+  }
+
+  @ApiFindAllUsers()
+  @Get()
+  findAll() {
+    return this.userService.findAll();
+  }
+
+  @ApiFindOneUser()
+  @Get(':id')
+  findOne(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.userService.findOne(id);
+  }
+
+  @ApiUpdateUser()
+  @Patch(':id')
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateUserDto,
+  ) {
+    return this.userService.update(id, dto);
+  }
+
+  @ApiRemoveUser()
+  @Delete(':id')
+  remove(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.userService.remove(id);
+  }
+
   // // Method 1: @I18n() decorator (SHORTHAND - Most Popular)
   // @Get('welcome-shorthand')
   // async getWelcomeShorthand(@I18n() i18n: I18nContext) {

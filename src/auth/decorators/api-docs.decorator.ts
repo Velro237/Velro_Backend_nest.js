@@ -46,15 +46,6 @@ export class JwtPayloadDto {
 // Helpers d’erreur (schémas réutilisables)
 // ======================
 
-// const BadRequestArraySchema = (examples: string[]) => ({
-//   type: 'object',
-//   properties: {
-//     message: { type: 'array', items: { type: 'string' }, example: examples },
-//     error: { type: 'string', example: 'Bad Request' },
-//     statusCode: { type: 'number', example: 400 },
-//   },
-// });
-
 const BadRequestStringSchema = (example: string) => ({
   type: 'object',
   properties: {
