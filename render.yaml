@@ -5,7 +5,6 @@ services:
     env: docker
     plan: starter
     dockerfilePath: ./Dockerfile.db
-    ipAllowList: []
     envVars:
       - key: POSTGRES_DB
         value: velro
@@ -19,6 +18,7 @@ services:
     name: velro-redis
     plan: starter
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
 
   # NestJS Web Service
   - type: web
