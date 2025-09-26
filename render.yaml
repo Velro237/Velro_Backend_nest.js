@@ -5,6 +5,7 @@ services:
     env: docker
     plan: starter
     dockerfilePath: ./Dockerfile.db
+    ipAllowList: []
     envVars:
       - key: POSTGRES_DB
         value: velro

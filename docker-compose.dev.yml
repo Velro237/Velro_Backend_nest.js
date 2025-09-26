@@ -1,5 +1,6 @@
 services:
   dev-db:
+
     image: postgres:16-alpine
     restart: always
     environment:
