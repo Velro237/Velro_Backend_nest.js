@@ -21,7 +21,10 @@
     "create": {
       "success": "Chat créé avec succès",
       "failed": "Échec de la création du chat",
-      "userNotFound": "Un ou plusieurs utilisateurs non trouvés"
+      "userNotFound": "Utilisateur non trouvé",
+      "cannotChatWithSelf": "Impossible de créer un chat avec vous-même",
+      "chatAlreadyExists": "Un chat existe déjà entre ces deux utilisateurs",
+      "duplicateTripChat": "Un chat existe déjà entre vous et cet utilisateur pour ce voyage"
     },
     "getAll": {
       "success": "Chats récupérés avec succès",
@@ -30,7 +33,13 @@
     "messages": {
       "success": "Messages récupérés avec succès",
       "failed": "Échec de la récupération des messages",
-      "unauthorized": "Pas membre de ce chat"
+      "unauthorized": "Pas membre de ce chat",
+      "newTripRequest": "Nouvelle demande de voyage",
+      "newTripRequestNotification": "Bonjour ! Je suis intéressé par votre voyage. Pourriez-vous me donner plus de détails ?",
+      "requestStatusChanged": "Le statut de la demande a été changé en {status}"
+    },
+    "chatName": {
+      "to": "vers"
     }
   },
   "trip": {
@@ -70,7 +79,12 @@
         "notFound": "Demande de voyage non trouvée",
         "cannotRequestOwnTrip": "Vous ne pouvez pas demander des articles de votre propre voyage",
         "itemsRequired": "Les articles de voyage sont requis pour les voyages de valise partielle",
-        "itemNotAvailable": "Un ou plusieurs articles demandés ne sont pas disponibles dans ce voyage"
+        "itemNotAvailable": "Un ou plusieurs articles demandés ne sont pas disponibles dans ce voyage",
+        "chatNotFound": "Chat non trouvé",
+        "unauthorized": "Seul le propriétaire du voyage peut changer le statut de la demande",
+        "notPending": "Le statut de la demande ne peut être changé que s'il est actuellement en attente",
+        "statusChanged": "Statut de la demande mis à jour avec succès",
+        "statusChangeFailed": "Échec de la mise à jour du statut de la demande"
       }
     },
   "transportType": {
@@ -116,5 +130,21 @@
       "failed": "Échec de la récupération de l'article de voyage",
       "notFound": "Article de voyage non trouvé"
     }
+  },
+  "report": {
+    "userNotFound": "Utilisateur signalé non trouvé",
+    "tripNotFound": "Voyage non trouvé",
+    "requestNotFound": "Demande de voyage non trouvée",
+    "reportNotFound": "Signalement non trouvé",
+    "cannotReportSelf": "Vous ne pouvez pas vous signaler vous-même",
+    "createSuccess": "Signalement créé avec succès",
+    "createFailed": "Échec de la création du signalement",
+    "getSuccess": "Signalements récupérés avec succès",
+    "getFailed": "Échec de la récupération des signalements",
+    "notFound": "Signalement non trouvé",
+    "replySuccess": "Réponse au signalement créée avec succès",
+    "replyFailed": "Échec de la création de la réponse au signalement",
+    "getAllSuccess": "Tous les signalements ont été récupérés avec succès",
+    "getAllFailed": "Échec de la récupération de tous les signalements"
   }
 }

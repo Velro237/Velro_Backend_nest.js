@@ -5,6 +5,7 @@ import {
   ApiBody,
   ApiParam,
   ApiQuery,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import {
   CreateTripRequestDto,
@@ -25,11 +26,16 @@ import {
   UpdateTripRequestDto,
   UpdateTripRequestResponseDto,
 } from '../dto/update-trip-request.dto';
+import {
+  ChangeRequestStatusDto,
+  ChangeRequestStatusResponseDto,
+} from '../dto/change-request-status.dto';
 
 // Trip Request Documentation Decorators
 
 export const ApiCreateTripRequest = () =>
   applyDecorators(
+    ApiBearerAuth('JWT-auth'),
     ApiOperation({
       summary: 'Create a trip request',
       description:
@@ -492,6 +498,132 @@ export const ApiUpdateTripRequest = () =>
           summary: 'Internal server error',
           value: {
             message: 'Failed to update trip request',
+            error: 'Internal Server Error',
+            statusCode: 500,
+          },
+        },
+      },
+    }),
+  );
+
+export const ApiChangeRequestStatus = () =>
+  applyDecorators(
+    ApiOperation({
+      summary: 'Change trip request status',
+      description:
+        'Change the status of a trip request (ACCEPTED, REJECTED, etc.). Only the trip owner can change the request status.',
+    }),
+    ApiBody({
+      description: 'Request status change data',
+      type: ChangeRequestStatusDto,
+      examples: {
+        accept: {
+          summary: 'Accept a trip request',
+          value: {
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
+            chatId: '123e4567-e89b-12d3-a456-426614174000',
+            status: 'ACCEPTED',
+          },
+        },
+        reject: {
+          summary: 'Reject a trip request',
+          value: {
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
+            chatId: '123e4567-e89b-12d3-a456-426614174000',
+            status: 'REJECTED',
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'Request status changed successfully',
+      type: ChangeRequestStatusResponseDto,
+      examples: {
+        success: {
+          summary: 'Status changed successfully',
+          value: {
+            message: 'Request status updated successfully',
+            request: {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              status: 'ACCEPTED',
+              updatedAt: '2023-12-01T10:30:00.000Z',
+            },
+            chatMessage: {
+              id: '987fcdeb-51a2-43d1-b456-426614174000',
+              chatId: '123e4567-e89b-12d3-a456-426614174000',
+              content: 'Request status has been changed to accepted',
+              type: 'REQUEST',
+              createdAt: '2023-12-01T10:30:00.000Z',
+            },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'Unauthorized - Invalid or missing JWT token',
+      examples: {
+        unauthorized: {
+          summary: 'Unauthorized',
+          value: {
+            message: 'Unauthorized',
+            statusCode: 401,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 403,
+      description: 'Forbidden - Only trip owner can change request status',
+      examples: {
+        forbidden: {
+          summary: 'Forbidden',
+          value: {
+            message: 'Only the trip owner can change request status',
+            error: 'Forbidden',
+            statusCode: 403,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 404,
+      description: 'Not found - Chat or request not found',
+      examples: {
+        notFound: {
+          summary: 'Not found',
+          value: {
+            message: 'Chat not found',
+            error: 'Not Found',
+            statusCode: 404,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 409,
+      description: 'Conflict - Request is not in pending status',
+      examples: {
+        conflict: {
+          summary: 'Request not pending',
+          value: {
+            message:
+              'Request status can only be changed if it is currently pending',
+            error: 'Conflict',
+            statusCode: 409,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+      examples: {
+        serverError: {
+          summary: 'Internal server error',
+          value: {
+            message: 'Failed to update request status',
             error: 'Internal Server Error',
             statusCode: 500,
           },

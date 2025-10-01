@@ -7,19 +7,36 @@ import {
   Param,
   Delete,
   UseGuards,
+  HttpCode,
+  HttpStatus,
+  Query,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import {
+  CreateReportDto,
+  CreateReportResponseDto,
+} from './dto/create-report.dto';
+import {
+  GetReportsQueryDto,
+  GetReportsResponseDto,
+} from './dto/get-reports.dto';
 import { I18nLang, I18nService, I18n, I18nContext } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ApiTags } from '@nestjs/swagger';
-import { ApiUserWelcome } from './decorators/api-docs.decorator';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiUserWelcome,
+  ApiCreateReport,
+  ApiGetReports,
+} from './decorators/api-docs.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 
 @ApiTags('User')
+@ApiBearerAuth('JWT-auth')
 @Controller('user')
+@UseGuards(JwtAuthGuard)
 export class UserController {
   constructor(
     private readonly userService: UserService,
@@ -27,7 +44,6 @@ export class UserController {
   ) {}
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   @ApiUserWelcome()
   async getMe(@CurrentUser() user: User, @I18nLang() lang: string) {
     const message = await this.i18n.translate('translation.hello', {
@@ -45,7 +61,28 @@ export class UserController {
       },
     };
   }
- 
+
+  @Post('report')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreateReport()
+  async createReport(
+    @Body() createReportDto: CreateReportDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<CreateReportResponseDto> {
+    return this.userService.createReport(createReportDto, user.id, lang);
+  }
+
+  @Get('reports')
+  @ApiGetReports()
+  async getReports(
+    @Query() query: GetReportsQueryDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<GetReportsResponseDto> {
+    return this.userService.getReports(user.id, query, lang);
+  }
+
   // // Method 1: @I18n() decorator (SHORTHAND - Most Popular)
   // @Get('welcome-shorthand')
   // async getWelcomeShorthand(@I18n() i18n: I18nContext) {

@@ -16,14 +16,15 @@ import {
 export function ApiCreateChat() {
   return applyDecorators(
     ApiOperation({
-      summary: 'Create a new chat',
-      description: 'Create a new chat with specified members',
+      summary: 'Create or get existing direct chat',
+      description:
+        'Create a new direct chat between the authenticated user and another user, or return existing chat if one already exists (two users only)',
     }),
     ApiBearerAuth('JWT-auth'),
     ApiBody({ type: CreateChatDto }),
     ApiResponse({
       status: 201,
-      description: 'Chat created successfully',
+      description: 'Chat created successfully or existing chat returned',
       type: CreateChatResponseDto,
     }),
     ApiResponse({
@@ -36,8 +37,8 @@ export function ApiCreateChat() {
             type: 'array',
             items: { type: 'string' },
             example: [
-              'memberIds must be an array',
-              'Each memberId must be a valid UUID',
+              'otherUserId must be a valid UUID',
+              'name must be a string',
             ],
           },
           error: { type: 'string', example: 'Bad Request' },
@@ -51,9 +52,59 @@ export function ApiCreateChat() {
       schema: {
         type: 'object',
         properties: {
-          message: { type: 'string', example: 'One or more users not found' },
+          message: { type: 'string', example: 'User not found' },
           error: { type: 'string', example: 'Not Found' },
           statusCode: { type: 'number', example: 404 },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 409,
+      description: 'Conflict - Cannot chat with self',
+      schema: {
+        type: 'object',
+        properties: {
+          message: {
+            type: 'string',
+            example: 'Cannot create a chat with yourself',
+          },
+          error: { type: 'string', example: 'Conflict' },
+          statusCode: { type: 'number', example: 409 },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 201,
+      description: 'Chat already exists - Returns existing chat',
+      schema: {
+        type: 'object',
+        properties: {
+          message: {
+            type: 'string',
+            example: 'Chat already exists between these two users',
+          },
+          chat: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                example: '123e4567-e89b-12d3-a456-426614174000',
+              },
+              name: { type: 'string', example: 'Direct Message' },
+              createdAt: { type: 'string', format: 'date-time' },
+              members: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    email: { type: 'string' },
+                    role: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     }),

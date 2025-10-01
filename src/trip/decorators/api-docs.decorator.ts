@@ -1,5 +1,11 @@
 import { applyDecorators } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiBody, ApiParam } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiParam,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { CreateTripDto, CreateTripResponseDto } from '../dto/create-trip.dto';
 import { UpdateTripDto, UpdateTripResponseDto } from '../dto/update-trip.dto';
 
@@ -33,6 +39,7 @@ import { GetTripByIdResponseDto } from '../dto/get-trip-by-id.dto';
 // Trip Documentation Decorators
 export const ApiCreateTrip = () =>
   applyDecorators(
+    ApiBearerAuth('JWT-auth'),
     ApiOperation({
       summary: 'Create a new trip',
       description:

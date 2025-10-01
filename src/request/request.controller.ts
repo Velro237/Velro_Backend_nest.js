@@ -8,10 +8,15 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
-import { ApiTags, ApiExtraModels } from '@nestjs/swagger';
+import { ApiTags, ApiExtraModels, ApiBearerAuth } from '@nestjs/swagger';
 import { RequestService } from './request.service';
 import { I18nLang } from 'nestjs-i18n';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from 'generated/prisma';
 import {
   CreateTripRequestDto,
   CreateTripRequestResponseDto,
@@ -29,9 +34,14 @@ import {
   UpdateTripRequestResponseDto,
 } from './dto/update-trip-request.dto';
 import {
+  ChangeRequestStatusDto,
+  ChangeRequestStatusResponseDto,
+} from './dto/change-request-status.dto';
+import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
   ApiUpdateTripRequest,
+  ApiChangeRequestStatus,
 } from './decorators/api-docs.decorator';
 
 @ApiTags('Trip Requests')
@@ -48,7 +58,10 @@ import {
   TripRequestItemSummaryDto,
   TripRequestSummaryDto,
 )
+@ApiTags('Request')
+@ApiBearerAuth('JWT-auth')
 @Controller('request')
+@UseGuards(JwtAuthGuard)
 export class RequestController {
   constructor(private readonly requestService: RequestService) {}
 
@@ -58,9 +71,14 @@ export class RequestController {
   @ApiCreateTripRequest()
   async createTripRequest(
     @Body() createTripRequestDto: CreateTripRequestDto,
+    @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<CreateTripRequestResponseDto> {
-    return this.requestService.createTripRequest(createTripRequestDto, lang);
+    return this.requestService.createTripRequest(
+      createTripRequestDto,
+      user.id,
+      lang,
+    );
   }
 
   @Get('trip')
@@ -82,6 +100,23 @@ export class RequestController {
     return this.requestService.updateTripRequest(
       requestId,
       updateTripRequestDto,
+      lang,
+    );
+  }
+
+  @Patch('status')
+  @HttpCode(HttpStatus.OK)
+  @ApiChangeRequestStatus()
+  async changeRequestStatus(
+    @Body() changeRequestStatusDto: ChangeRequestStatusDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<ChangeRequestStatusResponseDto> {
+    return this.requestService.changeRequestStatus(
+      changeRequestStatusDto.requestId,
+      changeRequestStatusDto.chatId,
+      changeRequestStatusDto.status,
+      user.id,
       lang,
     );
   }
