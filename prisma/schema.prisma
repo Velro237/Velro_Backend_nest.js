@@ -9,10 +9,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Provider {
+  GOOGLE
+  APPLE
+}
+
 model User {
   id        String        @id @default(uuid())
   email     String        @unique
-  password  String
+  password  String?
+  name      String?
+  picture   String?
   role      UserRole      @default(USER)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
@@ -21,10 +28,36 @@ model User {
   messages  Message[]
   chats     ChatMember[]
 
-  // Report relations
   reportsSubmitted Report[] @relation("ReportReporter")
   reportsReceived  Report[] @relation("ReportReported")
   reportsReplied   Report[] @relation("ReportReplier")
+  refreshTokens RefreshToken[]
+  accounts      Account[]
+}
+
+model Account {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider          Provider
+  providerAccountId String // "sub" (Google/Apple subject)
+  accessToken       String?
+  refreshToken      String?
+  idToken           String?
+  expiresAt         DateTime?
+
+  @@unique([provider, providerAccountId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique // (en pratique: stocke un hash)
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 model Chat {
