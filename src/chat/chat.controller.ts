@@ -8,7 +8,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
 import { CreateChatDto, CreateChatResponseDto } from './dto/create-chat.dto';
@@ -28,6 +28,7 @@ import {
 } from './decorators/api-docs.decorator';
 
 @ApiTags('Chat')
+@ApiBearerAuth('JWT-auth')
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
@@ -55,6 +56,7 @@ export class ChatController {
       result.chat.id,
       [user.id, createChatDto.otherUserId],
       result.chat.name || 'New Chat',
+      result.lastMessage,
     );
 
     return result;

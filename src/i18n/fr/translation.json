@@ -23,7 +23,8 @@
       "failed": "Échec de la création du chat",
       "userNotFound": "Utilisateur non trouvé",
       "cannotChatWithSelf": "Impossible de créer un chat avec vous-même",
-      "chatAlreadyExists": "Un chat existe déjà entre ces deux utilisateurs"
+      "chatAlreadyExists": "Un chat existe déjà entre ces deux utilisateurs",
+      "duplicateTripChat": "Un chat existe déjà entre vous et cet utilisateur pour ce voyage"
     },
     "getAll": {
       "success": "Chats récupérés avec succès",
@@ -129,5 +130,21 @@
       "failed": "Échec de la récupération de l'article de voyage",
       "notFound": "Article de voyage non trouvé"
     }
+  },
+  "report": {
+    "userNotFound": "Utilisateur signalé non trouvé",
+    "tripNotFound": "Voyage non trouvé",
+    "requestNotFound": "Demande de voyage non trouvée",
+    "reportNotFound": "Signalement non trouvé",
+    "cannotReportSelf": "Vous ne pouvez pas vous signaler vous-même",
+    "createSuccess": "Signalement créé avec succès",
+    "createFailed": "Échec de la création du signalement",
+    "getSuccess": "Signalements récupérés avec succès",
+    "getFailed": "Échec de la récupération des signalements",
+    "notFound": "Signalement non trouvé",
+    "replySuccess": "Réponse au signalement créée avec succès",
+    "replyFailed": "Échec de la création de la réponse au signalement",
+    "getAllSuccess": "Tous les signalements ont été récupérés avec succès",
+    "getAllFailed": "Échec de la récupération de tous les signalements"
   }
 }

@@ -11,10 +11,12 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
-import { ApiTags, ApiExtraModels } from '@nestjs/swagger';
+import { ApiTags, ApiExtraModels, ApiBearerAuth } from '@nestjs/swagger';
 import { RequestService } from './request.service';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from 'generated/prisma';
 import {
   CreateTripRequestDto,
   CreateTripRequestResponseDto,
@@ -39,6 +41,7 @@ import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
   ApiUpdateTripRequest,
+  ApiChangeRequestStatus,
 } from './decorators/api-docs.decorator';
 
 @ApiTags('Trip Requests')
@@ -55,23 +58,25 @@ import {
   TripRequestItemSummaryDto,
   TripRequestSummaryDto,
 )
+@ApiTags('Request')
+@ApiBearerAuth('JWT-auth')
 @Controller('request')
+@UseGuards(JwtAuthGuard)
 export class RequestController {
   constructor(private readonly requestService: RequestService) {}
 
   // Trip Request endpoints
   @Post('trip')
   @HttpCode(HttpStatus.CREATED)
-  @UseGuards(JwtAuthGuard)
   @ApiCreateTripRequest()
   async createTripRequest(
     @Body() createTripRequestDto: CreateTripRequestDto,
-    @Request() req: any,
+    @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<CreateTripRequestResponseDto> {
     return this.requestService.createTripRequest(
       createTripRequestDto,
-      req.user.id,
+      user.id,
       lang,
     );
   }
@@ -101,16 +106,17 @@ export class RequestController {
 
   @Patch('status')
   @HttpCode(HttpStatus.OK)
-  @ApiExtraModels(ChangeRequestStatusResponseDto)
+  @ApiChangeRequestStatus()
   async changeRequestStatus(
     @Body() changeRequestStatusDto: ChangeRequestStatusDto,
-    @Request() req: any,
+    @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<ChangeRequestStatusResponseDto> {
     return this.requestService.changeRequestStatus(
+      changeRequestStatusDto.requestId,
       changeRequestStatusDto.chatId,
       changeRequestStatusDto.status,
-      req.user.id,
+      user.id,
       lang,
     );
   }

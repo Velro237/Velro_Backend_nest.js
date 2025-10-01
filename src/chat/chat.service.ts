@@ -38,7 +38,16 @@ export class ChatService {
     userId: string,
     lang?: string,
   ): Promise<CreateChatResponseDto> {
-    const { name, otherUserId, tripId } = createChatDto;
+    const {
+      name,
+      otherUserId,
+      tripId,
+      messageContent,
+      messageType,
+      messageReplyToId,
+      messageImageUrl,
+      messageRequestId,
+    } = createChatDto;
 
     // Prevent users from creating a chat with themselves
     if (userId === otherUserId) {
@@ -63,44 +72,101 @@ export class ChatService {
       throw new NotFoundException(message);
     }
 
-    // Allow users to create multiple chats together (removed existing chat check)
+    // Check if a chat already exists between these users for the same trip
+    if (tripId) {
+      const existingChat = await this.prisma.chat.findFirst({
+        where: {
+          trip_id: tripId,
+          members: {
+            every: {
+              user_id: {
+                in: [userId, otherUserId],
+              },
+            },
+          },
+        },
+        include: {
+          _count: {
+            select: {
+              members: true,
+            },
+          },
+        },
+      });
+
+      // If chat exists and has exactly 2 members (the two users), prevent creation
+      if (existingChat && existingChat._count.members === 2) {
+        const message = await this.i18n.translate(
+          'translation.chat.create.duplicateTripChat',
+          { lang },
+        );
+        throw new ConflictException(message);
+      }
+    }
 
     try {
-      const chat = await this.prisma.$transaction(async (prisma) => {
-        // Create the chat
-        const newChat = await prisma.chat.create({
-          data: {
-            name: name || null, // Direct messages don't need names
-            trip_id: tripId || null, // Link to trip if provided
-          },
-        });
+      const { chat, lastMessage } = await this.prisma.$transaction(
+        async (prisma) => {
+          // Create the chat
+          const newChat = await prisma.chat.create({
+            data: {
+              name: name || null, // Direct messages don't need names
+              trip_id: tripId || null, // Link to trip if provided
+            },
+          });
 
-        // Add both users as members
-        await prisma.chatMember.createMany({
-          data: [
-            { chat_id: newChat.id, user_id: userId },
-            { chat_id: newChat.id, user_id: otherUserId },
-          ],
-        });
+          // Add both users as members
+          await prisma.chatMember.createMany({
+            data: [
+              { chat_id: newChat.id, user_id: userId },
+              { chat_id: newChat.id, user_id: otherUserId },
+            ],
+          });
 
-        // Fetch the chat with members
-        return await prisma.chat.findUnique({
-          where: { id: newChat.id },
-          include: {
-            members: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    role: true,
+          // Create the initial message
+          const initialMessage = await prisma.message.create({
+            data: {
+              content: messageContent,
+              type: messageType
+                ? (messageType as PrismaMessageType)
+                : PrismaMessageType.TEXT,
+              chat_id: newChat.id,
+              sender_id: userId,
+              reply_to_id: messageReplyToId || null,
+              image_url: messageImageUrl || null,
+              request_id: messageRequestId || null,
+            },
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  email: true,
+                },
+              },
+            },
+          });
+
+          // Fetch the chat with members
+          const chat = await prisma.chat.findUnique({
+            where: { id: newChat.id },
+            include: {
+              members: {
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                      role: true,
+                    },
                   },
                 },
               },
             },
-          },
-        });
-      });
+          });
+
+          return { chat, lastMessage: initialMessage };
+        },
+      );
 
       const message = await this.i18n.translate(
         'translation.chat.create.success',
@@ -118,6 +184,16 @@ export class ChatService {
             email: member.user.email,
             role: member.user.role,
           })),
+        },
+        lastMessage: {
+          id: lastMessage.id,
+          content: lastMessage.content,
+          type: lastMessage.type,
+          createdAt: lastMessage.createdAt,
+          sender: {
+            id: lastMessage.sender.id,
+            email: lastMessage.sender.email,
+          },
         },
       };
     } catch (error) {
@@ -300,8 +376,8 @@ export class ChatService {
       throw new ForbiddenException(message);
     }
 
-    // Try to get from cache first
-    const cacheKey = `chat:${chatId}:messages:${page}:${limit}`;
+    // Try to get from cache first (user-specific cache)
+    const cacheKey = `chat:${chatId}:messages:${userId}:${page}:${limit}`;
     const cachedResult = await this.redis.getChatCache(cacheKey);
     if (cachedResult) {
       return cachedResult;
@@ -335,6 +411,12 @@ export class ChatService {
                         email: true,
                       },
                     },
+                  },
+                },
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
                   },
                 },
               },
@@ -384,6 +466,21 @@ export class ChatService {
                     ? {
                         id: message.request.trip.user.id,
                         email: message.request.trip.user.email,
+                      }
+                    : undefined,
+                }
+              : undefined,
+            requestData: message.request
+              ? {
+                  id: message.request.id,
+                  status: message.request.status,
+                  message: message.request.message,
+                  createdAt: message.request.created_at,
+                  updatedAt: message.request.updated_at,
+                  user: message.request.user
+                    ? {
+                        id: message.request.user.id,
+                        email: message.request.user.email,
                       }
                     : undefined,
                 }
@@ -479,6 +576,12 @@ export class ChatService {
                   },
                 },
               },
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                },
+              },
             },
           },
         },
@@ -509,6 +612,21 @@ export class ChatService {
                 ? {
                     id: message.request.trip.user.id,
                     email: message.request.trip.user.email,
+                  }
+                : undefined,
+            }
+          : undefined,
+        requestData: message.request
+          ? {
+              id: message.request.id,
+              status: message.request.status,
+              message: message.request.message,
+              createdAt: message.request.created_at,
+              updatedAt: message.request.updated_at,
+              user: message.request.user
+                ? {
+                    id: message.request.user.id,
+                    email: message.request.user.email,
                   }
                 : undefined,
             }
@@ -600,5 +718,76 @@ export class ChatService {
     });
 
     return user;
+  }
+
+  async getChatSummary(
+    chatId: string,
+    userId: string,
+  ): Promise<{
+    lastMessage: any;
+    unreadCount: number;
+  } | null> {
+    const chat = await this.prisma.chat.findFirst({
+      where: {
+        id: chatId,
+        members: {
+          some: {
+            user_id: userId,
+          },
+        },
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: {
+            sender: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            messages: {
+              where: {
+                isRead: false,
+                sender_id: { not: userId },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!chat) {
+      return null;
+    }
+
+    return {
+      lastMessage: chat.messages[0] || null,
+      unreadCount: chat._count.messages,
+    };
+  }
+
+  async getChatMembers(chatId: string): Promise<Array<{ user_id: string }>> {
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: {
+        members: {
+          select: {
+            user_id: true,
+          },
+        },
+      },
+    });
+
+    if (!chat) {
+      throw new NotFoundException('Chat not found');
+    }
+
+    return chat.members;
   }
 }

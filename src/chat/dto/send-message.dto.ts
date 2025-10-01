@@ -137,4 +137,20 @@ export class MessageResponseDto {
       email: string;
     };
   };
+
+  @ApiProperty({
+    description: 'Request data for REQUEST type messages',
+    required: false,
+  })
+  requestData?: {
+    id: string;
+    status: string;
+    message?: string;
+    createdAt: Date;
+    updatedAt: Date;
+    user?: {
+      id: string;
+      email: string;
+    };
+  };
 }

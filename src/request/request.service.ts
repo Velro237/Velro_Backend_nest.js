@@ -10,6 +10,7 @@ import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { RedisService } from '../redis/redis.service';
 import { MessageType as PrismaMessageType } from 'generated/prisma';
+import { MessageType } from '../chat/dto/send-message.dto';
 import {
   CreateTripRequestDto,
   CreateTripRequestResponseDto,
@@ -246,45 +247,37 @@ export class RequestService {
             },
           };
         } else {
+          console.log('New chat');
           // Create new chat
           chatResult = await this.chatService.createChat(
             {
               name: chatName,
               otherUserId: trip.user_id,
               tripId: trip.id,
+              messageContent: await this.i18n.translate(
+                'translation.chat.messages.newTripRequest',
+                { lang },
+              ),
+              messageType: MessageType.REQUEST,
+              messageRequestId: result.request.id,
             },
             userId,
             lang,
+          );
+          await this.chatGateway.notifyChatCreated(
+            chatResult.chat.id,
+            [userId, trip.user_id],
+            chatResult.chat.name || 'New Chat',
+            chatResult.lastMessage,
           );
         }
 
         // Send a message in the chat with the new request data
         try {
-          if (!existingChat) {
+          if (existingChat) {
             console.log('Existing chat');
-            // If existing chat: use ChatService and notify about the chat
-            const requestMessage = await this.chatService.createMessage({
-              chatId: chatResult.chat.id,
-              senderId: userId,
-              content: await this.i18n.translate(
-                'translation.chat.messages.newTripRequest',
-                { lang },
-              ),
-              type: PrismaMessageType.REQUEST,
-              replyToId: undefined,
-              imageUrl: undefined,
-              requestId: result.request.id,
-            });
-
-            // Notify about the existing chat
-            await this.chatGateway.notifyChatCreated(
-              chatResult.chat.id,
-              [userId, trip.user_id],
-              chatName,
-            );
-          } else {
-            console.log('New chat');
-            // If new chat: use ChatGateway sendMessageProgrammatically
+            console.log('Existing chat - sending message programmatically');
+            // If existing chat: use ChatGateway sendMessageProgrammatically
             const requestMessage =
               await this.chatGateway.sendMessageProgrammatically({
                 chatId: chatResult.chat.id,
@@ -306,13 +299,14 @@ export class RequestService {
           );
         }
 
-        // Invalidate chat cache for the trip owner since they now have a new chat
+        // Invalidate chat cache and user-specific cache for both users
         try {
           await this.redis.invalidateChatCache(chatResult.chat.id);
-          // Also invalidate the trip owner's user cache to refresh their chat list
-          await this.redis.invalidateUserCache(trip.user_id);
+          // Invalidate cache for both users involved in the chat
+          await this.redis.invalidateUserCache(trip.user_id); // Trip owner
+          await this.redis.invalidateUserCache(userId); // Requester
         } catch (cacheError) {
-          console.error('Failed to invalidate chat cache:', cacheError);
+          console.error('Failed to invalidate cache:', cacheError);
         }
       } catch (chatError) {
         // Log the error but don't fail the request creation
@@ -539,49 +533,30 @@ export class RequestService {
   }
 
   async changeRequestStatus(
+    requestId: string,
     chatId: string,
     status: any,
     userId: string,
     lang?: string,
   ): Promise<any> {
     try {
-      // Find the request associated with this chat
-      const chat = await this.prisma.chat.findUnique({
-        where: { id: chatId },
+      // Find the request by ID
+      const request = await this.prisma.tripRequest.findUnique({
+        where: { id: requestId },
         include: {
+          request_items: true,
+          images: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
           trip: {
             include: {
               user: true,
             },
           },
-        },
-      });
-
-      if (!chat) {
-        const message = await this.i18n.translate(
-          'translation.trip.request.chatNotFound',
-          { lang },
-        );
-        throw new NotFoundException(message);
-      }
-
-      // Check if the user is the trip owner
-      if (chat.trip.user_id !== userId) {
-        const message = await this.i18n.translate(
-          'translation.trip.request.unauthorized',
-          { lang },
-        );
-        throw new ConflictException(message);
-      }
-
-      // Find the request for this trip
-      const request = await this.prisma.tripRequest.findFirst({
-        where: {
-          trip_id: chat.trip_id,
-        },
-        include: {
-          request_items: true,
-          images: true,
         },
       });
 
@@ -591,6 +566,15 @@ export class RequestService {
           { lang },
         );
         throw new NotFoundException(message);
+      }
+
+      // Check if the user is the trip owner
+      if (request.trip.user_id !== userId) {
+        const message = await this.i18n.translate(
+          'translation.trip.request.unauthorized',
+          { lang },
+        );
+        throw new ConflictException(message);
       }
 
       // Check if request is currently pending
@@ -604,35 +588,44 @@ export class RequestService {
 
       // Update the request status
       const updatedRequest = await this.prisma.tripRequest.update({
-        where: { id: request.id },
+        where: { id: requestId },
         data: { status },
       });
 
-      // Create a message in the chat with the updated request data
-      const statusMessage = await this.chatService.createMessage({
-        chatId,
-        senderId: userId,
-        content: await this.i18n.translate(
-          'translation.chat.messages.requestStatusChanged',
-          {
-            lang,
-            args: {
-              status: status.toLowerCase(),
-              requesterEmail: request.user_id, // This should be the requester's email
+      // Send a message in the chat with the updated request status
+      let statusMessage;
+      try {
+        statusMessage = await this.chatGateway.sendMessageProgrammatically({
+          chatId,
+          senderId: userId,
+          content: await this.i18n.translate(
+            'translation.chat.messages.requestStatusChanged',
+            {
+              lang,
+              args: {
+                status: status.toLowerCase(),
+                requesterEmail: request.user.email,
+              },
             },
-          },
-        ),
-        type: 'REQUEST' as any,
-        replyToId: undefined,
-        imageUrl: undefined,
-        requestId: request.id,
-      });
+          ),
+          type: PrismaMessageType.REQUEST,
+          replyToId: undefined,
+          imageUrl: undefined,
+          requestId: request.id,
+        });
+      } catch (messageError) {
+        console.error('Failed to send status change message:', messageError);
+        statusMessage = null;
+      }
 
-      // Invalidate chat cache
+      // Invalidate chat cache and user-specific cache
       try {
         await this.redis.invalidateChatCache(chatId);
+        // Also invalidate cache for both users involved in the chat
+        await this.redis.invalidateUserCache(userId); // Trip owner
+        await this.redis.invalidateUserCache(request.user.id); // Requester
       } catch (cacheError) {
-        console.error('Failed to invalidate chat cache:', cacheError);
+        console.error('Failed to invalidate cache:', cacheError);
       }
 
       const message = await this.i18n.translate(
@@ -647,13 +640,15 @@ export class RequestService {
           status: updatedRequest.status,
           updatedAt: updatedRequest.updated_at,
         },
-        chatMessage: {
-          id: statusMessage.id,
-          chatId: statusMessage.chatId,
-          content: statusMessage.content,
-          type: statusMessage.type,
-          createdAt: statusMessage.createdAt,
-        },
+        chatMessage: statusMessage
+          ? {
+              id: statusMessage.id,
+              chatId: statusMessage.chatId,
+              content: statusMessage.content,
+              type: statusMessage.type,
+              createdAt: statusMessage.createdAt,
+            }
+          : null,
       };
     } catch (error) {
       if (

@@ -35,6 +35,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly redis: RedisService,
   ) {}
 
+  afterInit(server: Server) {
+    this.server = server;
+  }
+
   async handleConnection(client: Socket) {
     // Manually authenticate the connection
     const jwtGuard = new JwtWsGuard(this.jwtService, this.configService);
@@ -57,6 +61,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       sub: string;
       email?: string;
     };
+
+    // Validate that the user still exists in the database
+    const userExists = await this.chatService.getUserById(user.sub);
+    if (!userExists) {
+      console.error(
+        `Connection rejected: User ${user.sub} no longer exists in database`,
+      );
+      client.disconnect(true);
+      return;
+    }
+
+    // Additional security: validate that email from JWT matches database
+    if (user.email && user.email !== userExists.email) {
+      console.error(
+        `Connection rejected: Email mismatch for user ${user.sub}. JWT: ${user.email}, DB: ${userExists.email}`,
+      );
+      client.disconnect(true);
+      return;
+    }
+
     this.socketUser.set(client.id, user.sub);
 
     // Set user as online in Redis
@@ -72,9 +96,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.to(this.roomName(chatId)).emit('user:online', {
         chatId,
         userId: user.sub,
-        userEmail: user.email || 'Unknown',
+        userEmail: userExists.email,
         timestamp: new Date().toISOString(),
-        message: `${user.email || 'User'} is now online`,
+        message: `${userExists.email} is now online`,
       });
     });
   }
@@ -129,8 +153,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         requestId: data.requestId,
       });
 
-      // Broadcast to all users in the chat room
-      this.server.to(this.roomName(data.chatId)).emit('message:new', message);
+      // Get chat members to send targeted notifications
+      const chatMembers = await this.chatService.getChatMembers(data.chatId);
+
+      // Send message acknowledgement to the sender
+      const senderSocket = this.findSocketByUserId(data.senderId);
+      if (senderSocket) {
+        senderSocket.emit('message:ack', message);
+      }
+
+      // Send new message notification to other users in the chat
+      for (const member of chatMembers) {
+        if (member.user_id !== data.senderId) {
+          const memberSocket = this.findSocketByUserId(member.user_id);
+          if (memberSocket) {
+            memberSocket.emit('message:new', message);
+          }
+        }
+      }
 
       return message;
     } catch (error) {
@@ -142,12 +182,34 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Helper method to find socket by user ID
   private findSocketByUserId(userId: string): Socket | null {
     try {
+      // Check if server is properly initialized
+      if (!this.server) {
+        return null;
+      }
+
+      // Try different ways to access sockets based on Socket.IO version
+      let sockets: Map<string, Socket>;
+
+      if (this.server.sockets && this.server.sockets.sockets) {
+        // Socket.IO v4+ API
+        sockets = this.server.sockets.sockets;
+      } else if (
+        this.server.sockets &&
+        typeof (this.server.sockets as any).sockets === 'function'
+      ) {
+        // Socket.IO v3 API
+        sockets = (this.server.sockets as any).sockets();
+      } else {
+        // Fallback - try to get sockets directly
+        sockets = (this.server as any).sockets || new Map();
+      }
+
+      // Find the socket for the user
       for (const [socketId, socketUserId] of this.socketUser.entries()) {
         if (socketUserId === userId) {
-          // Use the correct Socket.IO API to get socket by ID
-          if (this.server?.sockets?.sockets) {
-            const socket = this.server.sockets.sockets.get(socketId);
-            return socket || null;
+          const socket = sockets.get(socketId);
+          if (socket && socket.connected) {
+            return socket;
           }
         }
       }
@@ -162,8 +224,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     chatId: string,
     userIds: string[],
     chatName?: string,
+    lastMessage?: any,
   ): Promise<void> {
-    console.log('notifyChatCreated', chatId, userIds, chatName);
+    // Check if server is properly initialized
+    if (!this.server || !this.server.sockets) {
+      return;
+    }
+
     try {
       // Get user information for all users
       const users = await Promise.all(
@@ -176,19 +243,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const validUsers = users.filter((user) => user !== null);
 
       // Notify each user about the new chat
-      validUsers.forEach((user) => {
-        // Find the socket for this user and send the notification
+      for (const user of validUsers) {
         const userSocket = this.findSocketByUserId(user.id);
         if (userSocket) {
+          // Get unread count for this user (excluding the initial message)
+          const chatSummary = await this.chatService.getChatSummary(
+            chatId,
+            user.id,
+          );
+
           userSocket.emit('chat:created', {
             chatId,
             chatName: chatName || 'New Chat',
             members: validUsers,
             timestamp: new Date().toISOString(),
             message: `You were added to a new chat: ${chatName || 'New Chat'}`,
+            lastMessage: lastMessage || null,
+            unreadCount: chatSummary?.unreadCount || 0,
           });
         }
-      });
+      }
     } catch (error) {
       console.error('Failed to notify chat creation:', error);
     }

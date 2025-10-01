@@ -20,6 +20,11 @@ model User {
   requests  TripRequest[]
   messages  Message[]
   chats     ChatMember[]
+
+  // Report relations
+  reportsSubmitted Report[] @relation("ReportReporter")
+  reportsReceived  Report[] @relation("ReportReported")
+  reportsReplied   Report[] @relation("ReportReplier")
 }
 
 model Chat {
@@ -77,6 +82,23 @@ model Message {
   request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
 }
 
+// model Report {
+//    id String @id @default(uuid())
+//    user_id String
+//    trip_id String?
+//    request_id String?
+//    type String?
+//    details String?
+//    text String?
+//    created_at DateTime @default(now())
+//    updated_at DateTime @updatedAt
+
+//    // Relations
+//    user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+//    trip Trip? @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+//    request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+// }
+
 enum MessageType {
   TEXT
   IMAGE
@@ -111,6 +133,7 @@ model Trip {
   trip_items        TripItemsList[]
   requests          TripRequest[]
   chats             Chat[]
+  reports           Report[]
 }
 
 model Image {
@@ -169,6 +192,7 @@ model TripRequest {
   request_items TripRequestItem[]
   images        TripRequestImage[]
   messages      Message[] // messages that reference this request via request_id
+  reports       Report[]
 }
 
 model TripRequestItem {
@@ -229,4 +253,47 @@ enum RequestStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+enum ReportType {
+  TRAVEL_ISSUES
+  OTHER_ISSUES
+  RESPONSE_TO_REPORT
+}
+
+enum ReportPriority {
+  HIGH
+  LOW
+}
+
+enum ReportStatus {
+  PENDING
+  REPLIED
+}
+
+model Report {
+  id          String         @id @default(uuid())
+  user_id     String // User reporting
+  reported_id String // User being reported
+  reply_to_id String? // ID of report we are replying to (not required)
+  trip_id     String // Trip ID (required)
+  request_id  String? // Request ID (not required)
+  type        ReportType
+  text        String? // Report text (not required)
+  priority    ReportPriority
+  status      ReportStatus   @default(PENDING)
+  data        Json? // Additional data in JSON format
+  replied_by  String? // ID of user replying to report (not required)
+  created_at  DateTime       @default(now())
+  updated_at  DateTime       @updatedAt
+  images      Json?
+
+  // Relations
+  user     User         @relation("ReportReporter", fields: [user_id], references: [id], onDelete: Cascade)
+  reported User         @relation("ReportReported", fields: [reported_id], references: [id], onDelete: Cascade)
+  replyTo  Report?      @relation("ReportReplies", fields: [reply_to_id], references: [id])
+  replies  Report[]     @relation("ReportReplies")
+  trip     Trip         @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  replier  User?        @relation("ReportReplier", fields: [replied_by], references: [id])
 }

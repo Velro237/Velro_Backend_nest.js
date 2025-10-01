@@ -23,7 +23,8 @@
         "failed": "Failed to create chat",
         "userNotFound": "User not found",
         "cannotChatWithSelf": "Cannot create a chat with yourself",
-        "chatAlreadyExists": "Chat already exists between these two users"
+        "chatAlreadyExists": "Chat already exists between these two users",
+        "duplicateTripChat": "A chat already exists between you and this user for this trip"
       },
     "getAll": {
       "success": "Chats retrieved successfully",
@@ -129,5 +130,21 @@
       "failed": "Failed to retrieve trip item",
       "notFound": "Trip item not found"
     }
+  },
+  "report": {
+    "userNotFound": "Reported user not found",
+    "tripNotFound": "Trip not found",
+    "requestNotFound": "Trip request not found",
+    "reportNotFound": "Report not found",
+    "cannotReportSelf": "You cannot report yourself",
+    "createSuccess": "Report created successfully",
+    "createFailed": "Failed to create report",
+    "getSuccess": "Reports retrieved successfully",
+    "getFailed": "Failed to retrieve reports",
+    "notFound": "Report not found",
+    "replySuccess": "Report reply created successfully",
+    "replyFailed": "Failed to create report reply",
+    "getAllSuccess": "All reports retrieved successfully",
+    "getAllFailed": "Failed to retrieve all reports"
   }
 }

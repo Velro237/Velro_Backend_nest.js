@@ -799,6 +799,9 @@ export class TripService {
       // Base where clause for published trips
       const baseWhereClause: any = {
         status: 'PUBLISHED' as const, // Only show published trips
+        departure_date: {
+          gte: new Date(), // Only show trips with departure date >= today
+        },
       };
 
       // Add search filters if searchKey is provided
