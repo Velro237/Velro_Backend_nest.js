@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   UseGuards,
+  ParseUUIDPipe,
   HttpCode,
   HttpStatus,
   Query,
@@ -22,11 +23,16 @@ import {
   GetReportsQueryDto,
   GetReportsResponseDto,
 } from './dto/get-reports.dto';
-import { I18nLang, I18nService, I18n, I18nContext } from 'nestjs-i18n';
+import { I18nLang, I18nService } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import {
   ApiUserWelcome,
+  ApiCreateUser,
+  ApiFindAllUsers,
+  ApiFindOneUser,
+  ApiRemoveUser,
+  ApiUpdateUser,
   ApiCreateReport,
   ApiGetReports,
 } from './decorators/api-docs.decorator';
@@ -62,6 +68,41 @@ export class UserController {
     };
   }
 
+  /* ---------------- USER ENDPOINTS ---------------- */
+  @ApiCreateUser()
+  @Post()
+  create(@Body() dto: CreateUserDto) {
+    return this.userService.create(dto);
+  }
+
+  @ApiFindAllUsers()
+  @Get()
+  findAll() {
+    return this.userService.findAll();
+  }
+
+  @ApiFindOneUser()
+  @Get(':id')
+  findOne(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.userService.findOne(id);
+  }
+
+  @ApiUpdateUser()
+  @Patch(':id')
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateUserDto,
+  ) {
+    return this.userService.update(id, dto);
+  }
+
+  @ApiRemoveUser()
+  @Delete(':id')
+  remove(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.userService.remove(id);
+  }
+
+  /* ---------------- REPORT ENDPOINTS ---------------- */
   @Post('report')
   @HttpCode(HttpStatus.CREATED)
   @ApiCreateReport()
@@ -82,38 +123,4 @@ export class UserController {
   ): Promise<GetReportsResponseDto> {
     return this.userService.getReports(user.id, query, lang);
   }
-
-  // // Method 1: @I18n() decorator (SHORTHAND - Most Popular)
-  // @Get('welcome-shorthand')
-  // async getWelcomeShorthand(@I18n() i18n: I18nContext) {
-  //   const message = await i18n.t('translation.hello', {
-  //     args: { name: 'prince' },
-  //   });
-  //   return { message };
-  // }
-
-  // @Post()
-  // create(@Body() createUserDto: CreateUserDto) {
-  //   return this.userService.create(createUserDto);
-  // }
-
-  // @Get()
-  // async findAll() {
-  //   return [];
-  // }
-
-  // @Get(':id')
-  // findOne(@Param('id') id: string) {
-  //   return this.userService.findOne(+id);
-  // }
-
-  // @Patch(':id')
-  // update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-  //   return this.userService.update(+id, updateUserDto);
-  // }
-
-  // @Delete(':id')
-  // remove(@Param('id') id: string) {
-  //   return this.userService.remove(+id);
-  // }
 }
