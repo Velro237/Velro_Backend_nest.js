@@ -1,14 +1,8 @@
 import {
-
   ConflictException,
   Injectable,
   NotFoundException,
-
-  Injectable,
-  NotFoundException,
-  ConflictException,
   InternalServerErrorException,
-
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -39,7 +33,6 @@ import {
   AdminGetAllReportsResponseDto,
 } from './dto/admin-get-all-reports.dto';
 import { I18nService } from 'nestjs-i18n';
-
 
 @Injectable()
 export class UserService {

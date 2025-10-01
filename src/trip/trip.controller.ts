@@ -18,6 +18,7 @@ import {
   ApiBody,
   ApiResponse,
   ApiParam,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { TripService } from './trip.service';
 import { CreateTripDto, CreateTripResponseDto } from './dto/create-trip.dto';
@@ -72,6 +73,7 @@ import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 
 @ApiTags('Trips')
+@ApiBearerAuth('JWT-auth')
 @ApiExtraModels(
   TripItemListDto,
   GetTransportTypesQueryDto,
@@ -222,10 +224,11 @@ export class TripController {
 
   // Get trip by ID with full details
   @Get('trips/:id')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Get trip by ID with full details',
     description:
-      'Retrieve complete trip information including all trip items and transport details.',
+      'Retrieve complete trip information including all trip items and transport details. Requires authentication.',
   })
   @ApiParam({
     name: 'id',
@@ -236,6 +239,10 @@ export class TripController {
     status: 200,
     description: 'Trip retrieved successfully (message will be translated)',
     type: GetTripByIdResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
   })
   @ApiResponse({
     status: 404,
