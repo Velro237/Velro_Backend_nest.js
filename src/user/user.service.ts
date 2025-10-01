@@ -1,11 +1,19 @@
 import {
+
   ConflictException,
   Injectable,
   NotFoundException,
+
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  InternalServerErrorException,
+
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+
 import * as bcrypt from 'bcryptjs';
 const userSelect = {
   id: true,
@@ -17,9 +25,28 @@ const userSelect = {
   updatedAt: true,
 };
 
+import {
+  CreateReportDto,
+  CreateReportResponseDto,
+} from './dto/create-report.dto';
+import {
+  GetReportsQueryDto,
+  GetReportsResponseDto,
+} from './dto/get-reports.dto';
+import { ReplyReportDto, ReplyReportResponseDto } from './dto/reply-report.dto';
+import {
+  AdminGetAllReportsQueryDto,
+  AdminGetAllReportsResponseDto,
+} from './dto/admin-get-all-reports.dto';
+import { I18nService } from 'nestjs-i18n';
+
+
 @Injectable()
 export class UserService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly i18n: I18nService,
+  ) {}
 
   async findById(id: string) {
     const user = await this.prisma.user.findUnique({
@@ -119,6 +146,576 @@ export class UserService {
       const exists = await this.prisma.user.findUnique({ where: { id } });
       if (!exists) throw new NotFoundException(`User #${id} not found`);
       throw e;
+    }
+  }
+
+  async createReport(
+    createReportDto: CreateReportDto,
+    userId: string,
+    lang?: string,
+  ): Promise<CreateReportResponseDto> {
+    const {
+      reported_id,
+      reply_to_id,
+      trip_id,
+      request_id,
+      type,
+      text,
+      priority,
+      data,
+      images,
+    } = createReportDto;
+
+    try {
+      // Validate that the reported user exists
+      const reportedUser = await this.prisma.user.findUnique({
+        where: { id: reported_id },
+      });
+
+      if (!reportedUser) {
+        const message = await this.i18n.translate(
+          'translation.report.userNotFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Validate that the trip exists and get trip details
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: trip_id },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      if (!trip) {
+        const message = await this.i18n.translate(
+          'translation.report.tripNotFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // If request_id is provided, validate that the request exists
+      if (request_id) {
+        const request = await this.prisma.tripRequest.findUnique({
+          where: { id: request_id },
+        });
+
+        if (!request) {
+          const message = await this.i18n.translate(
+            'translation.report.requestNotFound',
+            { lang },
+          );
+          throw new NotFoundException(message);
+        }
+      }
+
+      // If reply_to_id is provided, validate that the report exists
+      if (reply_to_id) {
+        const replyToReport = await this.prisma.report.findUnique({
+          where: { id: reply_to_id },
+        });
+
+        if (!replyToReport) {
+          const message = await this.i18n.translate(
+            'translation.report.reportNotFound',
+            { lang },
+          );
+          throw new NotFoundException(message);
+        }
+      }
+
+      // Prevent self-reporting (cannot report yourself as the reported user)
+      // Users can create reports for trips they created, but they cannot report themselves
+      if (userId === reported_id) {
+        const message = await this.i18n.translate(
+          'translation.report.cannotReportSelf',
+          { lang },
+        );
+        throw new ConflictException(message);
+      }
+
+      // Create the report
+      const report = await this.prisma.report.create({
+        data: {
+          user_id: userId,
+          reported_id,
+          reply_to_id: reply_to_id || null,
+          trip_id,
+          request_id: request_id || null,
+          type,
+          text: text || null,
+          priority,
+          data: data || null,
+          images: images || null,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.report.createSuccess',
+        { lang },
+      );
+
+      return {
+        message,
+        report: {
+          id: report.id,
+          user_id: report.user_id,
+          reported_id: report.reported_id,
+          trip_id: report.trip_id,
+          type: report.type,
+          priority: report.priority,
+          status: report.status,
+          created_at: report.created_at,
+        },
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+
+      const message = await this.i18n.translate(
+        'translation.report.createFailed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getReports(
+    userId: string,
+    query: GetReportsQueryDto,
+    lang?: string,
+  ): Promise<GetReportsResponseDto> {
+    const { page = 1, limit = 10, type, priority, status, trip_id } = query;
+
+    const skip = (page - 1) * limit;
+
+    try {
+      // Build where clause
+      const whereClause: any = {
+        user_id: userId, // Only get reports submitted by this user
+      };
+
+      // Add filters if provided
+      if (type) {
+        whereClause.type = type;
+      }
+
+      if (priority) {
+        whereClause.priority = priority;
+      }
+
+      if (status) {
+        whereClause.status = status;
+      }
+
+      if (trip_id) {
+        whereClause.trip_id = trip_id;
+      }
+
+      // Get reports with pagination
+      const [reports, total] = await Promise.all([
+        this.prisma.report.findMany({
+          where: whereClause,
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+            reported: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+            trip: {
+              select: {
+                id: true,
+                pickup: true,
+                destination: true,
+                departure_date: true,
+              },
+            },
+            request: {
+              select: {
+                id: true,
+                status: true,
+                message: true,
+                created_at: true,
+                updated_at: true,
+              },
+            },
+            replier: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+            _count: {
+              select: {
+                replies: true,
+              },
+            },
+          },
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.report.count({
+          where: whereClause,
+        }),
+      ]);
+
+      // Transform reports to response format
+      const reportSummaries = reports.map((report) => ({
+        id: report.id,
+        reporter_user: {
+          id: report.user.id,
+          email: report.user.email,
+        },
+        reported_user: {
+          id: report.reported.id,
+          email: report.reported.email,
+        },
+        trip: {
+          id: report.trip.id,
+          pickup: report.trip.pickup,
+          destination: report.trip.destination,
+          departure_date: report.trip.departure_date,
+        },
+        request: report.request
+          ? {
+              id: report.request.id,
+              status: report.request.status,
+              message: report.request.message,
+              created_at: report.request.created_at,
+              updated_at: report.request.updated_at,
+            }
+          : undefined,
+        type: report.type,
+        priority: report.priority,
+        status: report.status,
+        text: report.text,
+        data: report.data as Record<string, any> | undefined,
+        images: report.images as Record<string, any> | undefined,
+        replied_by: report.replier
+          ? {
+              id: report.replier.id,
+              email: report.replier.email,
+            }
+          : undefined,
+        replies_count: report._count.replies,
+        created_at: report.created_at,
+        updated_at: report.updated_at,
+      }));
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.report.getSuccess',
+        { lang },
+      );
+
+      return {
+        message,
+        reports: reportSummaries,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.report.getFailed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async replyToReport(
+    replyReportDto: ReplyReportDto,
+    adminId: string,
+    lang?: string,
+  ): Promise<ReplyReportResponseDto> {
+    const { report_id, text, priority, data, images } = replyReportDto;
+
+    try {
+      // Find the original report
+      const originalReport = await this.prisma.report.findUnique({
+        where: { id: report_id },
+        include: {
+          user: {
+            select: { id: true, email: true },
+          },
+          trip: {
+            select: { id: true },
+          },
+        },
+      });
+
+      if (!originalReport) {
+        const message = await this.i18n.translate(
+          'translation.report.notFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Create the reply report
+      const replyReport = await this.prisma.report.create({
+        data: {
+          user_id: originalReport.user_id, // Original reporter (maintain the same user_id)
+          reported_id: originalReport.reported_id, // Same reported user as original
+          reply_to_id: report_id, // Original report being replied to
+          trip_id: originalReport.trip_id,
+          request_id: originalReport.request_id,
+          type: 'RESPONSE_TO_REPORT', // Admin response type
+          text,
+          priority,
+          data: data || null,
+          images: images || null,
+          replied_by: adminId, // Admin who replied
+          status: 'REPLIED', // Reply reports are automatically marked as replied
+        },
+      });
+
+      // Update the original report status to REPLIED
+      await this.prisma.report.update({
+        where: { id: report_id },
+        data: { status: 'REPLIED' },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.report.replySuccess',
+        { lang },
+      );
+
+      return {
+        message,
+        reply: {
+          id: replyReport.id,
+          user_id: replyReport.user_id,
+          reported_id: replyReport.reported_id,
+          reply_to_id: replyReport.reply_to_id,
+          trip_id: replyReport.trip_id,
+          type: replyReport.type,
+          priority: replyReport.priority,
+          status: replyReport.status,
+          created_at: replyReport.created_at,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      const message = await this.i18n.translate(
+        'translation.report.replyFailed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getAllReports(
+    query: AdminGetAllReportsQueryDto,
+    lang?: string,
+  ): Promise<AdminGetAllReportsResponseDto> {
+    const {
+      page = 1,
+      limit = 10,
+      type,
+      priority,
+      status,
+      trip_id,
+      user_id,
+      replied_by,
+      start_date,
+      end_date,
+    } = query;
+
+    const skip = (page - 1) * limit;
+
+    try {
+      // Build where clause with all filters
+      const whereClause: any = {};
+
+      // Add filters if provided
+      if (type) {
+        whereClause.type = type;
+      }
+      if (priority) {
+        whereClause.priority = priority;
+      }
+      if (status) {
+        whereClause.status = status;
+      }
+      if (trip_id) {
+        whereClause.trip_id = trip_id;
+      }
+      if (user_id) {
+        whereClause.OR = [
+          { user_id: user_id }, // Reporter
+          { reported_id: user_id }, // Reported user
+        ];
+      }
+      if (replied_by) {
+        whereClause.replied_by = replied_by;
+      }
+      if (start_date || end_date) {
+        whereClause.created_at = {};
+        if (start_date) {
+          whereClause.created_at.gte = new Date(start_date);
+        }
+        if (end_date) {
+          whereClause.created_at.lte = new Date(end_date);
+        }
+      }
+
+      // Get reports with pagination
+      const [reports, total] = await Promise.all([
+        this.prisma.report.findMany({
+          where: whereClause,
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+            reported: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+            trip: {
+              select: {
+                id: true,
+                pickup: true,
+                destination: true,
+                departure_date: true,
+              },
+            },
+            request: {
+              select: {
+                id: true,
+                status: true,
+                message: true,
+                created_at: true,
+                updated_at: true,
+              },
+            },
+            replier: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+            _count: {
+              select: {
+                replies: true,
+              },
+            },
+          },
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.report.count({
+          where: whereClause,
+        }),
+      ]);
+
+      // Transform reports to response format
+      const reportSummaries = reports.map((report) => ({
+        id: report.id,
+        reporter_user: {
+          id: report.user.id,
+          email: report.user.email,
+        },
+        reported_user: {
+          id: report.reported.id,
+          email: report.reported.email,
+        },
+        trip: {
+          id: report.trip.id,
+          pickup: report.trip.pickup,
+          destination: report.trip.destination,
+          departure_date: report.trip.departure_date,
+        },
+        request: report.request
+          ? {
+              id: report.request.id,
+              status: report.request.status,
+              message: report.request.message,
+              created_at: report.request.created_at,
+              updated_at: report.request.updated_at,
+            }
+          : undefined,
+        type: report.type,
+        priority: report.priority,
+        status: report.status,
+        text: report.text,
+        data: report.data as Record<string, any> | undefined,
+        images: report.images as Record<string, any> | undefined,
+        replied_by: report.replier
+          ? {
+              id: report.replier.id,
+              email: report.replier.email,
+            }
+          : undefined,
+        replies_count: report._count.replies,
+        created_at: report.created_at,
+        updated_at: report.updated_at,
+      }));
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.report.getAllSuccess',
+        { lang },
+      );
+
+      return {
+        message,
+        reports: reportSummaries,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.report.getAllFailed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
     }
   }
 }

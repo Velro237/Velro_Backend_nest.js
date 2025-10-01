@@ -45,10 +45,10 @@ export class TripService {
 
   async createTrip(
     createTripDto: CreateTripDto,
+    userId: string,
     lang?: string,
   ): Promise<CreateTripResponseDto> {
     const {
-      user_id,
       mode_of_transport_id,
       trip_items: originalTripItems,
       ...tripData
@@ -57,7 +57,7 @@ export class TripService {
 
     // Check if user exists
     const user = await this.prisma.user.findUnique({
-      where: { id: user_id },
+      where: { id: userId },
     });
 
     if (!user) {
@@ -135,7 +135,7 @@ export class TripService {
         // Create the trip
         const trip = await prisma.trip.create({
           data: {
-            user_id,
+            user_id: userId,
             mode_of_transport_id,
             pickup: tripData.pickup,
             destination: tripData.destination,
@@ -799,6 +799,9 @@ export class TripService {
       // Base where clause for published trips
       const baseWhereClause: any = {
         status: 'PUBLISHED' as const, // Only show published trips
+        departure_date: {
+          gte: new Date(), // Only show trips with departure date >= today
+        },
       };
 
       // Add search filters if searchKey is provided

@@ -91,14 +91,6 @@ export type LocationType = {
 
 export class CreateTripDto {
   @ApiProperty({
-    description: 'User ID who is creating the trip',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @IsString()
-  @IsUUID()
-  user_id: string;
-
-  @ApiProperty({
     description: 'Pickup location details (required)',
     type: 'object',
     properties: {

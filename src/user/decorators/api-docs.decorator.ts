@@ -4,12 +4,34 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiExtraModels,
+  ApiQuery,
 } from '@nestjs/swagger';
+
+// USER DTOs
 import { CreateUserDto } from '../dto/create-user.dto';
-import { UserResponseDto } from '../dto/user-response.dto.ts';
+import { UserResponseDto } from '../dto/user-response.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 
-// Helpers d’erreurs
+// REPORT DTOs
+import {
+  CreateReportDto,
+  CreateReportResponseDto,
+} from '../dto/create-report.dto';
+import {
+  GetReportsQueryDto,
+  GetReportsResponseDto,
+} from '../dto/get-reports.dto';
+import {
+  ReplyReportDto,
+  ReplyReportResponseDto,
+} from '../dto/reply-report.dto';
+import {
+  AdminGetAllReportsQueryDto,
+  AdminGetAllReportsResponseDto,
+} from '../dto/admin-get-all-reports.dto';
+
+/* ------------------ HELPERS ------------------ */
 const ConflictSchema = (message = 'User with this email already exists') => ({
   type: 'object',
   properties: {
@@ -46,6 +68,7 @@ const InternalErrorSchema = (msg = 'Internal Server Error') => ({
   },
 });
 
+/* ------------------ USER DECORATORS ------------------ */
 export function ApiUserWelcome() {
   return applyDecorators(
     ApiOperation({
@@ -61,18 +84,7 @@ export function ApiUserWelcome() {
         type: 'object',
         properties: {
           message: { type: 'string', example: 'Hello, John Doe!' },
-          user: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                example: '123e4567-e89b-12d3-a456-426614174000',
-              },
-              email: { type: 'string', example: 'john@example.com' },
-              role: { type: 'string', example: 'USER' },
-              createdAt: { type: 'string', format: 'date-time' },
-            },
-          },
+          user: { type: 'object', properties: { id: { type: 'string' } } },
         },
       },
     }),
@@ -83,12 +95,11 @@ export function ApiUserWelcome() {
   );
 }
 
-// CREATE
 export function ApiCreateUser() {
   return applyDecorators(
     ApiOperation({
       summary: 'Create user',
-      description: 'Create a new user account (password hashed if provided)',
+      description: 'Create a new user account',
     }),
     ApiBody({ type: CreateUserDto }),
     ApiResponse({
@@ -103,11 +114,8 @@ export function ApiCreateUser() {
     }),
     ApiResponse({
       status: 400,
-      description: 'Bad Request - Invalid input data',
-      schema: BadRequestArraySchema([
-        'email must be an email',
-        'password must be longer than or equal to 8 characters',
-      ]),
+      description: 'Bad Request',
+      schema: BadRequestArraySchema(['email must be an email']),
     }),
     ApiResponse({
       status: 500,
@@ -116,98 +124,6 @@ export function ApiCreateUser() {
     }),
   );
 }
-// FIND ALL
+
 export function ApiFindAllUsers() {
-  return applyDecorators(
-    ApiOperation({
-      summary: 'List users',
-      description: 'Return all users (paginating in real life)',
-    }),
-    ApiResponse({
-      status: 200,
-      description: 'OK',
-      type: UserResponseDto,
-      isArray: true,
-    }),
-    ApiResponse({
-      status: 500,
-      description: 'Internal server error',
-      schema: InternalErrorSchema(),
-    }),
-  );
-}
-
-// FIND ONE
-export function ApiFindOneUser() {
-  return applyDecorators(
-    ApiOperation({
-      summary: 'Get one user',
-      description: 'Return a single user by UUID',
-    }),
-    ApiResponse({ status: 200, description: 'OK', type: UserResponseDto }),
-    ApiResponse({
-      status: 404,
-      description: 'Not Found',
-      schema: NotFoundSchema('User not found'),
-    }),
-    ApiResponse({
-      status: 500,
-      description: 'Internal server error',
-      schema: InternalErrorSchema(),
-    }),
-  );
-}
-
-// UPDATE
-export function ApiUpdateUser() {
-  return applyDecorators(
-    ApiOperation({
-      summary: 'Update user',
-      description:
-        'Patch fields of an existing user (hash password if provided)',
-    }),
-    ApiBody({ type: UpdateUserDto }),
-    ApiResponse({ status: 200, description: 'Updated', type: UserResponseDto }),
-    ApiResponse({
-      status: 409,
-      description: 'Email already exists',
-      schema: ConflictSchema(),
-    }),
-    ApiResponse({
-      status: 404,
-      description: 'Not Found',
-      schema: NotFoundSchema('User not found'),
-    }),
-    ApiResponse({
-      status: 400,
-      description: 'Bad Request - Invalid input data',
-      schema: BadRequestArraySchema(['email must be an email']),
-    }),
-    ApiResponse({
-      status: 500,
-      description: 'Internal server error',
-      schema: InternalErrorSchema(),
-    }),
-  );
-}
-// REMOVE
-export function ApiRemoveUser() {
-  return applyDecorators(
-    ApiOperation({
-      summary: 'Delete user',
-      description:
-        'Delete a user by UUID and returns the deleted record (without password)',
-    }),
-    ApiResponse({ status: 200, description: 'Deleted', type: UserResponseDto }),
-    ApiResponse({
-      status: 404,
-      description: 'Not Found',
-      schema: NotFoundSchema('User not found'),
-    }),
-    ApiResponse({
-      status: 500,
-      description: 'Internal server error',
-      schema: InternalErrorSchema(),
-    }),
-  );
-}
+  return applyDecorat

@@ -51,6 +51,15 @@ export class SendMessageDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @ApiProperty({
+    description: 'Request ID to link message to a trip request',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    required: false,
+  })
+  @IsOptional()
+  @IsUUID('4')
+  requestId?: string;
 }
 
 export class MessageResponseDto {
@@ -110,4 +119,38 @@ export class MessageResponseDto {
     example: '2024-01-15T10:30:00.000Z',
   })
   createdAt: Date;
+
+  @ApiProperty({
+    description: 'Trip data for REQUEST type messages',
+    required: false,
+  })
+  tripData?: {
+    id: string;
+    pickup: any;
+    destination: any;
+    departure_date: Date;
+    departure_time: string;
+    price_per_kg: number;
+    fullSuitcaseOnly: boolean;
+    user?: {
+      id: string;
+      email: string;
+    };
+  };
+
+  @ApiProperty({
+    description: 'Request data for REQUEST type messages',
+    required: false,
+  })
+  requestData?: {
+    id: string;
+    status: string;
+    message?: string;
+    createdAt: Date;
+    updatedAt: Date;
+    user?: {
+      id: string;
+      email: string;
+    };
+  };
 }

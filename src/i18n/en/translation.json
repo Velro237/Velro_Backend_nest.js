@@ -17,12 +17,15 @@
       "invalidCredentials": "Invalid email or password"
     }
   },
-  "chat": {
-    "create": {
-      "success": "Chat created successfully",
-      "failed": "Failed to create chat",
-      "userNotFound": "One or more users not found"
-    },
+    "chat": {
+      "create": {
+        "success": "Chat created successfully",
+        "failed": "Failed to create chat",
+        "userNotFound": "User not found",
+        "cannotChatWithSelf": "Cannot create a chat with yourself",
+        "chatAlreadyExists": "Chat already exists between these two users",
+        "duplicateTripChat": "A chat already exists between you and this user for this trip"
+      },
     "getAll": {
       "success": "Chats retrieved successfully",
       "failed": "Failed to retrieve chats"
@@ -30,7 +33,13 @@
     "messages": {
       "success": "Messages retrieved successfully",
       "failed": "Failed to retrieve messages",
-      "unauthorized": "Not a member of this chat"
+      "unauthorized": "Not a member of this chat",
+      "newTripRequest": "New trip request",
+      "newTripRequestNotification": "Hello! I'm interested in your trip. Could you please provide more details?",
+      "requestStatusChanged": "Request status has been changed to {status}"
+    },
+    "chatName": {
+      "to": "to"
     }
   },
   "trip": {
@@ -70,7 +79,12 @@
         "notFound": "Trip request not found",
         "cannotRequestOwnTrip": "You cannot request items from your own trip",
         "itemsRequired": "Trip items are required for non-full suitcase trips",
-        "itemNotAvailable": "One or more requested items are not available in this trip"
+        "itemNotAvailable": "One or more requested items are not available in this trip",
+        "chatNotFound": "Chat not found",
+        "unauthorized": "Only the trip owner can change request status",
+        "notPending": "Request status can only be changed if it is currently pending",
+        "statusChanged": "Request status updated successfully",
+        "statusChangeFailed": "Failed to update request status"
       }
     },
   "transportType": {
@@ -116,5 +130,21 @@
       "failed": "Failed to retrieve trip item",
       "notFound": "Trip item not found"
     }
+  },
+  "report": {
+    "userNotFound": "Reported user not found",
+    "tripNotFound": "Trip not found",
+    "requestNotFound": "Trip request not found",
+    "reportNotFound": "Report not found",
+    "cannotReportSelf": "You cannot report yourself",
+    "createSuccess": "Report created successfully",
+    "createFailed": "Failed to create report",
+    "getSuccess": "Reports retrieved successfully",
+    "getFailed": "Failed to retrieve reports",
+    "notFound": "Report not found",
+    "replySuccess": "Report reply created successfully",
+    "replyFailed": "Failed to create report reply",
+    "getAllSuccess": "All reports retrieved successfully",
+    "getAllFailed": "Failed to retrieve all reports"
   }
 }

@@ -8,26 +8,41 @@ import {
   Delete,
   UseGuards,
   ParseUUIDPipe,
+  HttpCode,
+  HttpStatus,
+  Query,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import {
+  CreateReportDto,
+  CreateReportResponseDto,
+} from './dto/create-report.dto';
+import {
+  GetReportsQueryDto,
+  GetReportsResponseDto,
+} from './dto/get-reports.dto';
 import { I18nLang, I18nService } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import {
+  ApiUserWelcome,
   ApiCreateUser,
   ApiFindAllUsers,
   ApiFindOneUser,
   ApiRemoveUser,
   ApiUpdateUser,
-  ApiUserWelcome,
+  ApiCreateReport,
+  ApiGetReports,
 } from './decorators/api-docs.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 
 @ApiTags('User')
+@ApiBearerAuth('JWT-auth')
 @Controller('user')
+@UseGuards(JwtAuthGuard)
 export class UserController {
   constructor(
     private readonly userService: UserService,
@@ -35,7 +50,6 @@ export class UserController {
   ) {}
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   @ApiUserWelcome()
   async getMe(@CurrentUser() user: User, @I18nLang() lang: string) {
     const message = await this.i18n.translate('translation.hello', {
@@ -54,6 +68,7 @@ export class UserController {
     };
   }
 
+  /* ---------------- USER ENDPOINTS ---------------- */
   @ApiCreateUser()
   @Post()
   create(@Body() dto: CreateUserDto) {
@@ -87,37 +102,25 @@ export class UserController {
     return this.userService.remove(id);
   }
 
-  // // Method 1: @I18n() decorator (SHORTHAND - Most Popular)
-  // @Get('welcome-shorthand')
-  // async getWelcomeShorthand(@I18n() i18n: I18nContext) {
-  //   const message = await i18n.t('translation.hello', {
-  //     args: { name: 'prince' },
-  //   });
-  //   return { message };
-  // }
+  /* ---------------- REPORT ENDPOINTS ---------------- */
+  @Post('report')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreateReport()
+  async createReport(
+    @Body() createReportDto: CreateReportDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<CreateReportResponseDto> {
+    return this.userService.createReport(createReportDto, user.id, lang);
+  }
 
-  // @Post()
-  // create(@Body() createUserDto: CreateUserDto) {
-  //   return this.userService.create(createUserDto);
-  // }
-
-  // @Get()
-  // async findAll() {
-  //   return [];
-  // }
-
-  // @Get(':id')
-  // findOne(@Param('id') id: string) {
-  //   return this.userService.findOne(+id);
-  // }
-
-  // @Patch(':id')
-  // update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-  //   return this.userService.update(+id, updateUserDto);
-  // }
-
-  // @Delete(':id')
-  // remove(@Param('id') id: string) {
-  //   return this.userService.remove(+id);
-  // }
+  @Get('reports')
+  @ApiGetReports()
+  async getReports(
+    @Query() query: GetReportsQueryDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<GetReportsResponseDto> {
+    return this.userService.getReports(user.id, query, lang);
+  }
 }
