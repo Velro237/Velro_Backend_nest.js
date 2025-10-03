@@ -1,7 +1,7 @@
 generator client {
   provider      = "prisma-client-js"
   output        = "../generated/prisma"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {
@@ -28,6 +28,12 @@ model User {
   messages  Message[]
   chats     ChatMember[]
 
+  reportsSubmitted Report[] @relation("ReportReporter")
+  reportsReceived  Report[] @relation("ReportReported")
+  reportsReplied   Report[] @relation("ReportReplier")
+  refreshTokens RefreshToken[]
+  accounts      Account[]
+  kycRecords    UserKYC[]
   reportsSubmitted Report[]       @relation("ReportReporter")
   reportsReceived  Report[]       @relation("ReportReported")
   reportsReplied   Report[]       @relation("ReportReplier")
@@ -334,6 +340,49 @@ model Report {
   replier  User?        @relation("ReportReplier", fields: [replied_by], references: [id])
 }
 
+// KYC Verification Models
+enum KYCStatus {
+  NOT_STARTED    // The verification process has not been initiated by the user yet
+  IN_PROGRESS    // The user has started the verification process and is currently submitting information
+  APPROVED       // The verification has been successfully completed and approved
+  DECLINED       // The verification has been rejected due to issues with submitted information
+  KYC_EXPIRED    // The previously verified KYC has expired and needs to be renewed
+  IN_REVIEW      // The verification requires manual review by the compliance team
+  EXPIRED        // The verification session has timed out before completion
+  ABANDONED      // The user started but did not complete the verification process
+}
+
+enum KYCProvider {
+  DIDIT
+  OTHER
+}
+
+model UserKYC {
+  id                String     @id @default(uuid())
+  userId            String
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Didit.me specific fields
+  diditSessionId    String?    @unique
+  diditWorkflowId   String?
+  sessionUrl        String?
+  callbackUrl       String?
+  
+  // Verification status and data
+  status            KYCStatus  @default(NOT_STARTED)
+  provider          KYCProvider @default(DIDIT)
+  
+  // Verification results
+  verificationData  Json?      // Store verification results from Didit
+  rejectionReason   String?    // Reason for rejection if applicable
+  
+  // Metadata
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  verifiedAt        DateTime?  // When verification was completed
+  expiresAt         DateTime?  // When the verification session expires
+  
+  @@unique([userId, provider]) // One active verification per provider per user
 model Rating {
   id          String   @id @default(uuid())
   giver_id    String // User giving the rating
