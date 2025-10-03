@@ -33,14 +33,28 @@ import {
   GetTripItemsResponseDto,
 } from './dto/get-trip-items.dto';
 import { GetTripByIdResponseDto } from './dto/get-trip-by-id.dto';
+import {
+  CreateAirlineDto,
+  CreateAirlineResponseDto,
+} from './dto/create-airline.dto';
+import {
+  GetAirlinesQueryDto,
+  GetAirlinesResponseDto,
+} from './dto/get-airlines.dto';
+import { CreateAlertDto, CreateAlertResponseDto } from './dto/create-alert.dto';
+import { UpdateAlertDto, UpdateAlertResponseDto } from './dto/update-alert.dto';
+import { DeleteAlertResponseDto } from './dto/delete-alert.dto';
+import { GetAlertsQueryDto, GetAlertsResponseDto } from './dto/get-alerts.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class TripService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async createTrip(
@@ -50,6 +64,7 @@ export class TripService {
   ): Promise<CreateTripResponseDto> {
     const {
       mode_of_transport_id,
+      airline_id,
       trip_items: originalTripItems,
       ...tripData
     } = createTripDto;
@@ -70,14 +85,31 @@ export class TripService {
       throw new NotFoundException(message);
     }
 
-    // Check if transport type exists
-    const transportType = await this.prisma.transportType.findUnique({
-      where: { id: mode_of_transport_id },
+    // Check if transport type exists (only if provided)
+    if (mode_of_transport_id) {
+      const transportType = await this.prisma.transportType.findUnique({
+        where: { id: mode_of_transport_id },
+      });
+
+      if (!transportType) {
+        const message = await this.i18n.translate(
+          'translation.trip.create.transportNotFound',
+          {
+            lang,
+          },
+        );
+        throw new NotFoundException(message);
+      }
+    }
+
+    // Check if airline exists
+    const airline = await this.prisma.airline.findUnique({
+      where: { id: airline_id },
     });
 
-    if (!transportType) {
+    if (!airline) {
       const message = await this.i18n.translate(
-        'translation.trip.create.transportNotFound',
+        'translation.trip.create.airlineNotFound',
         {
           lang,
         },
@@ -136,7 +168,8 @@ export class TripService {
         const trip = await prisma.trip.create({
           data: {
             user_id: userId,
-            mode_of_transport_id,
+            mode_of_transport_id: mode_of_transport_id || null,
+            airline_id,
             pickup: tripData.pickup,
             destination: tripData.destination,
             departure: tripData.departure,
@@ -151,6 +184,7 @@ export class TripService {
             fullSuitcaseOnly: tripData.fullSuitcaseOnly || false,
             meetup_flexible: tripData.meetup_flexible || false,
             price_per_kg: tripData.price_per_kg,
+            currency: tripData.currency,
           },
           select: {
             id: true,
@@ -160,6 +194,8 @@ export class TripService {
             arrival_date: true,
             arrival_time: true,
             price_per_kg: true,
+            currency: true,
+            airline_id: true,
             createdAt: true,
           },
         });
@@ -179,6 +215,11 @@ export class TripService {
           trip,
           trip_items: trip_items || [],
         };
+      });
+
+      // Check alerts and create notifications asynchronously (don't wait for completion)
+      this.checkAlertsAndCreateNotifications(result.trip.id).catch((error) => {
+        console.error('Error checking alerts for trip:', error);
       });
 
       const message = await this.i18n.translate(
@@ -1137,6 +1178,585 @@ export class TripService {
         { lang },
       );
       throw new InternalServerErrorException(message);
+    }
+  }
+
+  // Airline methods
+  async createAirline(
+    createAirlineDto: CreateAirlineDto,
+    lang?: string,
+  ): Promise<CreateAirlineResponseDto> {
+    // Check if airline with this name already exists
+    const existingAirline = await this.prisma.airline.findUnique({
+      where: { name: createAirlineDto.name },
+    });
+
+    if (existingAirline) {
+      const message = await this.i18n.translate(
+        'translation.airline.create.nameExists',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
+
+    try {
+      const airline = await this.prisma.airline.create({
+        data: createAirlineDto,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          created_at: true,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.airline.create.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        airline,
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.airline.create.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getAllAirlines(
+    query: GetAirlinesQueryDto,
+    lang?: string,
+  ): Promise<GetAirlinesResponseDto> {
+    try {
+      const { page = 1, limit = 10, searchKey } = query;
+      const skip = (page - 1) * limit;
+
+      // Build where clause for search
+      const whereClause: any = {};
+      if (searchKey && searchKey.trim() !== '') {
+        whereClause.name = {
+          contains: searchKey,
+          mode: 'insensitive',
+        };
+      }
+
+      const [airlines, total] = await Promise.all([
+        this.prisma.airline.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            created_at: true,
+          },
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.airline.count({ where: whereClause }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
+
+      const message = await this.i18n.translate(
+        'translation.airline.getAll.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        airlines,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+        },
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.airline.getAll.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  // Alert methods
+  async createAlert(
+    userId: string,
+    createAlertDto: CreateAlertDto,
+    lang: string,
+  ): Promise<CreateAlertResponseDto> {
+    try {
+      const alert = await this.prisma.alert.create({
+        data: {
+          user_id: userId,
+          depature: createAlertDto.depature,
+          destination: createAlertDto.destination,
+          notificaction: createAlertDto.notificaction ?? true,
+          form_date: createAlertDto.form_date
+            ? new Date(createAlertDto.form_date)
+            : null,
+          to_date: createAlertDto.to_date
+            ? new Date(createAlertDto.to_date)
+            : null,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.alert.create.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        alert,
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.alert.create.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async updateAlert(
+    alertId: string,
+    userId: string,
+    updateAlertDto: UpdateAlertDto,
+    lang: string,
+  ): Promise<UpdateAlertResponseDto> {
+    try {
+      // Check if alert exists and belongs to user
+      const existingAlert = await this.prisma.alert.findFirst({
+        where: {
+          id: alertId,
+          user_id: userId,
+        },
+      });
+
+      if (!existingAlert) {
+        const message = await this.i18n.translate(
+          'translation.alert.notFound',
+          {
+            lang,
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      const updateData: any = {};
+      if (updateAlertDto.depature !== undefined) {
+        updateData.depature = updateAlertDto.depature;
+      }
+      if (updateAlertDto.destination !== undefined) {
+        updateData.destination = updateAlertDto.destination;
+      }
+      if (updateAlertDto.notificaction !== undefined) {
+        updateData.notificaction = updateAlertDto.notificaction;
+      }
+      if (updateAlertDto.form_date !== undefined) {
+        updateData.form_date = updateAlertDto.form_date
+          ? new Date(updateAlertDto.form_date)
+          : null;
+      }
+      if (updateAlertDto.to_date !== undefined) {
+        updateData.to_date = updateAlertDto.to_date
+          ? new Date(updateAlertDto.to_date)
+          : null;
+      }
+
+      const alert = await this.prisma.alert.update({
+        where: {
+          id: alertId,
+        },
+        data: updateData,
+      });
+
+      const message = await this.i18n.translate(
+        'translation.alert.update.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        alert,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.alert.update.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async deleteAlert(
+    alertId: string,
+    userId: string,
+    lang: string,
+  ): Promise<DeleteAlertResponseDto> {
+    try {
+      // Check if alert exists and belongs to user
+      const existingAlert = await this.prisma.alert.findFirst({
+        where: {
+          id: alertId,
+          user_id: userId,
+        },
+      });
+
+      if (!existingAlert) {
+        const message = await this.i18n.translate(
+          'translation.alert.notFound',
+          {
+            lang,
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      await this.prisma.alert.delete({
+        where: {
+          id: alertId,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.alert.delete.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.alert.delete.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getUserAlerts(
+    userId: string,
+    query: GetAlertsQueryDto,
+    lang: string,
+  ): Promise<GetAlertsResponseDto> {
+    try {
+      const { page = 1, limit = 10, searchKey } = query;
+      const skip = (page - 1) * limit;
+
+      // Build where clause with search functionality
+      const whereClause: any = {
+        user_id: userId,
+      };
+
+      if (searchKey) {
+        whereClause.OR = [
+          {
+            depature: {
+              contains: searchKey,
+              mode: 'insensitive',
+            },
+          },
+          {
+            destination: {
+              contains: searchKey,
+              mode: 'insensitive',
+            },
+          },
+        ];
+      }
+
+      const [alerts, total] = await Promise.all([
+        this.prisma.alert.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            user_id: true,
+            depature: true,
+            destination: true,
+            notificaction: true,
+            form_date: true,
+            to_date: true,
+            created_at: true,
+            updated_at: true,
+          },
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.alert.count({
+          where: whereClause,
+        }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.alert.getAll.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        alerts,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+        },
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.alert.getAll.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Check alerts and create notifications for matching trips
+   * This method runs independently after trip creation
+   */
+  private async checkAlertsAndCreateNotifications(
+    tripId: string,
+  ): Promise<void> {
+    try {
+      // Get the trip with all necessary data
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      if (!trip) {
+        console.error(`Trip ${tripId} not found for alert checking`);
+        return;
+      }
+
+      // Parse trip locations
+      const tripDeparture = trip.departure as any;
+      const tripDestination = trip.destination as any;
+
+      if (!tripDeparture || !tripDestination) {
+        console.log(`Trip ${tripId} missing departure or destination data`);
+        return;
+      }
+
+      // Create location search strings for database query
+      const tripDepartureStr = JSON.stringify(tripDeparture).toLowerCase();
+      const tripDestinationStr = JSON.stringify(tripDestination).toLowerCase();
+
+      // Extract city and country from trip locations for more precise matching
+      const tripDepartureCity = tripDeparture.city?.toLowerCase() || '';
+      const tripDepartureCountry = tripDeparture.country?.toLowerCase() || '';
+      const tripDepartureAddress = tripDeparture.address?.toLowerCase() || '';
+      const tripDestinationCity = tripDestination.city?.toLowerCase() || '';
+      const tripDestinationCountry =
+        tripDestination.country?.toLowerCase() || '';
+      const tripDestinationAddress =
+        tripDestination.address?.toLowerCase() || '';
+
+      // Build the where clause for matching alerts
+      const alertWhereClause = {
+        notificaction: true, // Only alerts with notification enabled
+        user_id: { not: trip.user_id }, // Exclude trip creator's own alerts
+        OR: [
+          // Departure matches
+          {
+            depature: {
+              mode: 'insensitive' as const,
+              in: [
+                tripDepartureStr,
+                tripDepartureCity,
+                tripDepartureCountry,
+                tripDepartureAddress,
+              ].filter(Boolean),
+            },
+          },
+          // Destination matches
+          {
+            destination: {
+              mode: 'insensitive' as const,
+              in: [
+                tripDestinationStr,
+                tripDestinationCity,
+                tripDestinationCountry,
+                tripDestinationAddress,
+              ].filter(Boolean),
+            },
+          },
+        ],
+        // Date range filter - if alert has date range, trip departure must be within it
+        AND: [
+          {
+            OR: [
+              // No date range specified (both dates are null)
+              {
+                AND: [{ form_date: null }, { to_date: null }],
+              },
+              // Only from_date specified (to_date is null)
+              {
+                AND: [
+                  { form_date: { not: null } },
+                  { to_date: null },
+                  { form_date: { lte: trip.departure_date } },
+                ],
+              },
+              // Only to_date specified (from_date is null)
+              {
+                AND: [
+                  { form_date: null },
+                  { to_date: { not: null } },
+                  { to_date: { gte: trip.departure_date } },
+                ],
+              },
+              // Both dates specified and trip departure is within range
+              {
+                AND: [
+                  { form_date: { not: null } },
+                  { to_date: { not: null } },
+                  { form_date: { lte: trip.departure_date } },
+                  { to_date: { gte: trip.departure_date } },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      // Get matching alerts with user data in a single query
+      const matchingAlerts = await this.prisma.alert.findMany({
+        where: alertWhereClause,
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      // Create notifications for all matching alerts
+      if (matchingAlerts.length > 0) {
+        await Promise.all(
+          matchingAlerts.map((alert) =>
+            this.createAlertNotification(alert, trip),
+          ),
+        );
+      }
+    } catch (error) {
+      console.error('Error in checkAlertsAndCreateNotifications:', error);
+    }
+  }
+
+  /**
+   * Create notification for alert match
+   */
+  private async createAlertNotification(alert: any, trip: any): Promise<void> {
+    try {
+      const title = await this.i18n.translate(
+        'translation.notification.alertMatch.title',
+        {
+          lang: 'en', // Default to English for now
+        },
+      );
+
+      const message = await this.i18n.translate(
+        'translation.notification.alertMatch.message',
+        {
+          lang: 'en',
+          args: {
+            tripCreator: trip.user.name || trip.user.email,
+            departure: JSON.stringify(trip.departure),
+            destination: JSON.stringify(trip.destination),
+            departureDate: trip.departure_date.toISOString().split('T')[0],
+          },
+        },
+      );
+
+      await this.notificationService.createNotification(
+        {
+          user_id: alert.user_id,
+          title,
+          message,
+          type: 'ALERT',
+          data: {
+            tripId: trip.id,
+            alertId: alert.id,
+            tripCreatorId: trip.user_id,
+            tripCreatorName: trip.user.name || trip.user.email,
+            departure: trip.departure,
+            destination: trip.destination,
+            departureDate: trip.departure_date,
+            pricePerKg: trip.price_per_kg,
+            currency: trip.currency,
+          },
+        },
+        'en', // Default to English for now
+      );
+    } catch (error) {
+      console.error('Error creating alert notification:', error);
     }
   }
 }

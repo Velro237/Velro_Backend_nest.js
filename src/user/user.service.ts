@@ -32,6 +32,15 @@ import {
   AdminGetAllReportsQueryDto,
   AdminGetAllReportsResponseDto,
 } from './dto/admin-get-all-reports.dto';
+import {
+  CreateRatingDto,
+  CreateRatingResponseDto,
+} from './dto/create-rating.dto';
+import {
+  GetUserRatingsQueryDto,
+  GetUserRatingsResponseDto,
+} from './dto/get-user-ratings.dto';
+import { UserStatsResponseDto } from './dto/user-stats.dto';
 import { I18nService } from 'nestjs-i18n';
 
 @Injectable()
@@ -706,6 +715,346 @@ export class UserService {
     } catch (error) {
       const message = await this.i18n.translate(
         'translation.report.getAllFailed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async createRating(
+    createRatingDto: CreateRatingDto,
+    giverId: string,
+    lang: string,
+  ): Promise<CreateRatingResponseDto> {
+    try {
+      const { receiver_id, trip_id, request_id, rating, comment } =
+        createRatingDto;
+
+      // Validate that the receiver exists
+      const receiver = await this.prisma.user.findUnique({
+        where: { id: receiver_id },
+      });
+      if (!receiver) {
+        const message = await this.i18n.translate(
+          'translation.rating.receiverNotFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Validate that the trip exists
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: trip_id },
+      });
+      if (!trip) {
+        const message = await this.i18n.translate(
+          'translation.rating.tripNotFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Validate that the request exists (if provided)
+      if (request_id) {
+        const request = await this.prisma.tripRequest.findUnique({
+          where: { id: request_id },
+        });
+        if (!request) {
+          const message = await this.i18n.translate(
+            'translation.rating.requestNotFound',
+            { lang },
+          );
+          throw new NotFoundException(message);
+        }
+      }
+
+      // Prevent self-rating
+      if (giverId === receiver_id) {
+        const message = await this.i18n.translate(
+          'translation.rating.cannotRateSelf',
+          { lang },
+        );
+        throw new ConflictException(message);
+      }
+
+      // Check if rating already exists for this trip
+      const existingRating = await this.prisma.rating.findUnique({
+        where: {
+          giver_id_receiver_id_trip_id: {
+            giver_id: giverId,
+            receiver_id,
+            trip_id,
+          },
+        },
+      });
+
+      if (existingRating) {
+        const message = await this.i18n.translate(
+          'translation.rating.alreadyRated',
+          { lang },
+        );
+        throw new ConflictException(message);
+      }
+
+      // Create the rating
+      const newRating = await this.prisma.rating.create({
+        data: {
+          giver_id: giverId,
+          receiver_id,
+          trip_id,
+          request_id,
+          rating,
+          comment,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.rating.createdSuccessfully',
+        { lang },
+      );
+
+      return {
+        message,
+        rating: {
+          id: newRating.id,
+          giver_id: newRating.giver_id,
+          receiver_id: newRating.receiver_id,
+          trip_id: newRating.trip_id,
+          request_id: newRating.request_id,
+          rating: newRating.rating,
+          comment: newRating.comment,
+          created_at: newRating.created_at,
+        },
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.rating.createFailed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getUserRatings(
+    userId: string,
+    query: GetUserRatingsQueryDto,
+    lang: string,
+  ): Promise<GetUserRatingsResponseDto> {
+    try {
+      const { page = 1, limit = 10, rating, trip_id } = query;
+      const skip = (page - 1) * limit;
+
+      // Validate that the user exists
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+      if (!user) {
+        const message = await this.i18n.translate(
+          'translation.rating.userNotFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Build where clause for filtering
+      const whereClause: any = {
+        receiver_id: userId, // Get ratings received by this user
+      };
+
+      if (rating) {
+        whereClause.rating = rating;
+      }
+
+      if (trip_id) {
+        whereClause.trip_id = trip_id;
+      }
+
+      // Get ratings with pagination
+      const [ratings, total] = await Promise.all([
+        this.prisma.rating.findMany({
+          where: whereClause,
+          include: {
+            giver: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+              },
+            },
+            trip: {
+              select: {
+                id: true,
+                pickup: true,
+                destination: true,
+                departure_date: true,
+              },
+            },
+            request: {
+              select: {
+                id: true,
+                status: true,
+                message: true,
+                created_at: true,
+              },
+            },
+          },
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.rating.count({
+          where: whereClause,
+        }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+
+      // Map ratings to response format
+      const ratingSummaries = ratings.map((rating) => ({
+        id: rating.id,
+        giver: {
+          id: rating.giver.id,
+          email: rating.giver.email,
+          name: rating.giver.name,
+        },
+        trip: {
+          id: rating.trip.id,
+          pickup: rating.trip.pickup as Record<string, any>,
+          destination: rating.trip.destination as Record<string, any>,
+          departure_date: rating.trip.departure_date,
+        },
+        request: rating.request
+          ? {
+              id: rating.request.id,
+              status: rating.request.status,
+              message: rating.request.message,
+              created_at: rating.request.created_at,
+            }
+          : null,
+        rating: rating.rating,
+        comment: rating.comment,
+        created_at: rating.created_at,
+      }));
+
+      const message = await this.i18n.translate(
+        'translation.rating.getUserRatingsSuccess',
+        { lang },
+      );
+
+      return {
+        message,
+        ratings: ratingSummaries,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.rating.getUserRatingsFailed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getUserStats(
+    userId: string,
+    lang: string,
+  ): Promise<UserStatsResponseDto> {
+    try {
+      // Validate that the user exists
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+      if (!user) {
+        const message = await this.i18n.translate(
+          'translation.stats.userNotFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Get all statistics in parallel
+      const [totalTripsCreated, ratingsData, requestsData] = await Promise.all([
+        // Total trips created by the user
+        this.prisma.trip.count({
+          where: { user_id: userId },
+        }),
+
+        // Ratings received by the user
+        this.prisma.rating.aggregate({
+          where: { receiver_id: userId },
+          _avg: { rating: true },
+          _count: { rating: true },
+        }),
+
+        // Requests on user's trips
+        this.prisma.tripRequest.findMany({
+          where: {
+            trip: { user_id: userId },
+          },
+          select: {
+            status: true,
+          },
+        }),
+      ]);
+
+      // Calculate success rate
+      const totalRequests = requestsData.length;
+      const acceptedRequests = requestsData.filter(
+        (request) => request.status === 'APPROVED',
+      ).length;
+
+      const successRate =
+        totalRequests > 0
+          ? Math.round((acceptedRequests / totalRequests) * 100 * 100) / 100 // Round to 2 decimal places
+          : 0;
+
+      // Get average rating
+      const averageRating = ratingsData._avg.rating
+        ? Math.round(ratingsData._avg.rating * 100) / 100 // Round to 2 decimal places
+        : 0;
+
+      const totalRatings = ratingsData._count.rating || 0;
+
+      const message = await this.i18n.translate(
+        'translation.stats.getUserStatsSuccess',
+        { lang },
+      );
+
+      return {
+        message,
+        stats: {
+          totalTripsCreated,
+          averageRating,
+          totalRatings,
+          successRate,
+          totalRequests,
+          acceptedRequests,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.stats.getUserStatsFailed',
         { lang },
       );
       throw new InternalServerErrorException(message);

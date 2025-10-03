@@ -12,6 +12,7 @@ import {
 import { TripModule } from './trip/trip.module';
 import { RequestModule } from './request/request.module';
 import { ChatModule } from './chat/chat.module';
+import { NotificationModule } from './notification/notification.module';
 import * as path from 'path';
 
 @Module({
@@ -37,6 +38,7 @@ import * as path from 'path';
     TripModule,
     RequestModule,
     ChatModule,
+    NotificationModule,
   ],
   controllers: [],
   providers: [],

@@ -177,12 +177,22 @@ export class CreateTripDto {
   arrival_time?: string;
 
   @ApiProperty({
-    description: 'Transport type ID',
+    description: 'Transport type ID (optional)',
     example: '123e4567-e89b-12d3-a456-426614174001',
+    required: false,
   })
   @IsString()
   @IsUUID()
-  mode_of_transport_id: string;
+  @IsOptional()
+  mode_of_transport_id?: string;
+
+  @ApiProperty({
+    description: 'Airline ID (required)',
+    example: '123e4567-e89b-12d3-a456-426614174002',
+  })
+  @IsString()
+  @IsUUID()
+  airline_id: string;
 
   @ApiProperty({
     description: 'Maximum weight in kilograms',
@@ -227,6 +237,84 @@ export class CreateTripDto {
   })
   @IsNumber()
   price_per_kg: number;
+
+  @ApiProperty({
+    description: 'Currency code (ISO 4217)',
+    example: 'USD',
+    enum: [
+      'USD',
+      'EUR',
+      'GBP',
+      'CAD',
+      'AUD',
+      'JPY',
+      'CHF',
+      'CNY',
+      'SEK',
+      'NOK',
+      'DKK',
+      'PLN',
+      'CZK',
+      'HUF',
+      'RON',
+      'BGN',
+      'HRK',
+      'RUB',
+      'UAH',
+      'TRY',
+      'ILS',
+      'AED',
+      'SAR',
+      'EGP',
+      'ZAR',
+      'NGN',
+      'KES',
+      'GHS',
+      'MAD',
+      'TND',
+      'DZD',
+      'MXN',
+      'BRL',
+      'ARS',
+      'CLP',
+      'COP',
+      'PEN',
+      'UYU',
+      'VES',
+      'INR',
+      'PKR',
+      'BDT',
+      'LKR',
+      'NPR',
+      'AFN',
+      'KZT',
+      'UZS',
+      'KGS',
+      'TJS',
+      'TMT',
+      'MNT',
+      'KRW',
+      'THB',
+      'VND',
+      'IDR',
+      'MYR',
+      'SGD',
+      'PHP',
+      'MMK',
+      'LAK',
+      'KHR',
+      'BND',
+      'FJD',
+      'PGK',
+      'SBD',
+      'VUV',
+      'WST',
+      'TOP',
+      'NZD',
+    ],
+  })
+  @IsString()
+  currency: string;
 
   @ApiProperty({
     description: 'List of trip items with their prices',
@@ -284,6 +372,8 @@ export class CreateTripResponseDto {
       arrival_date: '2024-02-16T14:00:00.000Z',
       arrival_time: '2:00 PM',
       price_per_kg: 15.5,
+      currency: 'USD',
+      airline_id: '123e4567-e89b-12d3-a456-426614174002',
       createdAt: '2024-01-15T10:30:00.000Z',
       trip_items: [
         {
@@ -305,6 +395,8 @@ export class CreateTripResponseDto {
     arrival_date?: Date;
     arrival_time?: string;
     price_per_kg: any; // Decimal from Prisma
+    currency: string;
+    airline_id: string;
     createdAt: Date;
     trip_items?: {
       trip_item_id: string;
