@@ -13,6 +13,7 @@ import { TripModule } from './trip/trip.module';
 import { RequestModule } from './request/request.module';
 import { ChatModule } from './chat/chat.module';
 import { KycModule } from './kyc/kyc.module';
+import { NotificationModule } from './notification/notification.module';
 import * as path from 'path';
 
 @Module({
@@ -39,6 +40,7 @@ import * as path from 'path';
     RequestModule,
     ChatModule,
     KycModule,
+    NotificationModule,
   ],
   controllers: [],
   providers: [],

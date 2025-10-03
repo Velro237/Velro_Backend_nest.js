@@ -23,6 +23,15 @@ import {
   GetReportsQueryDto,
   GetReportsResponseDto,
 } from './dto/get-reports.dto';
+import {
+  CreateRatingDto,
+  CreateRatingResponseDto,
+} from './dto/create-rating.dto';
+import {
+  GetUserRatingsQueryDto,
+  GetUserRatingsResponseDto,
+} from './dto/get-user-ratings.dto';
+import { UserStatsResponseDto } from './dto/user-stats.dto';
 import { I18nLang, I18nService } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -35,6 +44,9 @@ import {
   ApiUpdateUser,
   ApiCreateReport,
   ApiGetReports,
+  ApiCreateRating,
+  ApiGetUserRatings,
+  ApiGetUserStats,
 } from './decorators/api-docs.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
@@ -122,5 +134,36 @@ export class UserController {
     @I18nLang() lang: string,
   ): Promise<GetReportsResponseDto> {
     return this.userService.getReports(user.id, query, lang);
+  }
+
+  /* ---------------- RATING ENDPOINTS ---------------- */
+  @Post('rating')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreateRating()
+  async createRating(
+    @Body() createRatingDto: CreateRatingDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<CreateRatingResponseDto> {
+    return this.userService.createRating(createRatingDto, user.id, lang);
+  }
+
+  @Get('ratings/:user_id')
+  @ApiGetUserRatings()
+  async getUserRatings(
+    @Param('user_id', new ParseUUIDPipe()) userId: string,
+    @Query() query: GetUserRatingsQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<GetUserRatingsResponseDto> {
+    return this.userService.getUserRatings(userId, query, lang);
+  }
+
+  @Get('stats/:user_id')
+  @ApiGetUserStats()
+  async getUserStats(
+    @Param('user_id', new ParseUUIDPipe()) userId: string,
+    @I18nLang() lang: string,
+  ): Promise<UserStatsResponseDto> {
+    return this.userService.getUserStats(userId, lang);
   }
 }

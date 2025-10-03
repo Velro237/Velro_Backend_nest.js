@@ -34,6 +34,15 @@ model User {
   refreshTokens RefreshToken[]
   accounts      Account[]
   kycRecords    UserKYC[]
+  reportsSubmitted Report[]       @relation("ReportReporter")
+  reportsReceived  Report[]       @relation("ReportReported")
+  reportsReplied   Report[]       @relation("ReportReplier")
+  refreshTokens    RefreshToken[]
+  accounts         Account[]
+  alerts           Alert[]
+  ratingsGiven     Rating[]       @relation("RatingGiver")
+  ratingsReceived  Rating[]       @relation("RatingReceiver")
+  notifications    Notification[]
 }
 
 model Account {
@@ -116,23 +125,6 @@ model Message {
   request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
 }
 
-// model Report {
-//    id String @id @default(uuid())
-//    user_id String
-//    trip_id String?
-//    request_id String?
-//    type String?
-//    details String?
-//    text String?
-//    created_at DateTime @default(now())
-//    updated_at DateTime @updatedAt
-
-//    // Relations
-//    user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-//    trip Trip? @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-//    request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
-// }
-
 enum MessageType {
   TEXT
   IMAGE
@@ -149,9 +141,11 @@ model Trip {
   delivery             Json?
   departure_date       DateTime
   departure_time       String
+  currency             String     @default("USD")
   arrival_date         DateTime?
   arrival_time         String?
-  mode_of_transport_id String
+  mode_of_transport_id String?
+  airline_id           String
   maximum_weight_in_kg Decimal?   @db.Decimal(5, 2)
   notes                String?
   fullSuitcaseOnly     Boolean    @default(false)
@@ -163,11 +157,24 @@ model Trip {
 
   // Relations
   user              User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  mode_of_transport TransportType   @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
+  mode_of_transport TransportType?  @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
+  airline           Airline         @relation(fields: [airline_id], references: [id], onDelete: Cascade)
   trip_items        TripItemsList[]
   requests          TripRequest[]
   chats             Chat[]
   reports           Report[]
+  ratings           Rating[]
+}
+
+model Airline {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  trips Trip[]
 }
 
 model Image {
@@ -227,6 +234,7 @@ model TripRequest {
   images        TripRequestImage[]
   messages      Message[] // messages that reference this request via request_id
   reports       Report[]
+  ratings       Rating[]
 }
 
 model TripRequestItem {
@@ -375,4 +383,58 @@ model UserKYC {
   expiresAt         DateTime?  // When the verification session expires
   
   @@unique([userId, provider]) // One active verification per provider per user
+model Rating {
+  id          String   @id @default(uuid())
+  giver_id    String // User giving the rating
+  receiver_id String // User receiving the rating
+  trip_id     String // Trip being rated
+  request_id  String? // Optional: specific request being rated
+  rating      Int // Rating value (1-5)
+  comment     String? // Optional comment
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  giver    User         @relation("RatingGiver", fields: [giver_id], references: [id], onDelete: Cascade)
+  receiver User         @relation("RatingReceiver", fields: [receiver_id], references: [id], onDelete: Cascade)
+  trip     Trip         @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+
+  @@unique([giver_id, receiver_id, trip_id]) // Prevent duplicate ratings for same trip
+}
+
+model Alert {
+  id            String    @id @default(uuid())
+  user_id       String
+  depature      String
+  destination   String
+  form_date     DateTime?
+  to_date       DateTime?
+  notificaction Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  // Relations
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id      String @id @default(uuid())
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user_id String
+
+  title   String
+  message String
+  type    NotificationType // enum for categorizing
+  data    Json? // extra metadata (e.g. { "postId": "123" })
+
+  read      Boolean   @default(false) // track read/unread
+  createdAt DateTime  @default(now())
+  read_at   DateTime?
+}
+
+enum NotificationType {
+  SYSTEM
+  REQUEST
+  ALERT
 }

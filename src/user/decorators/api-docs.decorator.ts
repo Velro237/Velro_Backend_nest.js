@@ -30,6 +30,15 @@ import {
   AdminGetAllReportsQueryDto,
   AdminGetAllReportsResponseDto,
 } from '../dto/admin-get-all-reports.dto';
+import {
+  CreateRatingDto,
+  CreateRatingResponseDto,
+} from '../dto/create-rating.dto';
+import {
+  GetUserRatingsQueryDto,
+  GetUserRatingsResponseDto,
+} from '../dto/get-user-ratings.dto';
+import { UserStatsResponseDto } from '../dto/user-stats.dto';
 
 /* ------------------ HELPERS ------------------ */
 const ConflictSchema = (message = 'User with this email already exists') => ({
@@ -966,6 +975,431 @@ export function ApiRemoveUser() {
       status: 500,
       description: 'Internal server error',
       schema: InternalErrorSchema('Failed to delete user'),
+    }),
+  );
+}
+
+export function ApiCreateRating() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Rate a user',
+      description:
+        'Create a rating for a user based on a trip experience. Users can rate each other after completing a trip. Rating must be between 1-5 stars. Users cannot rate themselves and cannot rate the same user for the same trip twice.',
+    }),
+    ApiBody({
+      description: 'Rating creation data',
+      type: CreateRatingDto,
+      examples: {
+        tripOwnerRating: {
+          summary: 'Trip owner rating a passenger',
+          value: {
+            receiver_id: '123e4567-e89b-12d3-a456-426614174000',
+            trip_id: '123e4567-e89b-12d3-a456-426614174001',
+            request_id: '123e4567-e89b-12d3-a456-426614174002',
+            rating: 5,
+            comment:
+              'Excellent passenger! Very punctual and communicative. Highly recommended.',
+          },
+        },
+        passengerRating: {
+          summary: 'Passenger rating a trip owner',
+          value: {
+            receiver_id: '123e4567-e89b-12d3-a456-426614174003',
+            trip_id: '123e4567-e89b-12d3-a456-426614174001',
+            rating: 4,
+            comment: 'Good service overall, but delivery was slightly delayed.',
+          },
+        },
+        simpleRating: {
+          summary: 'Simple rating without comment',
+          value: {
+            receiver_id: '123e4567-e89b-12d3-a456-426614174000',
+            trip_id: '123e4567-e89b-12d3-a456-426614174001',
+            rating: 3,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 201,
+      description: 'Rating created successfully',
+      type: CreateRatingResponseDto,
+      examples: {
+        success: {
+          summary: 'Rating created successfully',
+          value: {
+            message: 'Rating created successfully',
+            rating: {
+              id: '123e4567-e89b-12d3-a456-426614174004',
+              giver_id: '123e4567-e89b-12d3-a456-426614174005',
+              receiver_id: '123e4567-e89b-12d3-a456-426614174000',
+              trip_id: '123e4567-e89b-12d3-a456-426614174001',
+              request_id: '123e4567-e89b-12d3-a456-426614174002',
+              rating: 5,
+              comment:
+                'Excellent passenger! Very punctual and communicative. Highly recommended.',
+              created_at: '2024-01-15T10:30:00.000Z',
+            },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'Bad request - Invalid input data',
+      examples: {
+        validationError: {
+          summary: 'Validation error',
+          value: {
+            message: [
+              'receiver_id must be a valid UUID',
+              'trip_id must be a valid UUID',
+              'rating must be a number between 1 and 5',
+            ],
+            error: 'Bad Request',
+            statusCode: 400,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'Unauthorized - Invalid or missing JWT token',
+      examples: {
+        unauthorized: {
+          summary: 'Unauthorized access',
+          value: {
+            message: 'Unauthorized',
+            error: 'Unauthorized',
+            statusCode: 401,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 404,
+      description: 'Not found - Referenced resource not found',
+      examples: {
+        userNotFound: {
+          summary: 'User not found',
+          value: {
+            message: 'User not found',
+            error: 'Not Found',
+            statusCode: 404,
+          },
+        },
+        tripNotFound: {
+          summary: 'Trip not found',
+          value: {
+            message: 'Trip not found',
+            error: 'Not Found',
+            statusCode: 404,
+          },
+        },
+        requestNotFound: {
+          summary: 'Trip request not found',
+          value: {
+            message: 'Trip request not found',
+            error: 'Not Found',
+            statusCode: 404,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 409,
+      description: 'Conflict - Business rule violation',
+      examples: {
+        cannotRateSelf: {
+          summary: 'Cannot rate yourself',
+          value: {
+            message: 'You cannot rate yourself',
+            error: 'Conflict',
+            statusCode: 409,
+          },
+        },
+        alreadyRated: {
+          summary: 'Already rated this user for this trip',
+          value: {
+            message: 'You have already rated this user for this trip',
+            error: 'Conflict',
+            statusCode: 409,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+      examples: {
+        serverError: {
+          summary: 'Internal server error',
+          value: {
+            message: 'Failed to create rating',
+            error: 'Internal Server Error',
+            statusCode: 500,
+          },
+        },
+      },
+    }),
+  );
+}
+
+export function ApiGetUserRatings() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Get user ratings',
+      description:
+        'Retrieve all ratings received by a specific user with pagination and filtering options. Supports filtering by rating value (1-5) and trip ID.',
+    }),
+    ApiQuery({
+      name: 'page',
+      description: 'Page number for pagination',
+      required: false,
+      type: Number,
+      example: 1,
+    }),
+    ApiQuery({
+      name: 'limit',
+      description: 'Number of ratings per page (1-100)',
+      required: false,
+      type: Number,
+      example: 10,
+    }),
+    ApiQuery({
+      name: 'rating',
+      description: 'Filter by rating value (1-5)',
+      required: false,
+      type: Number,
+      example: 5,
+    }),
+    ApiQuery({
+      name: 'trip_id',
+      description: 'Filter by trip ID',
+      required: false,
+      type: String,
+      example: '123e4567-e89b-12d3-a456-426614174000',
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'User ratings retrieved successfully',
+      type: GetUserRatingsResponseDto,
+      examples: {
+        success: {
+          summary: 'User ratings retrieved successfully',
+          value: {
+            message: 'User ratings retrieved successfully',
+            ratings: [
+              {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                giver: {
+                  id: '123e4567-e89b-12d3-a456-426614174001',
+                  email: 'giver@example.com',
+                  name: 'John Doe',
+                },
+                trip: {
+                  id: '123e4567-e89b-12d3-a456-426614174002',
+                  pickup: { country_name: 'France', city: 'Paris' },
+                  destination: { country_name: 'USA', city: 'New York' },
+                  departure_date: '2024-02-01T00:00:00.000Z',
+                },
+                request: {
+                  id: '123e4567-e89b-12d3-a456-426614174003',
+                  status: 'APPROVED',
+                  message: 'I need help with transportation to the airport',
+                  created_at: '2024-01-14T09:15:00.000Z',
+                },
+                rating: 5,
+                comment: 'Excellent service! Very punctual and communicative.',
+                created_at: '2024-01-15T10:30:00.000Z',
+              },
+            ],
+            pagination: {
+              page: 1,
+              limit: 10,
+              total: 25,
+              totalPages: 3,
+              hasNext: true,
+              hasPrev: false,
+            },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'Bad request - Invalid input data',
+      examples: {
+        validationError: {
+          summary: 'Validation error',
+          value: {
+            message: [
+              'user_id must be a valid UUID',
+              'page must be a positive number',
+              'limit must be between 1 and 100',
+            ],
+            error: 'Bad Request',
+            statusCode: 400,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'Unauthorized - Invalid or missing JWT token',
+      examples: {
+        unauthorized: {
+          summary: 'Unauthorized access',
+          value: {
+            message: 'Unauthorized',
+            error: 'Unauthorized',
+            statusCode: 401,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 404,
+      description: 'User not found',
+      examples: {
+        userNotFound: {
+          summary: 'User not found',
+          value: {
+            message: 'User not found',
+            error: 'Not Found',
+            statusCode: 404,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+      examples: {
+        serverError: {
+          summary: 'Internal server error',
+          value: {
+            message: 'Failed to retrieve user ratings',
+            error: 'Internal Server Error',
+            statusCode: 500,
+          },
+        },
+      },
+    }),
+  );
+}
+
+export function ApiGetUserStats() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Get user statistics',
+      description:
+        'Retrieve comprehensive statistics for a user including total trips created, average rating received, success rate (accepted requests / total requests), and related metrics.',
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'User statistics retrieved successfully',
+      type: UserStatsResponseDto,
+      examples: {
+        success: {
+          summary: 'User statistics retrieved successfully',
+          value: {
+            message: 'User statistics retrieved successfully',
+            stats: {
+              totalTripsCreated: 15,
+              averageRating: 4.2,
+              totalRatings: 12,
+              successRate: 85.5,
+              totalRequests: 20,
+              acceptedRequests: 17,
+            },
+          },
+        },
+        newUser: {
+          summary: 'Statistics for new user',
+          value: {
+            message: 'User statistics retrieved successfully',
+            stats: {
+              totalTripsCreated: 0,
+              averageRating: 0,
+              totalRatings: 0,
+              successRate: 0,
+              totalRequests: 0,
+              acceptedRequests: 0,
+            },
+          },
+        },
+        experiencedUser: {
+          summary: 'Statistics for experienced user',
+          value: {
+            message: 'User statistics retrieved successfully',
+            stats: {
+              totalTripsCreated: 45,
+              averageRating: 4.8,
+              totalRatings: 38,
+              successRate: 92.3,
+              totalRequests: 65,
+              acceptedRequests: 60,
+            },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'Bad request - Invalid user ID',
+      examples: {
+        validationError: {
+          summary: 'Validation error',
+          value: {
+            message: ['user_id must be a valid UUID'],
+            error: 'Bad Request',
+            statusCode: 400,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'Unauthorized - Invalid or missing JWT token',
+      examples: {
+        unauthorized: {
+          summary: 'Unauthorized access',
+          value: {
+            message: 'Unauthorized',
+            error: 'Unauthorized',
+            statusCode: 401,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 404,
+      description: 'User not found',
+      examples: {
+        userNotFound: {
+          summary: 'User not found',
+          value: {
+            message: 'User not found',
+            error: 'Not Found',
+            statusCode: 404,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+      examples: {
+        serverError: {
+          summary: 'Internal server error',
+          value: {
+            message: 'Failed to retrieve user statistics',
+            error: 'Internal Server Error',
+            statusCode: 500,
+          },
+        },
+      },
     }),
   );
 }

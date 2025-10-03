@@ -64,6 +64,8 @@ export const ApiCreateTrip = () =>
               departure_date: '2024-02-15T10:00:00.000Z',
               departure_time: '10:00 AM',
               price_per_kg: 15.5,
+              currency: 'USD',
+              airline_id: '123e4567-e89b-12d3-a456-426614174002',
               createdAt: '2024-01-15T10:30:00.000Z',
               trip_items: [
                 {
@@ -83,7 +85,7 @@ export const ApiCreateTrip = () =>
     ApiResponse({
       status: 404,
       description:
-        'User, transport type, or trip item not found (message will be translated)',
+        'User, transport type, airline, or trip item not found (message will be translated)',
       schema: {
         type: 'object',
         properties: {
@@ -93,6 +95,7 @@ export const ApiCreateTrip = () =>
             examples: {
               userNotFound: { value: 'User not found' },
               transportNotFound: { value: 'Transport type not found' },
+              airlineNotFound: { value: 'Airline not found' },
               tripItemNotFound: { value: 'One or more trip items not found' },
             },
           },
@@ -251,8 +254,9 @@ export const ApiUpdateTrip = () =>
 export const ApiCreateTransportType = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Create a new transport type',
-      description: 'Create a new transport type for trip categorization.',
+      summary: 'Create a new transport type (Admin Only)',
+      description:
+        'Create a new transport type for trip categorization. Requires admin privileges.',
     }),
     ApiBody({
       type: CreateTransportTypeDto,
@@ -294,6 +298,21 @@ export const ApiCreateTransportType = () =>
       },
     }),
     ApiResponse({
+      status: 403,
+      description: 'Forbidden - Admin access required',
+      schema: {
+        type: 'object',
+        properties: {
+          statusCode: { type: 'number', example: 403 },
+          message: {
+            type: 'string',
+            example: 'Access denied. Admin privileges required.',
+          },
+          error: { type: 'string', example: 'Forbidden' },
+        },
+      },
+    }),
+    ApiResponse({
       status: 409,
       description:
         'Transport type name already exists (message will be translated)',
@@ -329,8 +348,9 @@ export const ApiCreateTransportType = () =>
 export const ApiUpdateTransportType = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Update a transport type',
-      description: 'Update an existing transport type.',
+      summary: 'Update a transport type (Admin Only)',
+      description:
+        'Update an existing transport type. Requires admin privileges.',
     }),
     ApiParam({
       name: 'id',
@@ -561,8 +581,9 @@ export const ApiGetTransportTypeById = () =>
 export const ApiCreateTripItem = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Create a new trip item',
-      description: 'Create a new trip item for trip categorization.',
+      summary: 'Create a new trip item (Admin Only)',
+      description:
+        'Create a new trip item for trip categorization. Requires admin privileges.',
     }),
     ApiBody({
       type: CreateTripItemDto,
@@ -653,8 +674,8 @@ export const ApiCreateTripItem = () =>
 export const ApiUpdateTripItem = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Update a trip item',
-      description: 'Update an existing trip item.',
+      summary: 'Update a trip item (Admin Only)',
+      description: 'Update an existing trip item. Requires admin privileges.',
     }),
     ApiParam({
       name: 'id',
