@@ -29,8 +29,20 @@ export class AuthService {
     signupDto: SignupDto,
     lang?: string,
   ): Promise<SignupResponseDto> {
-    const { email, password, role = 'USER' } = signupDto;
+    const {
+      email,
+      password,
+      role = 'USER',
+      firstName,
+      lastName,
+      phone,
+      address,
+      city,
+      state,
+      zip,
+    } = signupDto;
 
+    console.log(signupDto);
     // Check if user already exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
@@ -57,11 +69,27 @@ export class AuthService {
           email,
           password: hashedPassword,
           role,
+          firstName,
+          name: `${firstName} ${lastName}`,
+          lastName,
+          phone,
+          address,
+          city,
+          state,
+          zip,
         },
         select: {
           id: true,
           email: true,
           role: true,
+          firstName: true,
+          name: true,
+          lastName: true,
+          phone: true,
+          address: true,
+          city: true,
+          state: true,
+          zip: true,
           createdAt: true,
         },
       });
@@ -75,7 +103,16 @@ export class AuthService {
 
       return {
         message,
-        user,
+        user: {
+          ...user,
+          firstName: user.firstName ?? null,
+          lastName: user.lastName ?? null,
+          phone: user.phone ?? null,
+          address: user.address ?? null,
+          city: user.city ?? null,
+          state: user.state ?? null,
+          zip: user.zip ?? null,
+        },
       };
     } catch (error: any) {
       console.log(error);
@@ -136,6 +173,13 @@ export class AuthService {
         email: user.email,
         role: user.role,
         createdAt: user.createdAt,
+        firstName: user.firstName ?? null,
+        lastName: user.lastName ?? null,
+        phone: user.phone ?? null,
+        address: user.address ?? null,
+        city: user.city ?? null,
+        state: user.state ?? null,
+        zip: user.zip ?? null,
       },
     };
   }
