@@ -479,6 +479,7 @@ export class TripService {
 
     try {
       const { image_id, ...tripItemData } = createTripItemDto;
+
       const tripItem = await this.prisma.tripItem.create({
         data: {
           ...tripItemData,
@@ -562,6 +563,7 @@ export class TripService {
 
     try {
       const { image_id, ...tripItemData } = updateTripItemDto;
+
       const tripItem = await this.prisma.tripItem.update({
         where: { id: tripItemId },
         data: {
