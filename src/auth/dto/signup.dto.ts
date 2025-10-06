@@ -5,6 +5,8 @@ import {
   MinLength,
   IsEnum,
   IsOptional,
+  IsUrl,
+  IsBoolean,
 } from 'class-validator';
 import { UserRole } from 'generated/prisma/client';
 
@@ -99,6 +101,43 @@ export class SignupDto {
   @IsString()
   @IsOptional()
   zip?: string;
+
+  @ApiProperty({
+    description: 'User picture',
+    example: 'https://example.com/avatar.png',
+    required: false,
+  })
+  @IsString()
+  @IsUrl()
+  @IsOptional()
+  picture?: string;
+
+  @ApiProperty({
+    description: 'User is freight forwarder',
+    example: true,
+    required: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  isFreightForwarder?: boolean;
+
+  @ApiProperty({
+    description: 'User company name',
+    example: 'Freight Forwarder',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  companyName?: string;
+
+  @ApiProperty({
+    description: 'User company address',
+    example: '123 Main St',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  companyAddress?: string;
 }
 
 export class SignupResponseDto {
@@ -122,6 +161,10 @@ export class SignupResponseDto {
       zip: '123456',
       role: 'USER',
       createdAt: '2024-01-15T10:30:00.000Z',
+      picture: 'https://example.com/avatar.png',
+      isFreightForwarder: true,
+      companyName: 'Freight Forwarder',
+      companyAddress: '123 Main St',
     },
   })
   user: {
@@ -136,5 +179,9 @@ export class SignupResponseDto {
     zip: string;
     role: UserRole;
     createdAt: Date;
+    picture: string;
+    isFreightForwarder: boolean;
+    companyName: string;
+    companyAddress: string;
   };
 }

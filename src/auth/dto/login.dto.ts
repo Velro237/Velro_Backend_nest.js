@@ -47,6 +47,10 @@ export class LoginResponseDto {
       city: { type: 'string', example: 'Yaoundé' },
       state: { type: 'string', example: 'Cameroon' },
       zip: { type: 'string', example: '123456' },
+      isFreightForwarder: { type: 'boolean', example: 'false' },
+      companyName: { type: 'string', example: 'Com' },
+      companyAddress: { type: 'string', example: 'Com' },
+      picture: { type: 'string', example: 'htts://exemple.com' },
     },
   })
   user: {
@@ -61,6 +65,10 @@ export class LoginResponseDto {
     city: string;
     state: string;
     zip: string;
+    isFreightForwarder: boolean;
+    companyName: string;
+    companyAddress: string;
+    picture: string;
   };
 }
 

@@ -40,6 +40,9 @@ export class AuthService {
       city,
       state,
       zip,
+      isFreightForwarder,
+      companyAddress,
+      companyName,
     } = signupDto;
 
     console.log(signupDto);
@@ -77,6 +80,9 @@ export class AuthService {
           city,
           state,
           zip,
+          isFreightForwarder,
+          companyAddress,
+          companyName,
         },
         select: {
           id: true,
@@ -91,6 +97,8 @@ export class AuthService {
           state: true,
           zip: true,
           createdAt: true,
+          isFreightForwarder: true,
+          companyAddress: true,
         },
       });
 
@@ -112,6 +120,10 @@ export class AuthService {
           city: user.city ?? null,
           state: user.state ?? null,
           zip: user.zip ?? null,
+          picture: '',
+          isFreightForwarder: false,
+          companyName: '',
+          companyAddress: '',
         },
       };
     } catch (error: any) {
@@ -180,6 +192,10 @@ export class AuthService {
         city: user.city ?? null,
         state: user.state ?? null,
         zip: user.zip ?? null,
+        isFreightForwarder: user.isFreightForwarder,
+        companyName: user.companyName,
+        companyAddress: user.companyAddress,
+        picture: user.picture,
       },
     };
   }
@@ -221,6 +237,7 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: {
           email: oauth.email,
+          password: '',
           name: oauth.name,
           picture: oauth.picture,
         },
