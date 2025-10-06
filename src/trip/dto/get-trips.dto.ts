@@ -1,11 +1,18 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsInt,
+  Min,
+  Max,
+  IsDateString,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class GetTripsQueryDto {
   @ApiProperty({
     description:
-      'Country code to prioritize trips from this country (e.g., "US", "FR"). Returns all trips but puts matching countries at the top of the array. Note: Country prioritization is disabled when searchKey is provided. Search is case-insensitive.',
+      'Country code to prioritize trips from this country (e.g., "US", "FR"). Returns all trips but puts matching countries at the top of the array. Note: Country prioritization is disabled when destinations is provided. Search is case-insensitive.',
     example: 'US',
     required: false,
   })
@@ -15,13 +22,33 @@ export class GetTripsQueryDto {
 
   @ApiProperty({
     description:
-      'Search key to filter trips by departure_date, arrival_date, delivery country name, code, or address. Search is case-insensitive.',
-    example: '2024-01-15',
+      'Search destinations to filter trips by departure and destination country name and region. Search is case-insensitive.',
+    example: 'France',
     required: false,
   })
   @IsOptional()
   @IsString()
-  searchKey?: string;
+  destinations?: string;
+
+  @ApiProperty({
+    description: 'Start date for departure date range filter (ISO 8601 format)',
+    example: '2024-02-01T00:00:00.000Z',
+    format: 'date-time',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  departureDateFrom?: string;
+
+  @ApiProperty({
+    description: 'End date for departure date range filter (ISO 8601 format)',
+    example: '2024-02-28T23:59:59.999Z',
+    format: 'date-time',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  departureDateTo?: string;
 
   @ApiProperty({
     description: 'Page number for pagination (starts from 1)',

@@ -810,89 +810,78 @@ export class TripService {
     lang?: string,
   ): Promise<GetTripsResponseDto> {
     try {
-      const { country, searchKey, page = 1, limit = 10 } = query;
+      const {
+        country,
+        destinations,
+        departureDateFrom,
+        departureDateTo,
+        page = 1,
+        limit = 10,
+      } = query;
       const skip = (page - 1) * limit;
 
       // Base where clause for published trips
       const baseWhereClause: any = {
         status: 'PUBLISHED' as const, // Only show published trips
-        departure_date: {
-          gte: new Date(), // Only show trips with departure date >= today
-        },
       };
 
-      // Add search filters if searchKey is provided
-      if (searchKey && searchKey.trim() !== '') {
+      // Add departure date range filter
+      if (departureDateFrom || departureDateTo) {
+        baseWhereClause.departure_date = {};
+
+        if (departureDateFrom) {
+          baseWhereClause.departure_date.gte = new Date(departureDateFrom);
+        }
+
+        if (departureDateTo) {
+          baseWhereClause.departure_date.lte = new Date(departureDateTo);
+        }
+      } else {
+        // If no date range specified, only show future trips
+        baseWhereClause.departure_date = {
+          gte: new Date(), // Only show trips with departure date >= today
+        };
+      }
+
+      // Add search filters if destinations is provided
+      if (destinations && destinations.trim() !== '') {
         try {
           const searchFilters = [];
 
-          // Check if searchKey is a valid date
-          const searchDate = new Date(searchKey);
+          // Check if destinations is a valid date
+          const searchDate = new Date(destinations);
           const isValidDate = !isNaN(searchDate.getTime());
 
-          // Only add date filters if searchKey is a valid date
-          if (isValidDate) {
-            // Search in departure_date (convert to string for partial matching)
-            searchFilters.push({
-              departure_date: {
-                gte: searchDate, // Greater than or equal to search date
-              },
-            });
+          // Search in departure location - country name and region
+          searchFilters.push({
+            departure: {
+              path: ['country'],
+              string_contains: destinations,
+              mode: 'insensitive',
+            },
+          });
 
-            // Search in arrival_date (convert to string for partial matching)
-            searchFilters.push({
-              arrival_date: {
-                gte: searchDate, // Greater than or equal to search date
-              },
-            });
-          }
+          searchFilters.push({
+            departure: {
+              path: ['region'],
+              string_contains: destinations,
+              mode: 'insensitive',
+            },
+          });
 
-          // Search in destination JSON fields (country name, code, address) - case insensitive
+          // Search in destination location - country name and region
           searchFilters.push({
             destination: {
               path: ['country'],
-              string_contains: searchKey,
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
 
           searchFilters.push({
             destination: {
-              path: ['country_code'],
-              string_contains: searchKey,
-              mode: 'insensitive',
-            },
-          });
-
-          searchFilters.push({
-            destination: {
-              path: ['address'],
-              string_contains: searchKey,
-              mode: 'insensitive',
-            },
-          });
-
-          // Search in pickup JSON fields (country name, code, address) - case insensitive
-          searchFilters.push({
-            pickup: {
-              path: ['country'],
-              string_contains: searchKey,
-              mode: 'insensitive',
-            },
-          });
-
-          searchFilters.push({
-            pickup: {
-              path: ['country_code'],
-              string_contains: searchKey,
-              mode: 'insensitive',
-            },
-          });
-
-          searchFilters.push({
-            pickup: {
-              path: ['address'],
-              string_contains: searchKey,
+              path: ['region'],
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
@@ -901,7 +890,7 @@ export class TripService {
           searchFilters.push({
             destination: {
               path: ['country'],
-              string_contains: searchKey,
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
@@ -909,7 +898,7 @@ export class TripService {
           searchFilters.push({
             destination: {
               path: ['country_code'],
-              string_contains: searchKey,
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
@@ -917,7 +906,7 @@ export class TripService {
           searchFilters.push({
             destination: {
               path: ['address'],
-              string_contains: searchKey,
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
@@ -967,8 +956,8 @@ export class TripService {
 
       let trips: any[] = allTrips;
 
-      // If country is specified and no search key, reorder to put matching trips at the top
-      if (country && (!searchKey || searchKey.trim() === '')) {
+      // If country is specified and no destinations search, reorder to put matching trips at the top
+      if (country && (!destinations || destinations.trim() === '')) {
         const countryTrips = allTrips.filter((trip) => {
           const pickupCountry =
             trip.pickup &&
