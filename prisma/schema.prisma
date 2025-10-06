@@ -143,9 +143,7 @@ model Trip {
   airline_id           String
   maximum_weight_in_kg Decimal?   @db.Decimal(5, 2)
   notes                String?
-  fullSuitcaseOnly     Boolean    @default(false)
   meetup_flexible      Boolean    @default(false)
-  price_per_kg         Decimal    @db.Decimal(10, 2)
   status               TripStatus @default(PUBLISHED)
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
@@ -200,11 +198,12 @@ model TripItem {
 }
 
 model TripItemsList {
-  trip_id      String
-  trip_item_id String
-  price        Decimal  @db.Decimal(10, 2)
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  trip_id       String
+  trip_item_id  String
+  price         Decimal  @db.Decimal(10, 2)
+  avalailble_kg Decimal? @db.Decimal(10, 2)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
 
   // Relations
   trip      Trip     @relation(fields: [trip_id], references: [id], onDelete: Cascade)

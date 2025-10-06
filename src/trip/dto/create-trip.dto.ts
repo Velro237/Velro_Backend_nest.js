@@ -9,6 +9,7 @@ import {
   IsUUID,
   IsArray,
   ValidateNested,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TripItemListDto } from './trip-item-list.dto';
@@ -213,16 +214,6 @@ export class CreateTripDto {
   notes?: string;
 
   @ApiProperty({
-    description:
-      'Full suitcase only - when true, requires price_per_kg and maximum_weight_in_kg (trip items will be ignored); when false, requires at least one trip item',
-    example: false,
-    default: false,
-  })
-  @IsBoolean()
-  @IsOptional()
-  fullSuitcaseOnly?: boolean = false;
-
-  @ApiProperty({
     description: 'Meetup time is flexible',
     example: false,
     default: false,
@@ -230,13 +221,6 @@ export class CreateTripDto {
   @IsBoolean()
   @IsOptional()
   meetup_flexible?: boolean = false;
-
-  @ApiProperty({
-    description: 'Price per kilogram',
-    example: 15.5,
-  })
-  @IsNumber()
-  price_per_kg: number;
 
   @ApiProperty({
     description: 'Currency code (ISO 4217)',
@@ -317,7 +301,8 @@ export class CreateTripDto {
   currency: string;
 
   @ApiProperty({
-    description: 'List of trip items with their prices',
+    description:
+      'List of trip items with their prices (at least one item required)',
     type: 'array',
     items: {
       type: 'object',
@@ -333,6 +318,11 @@ export class CreateTripDto {
           description: 'Price for this trip item',
           example: 15.5,
         },
+        available_kg: {
+          type: 'number',
+          description: 'Available weight in kilograms for this trip item',
+          example: 5.0,
+        },
       },
       required: ['trip_item_id', 'price'],
     },
@@ -340,19 +330,20 @@ export class CreateTripDto {
       {
         trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
         price: 15.5,
+        available_kg: 5.0,
       },
       {
         trip_item_id: '123e4567-e89b-12d3-a456-426614174001',
         price: 25.0,
+        available_kg: 3.5,
       },
     ],
-    required: false,
   })
   @IsArray()
+  @IsNotEmpty()
   @ValidateNested({ each: true })
   @Type(() => TripItemListDto)
-  @IsOptional()
-  trip_items?: TripItemListDto[];
+  trip_items: TripItemListDto[];
 }
 
 export class CreateTripResponseDto {
@@ -371,7 +362,6 @@ export class CreateTripResponseDto {
       departure_time: '10:00 AM',
       arrival_date: '2024-02-16T14:00:00.000Z',
       arrival_time: '2:00 PM',
-      price_per_kg: 15.5,
       currency: 'USD',
       airline_id: '123e4567-e89b-12d3-a456-426614174002',
       createdAt: '2024-01-15T10:30:00.000Z',
@@ -379,10 +369,12 @@ export class CreateTripResponseDto {
         {
           trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
           price: 15.5,
+          available_kg: 5.0,
         },
         {
           trip_item_id: '123e4567-e89b-12d3-a456-426614174001',
           price: 25.0,
+          available_kg: 3.5,
         },
       ],
     },
@@ -394,13 +386,13 @@ export class CreateTripResponseDto {
     departure_time: string;
     arrival_date?: Date;
     arrival_time?: string;
-    price_per_kg: any; // Decimal from Prisma
     currency: string;
     airline_id: string;
     createdAt: Date;
     trip_items?: {
       trip_item_id: string;
       price: number;
+      available_kg?: number;
     }[];
   };
 }

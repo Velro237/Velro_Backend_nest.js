@@ -14,6 +14,13 @@ export class TripItemDto {
   price: number;
 
   @ApiProperty({
+    description: 'Available weight in kilograms for this trip item',
+    example: 5.0,
+    required: false,
+  })
+  available_kg?: number;
+
+  @ApiProperty({
     description: 'Trip item details',
     example: {
       id: '123e4567-e89b-12d3-a456-426614174000',
@@ -120,22 +127,10 @@ export class TripDetailsDto {
   notes: string;
 
   @ApiProperty({
-    description: 'Full suitcase only',
-    example: false,
-  })
-  fullSuitcaseOnly: boolean;
-
-  @ApiProperty({
     description: 'Meetup time is flexible',
     example: false,
   })
   meetup_flexible: boolean;
-
-  @ApiProperty({
-    description: 'Price per kg',
-    example: 15.5,
-  })
-  price_per_kg: number;
 
   @ApiProperty({
     description: 'Trip status',

@@ -43,7 +43,7 @@ export const ApiCreateTrip = () =>
     ApiOperation({
       summary: 'Create a new trip',
       description:
-        'Create a new trip for a user with required pickup/destination locations, travel details, and pricing. Business rules: If fullSuitcaseOnly is true, both price_per_kg and maximum_weight_in_kg are required (trip items are not validated). If fullSuitcaseOnly is false, at least one trip item must be provided.',
+        'Create a new trip for a user with required pickup/destination locations, travel details, and trip items. At least one trip item is always required.',
     }),
     ApiBody({
       type: CreateTripDto,
@@ -63,7 +63,6 @@ export const ApiCreateTrip = () =>
               user_id: '123e4567-e89b-12d3-a456-426614174000',
               departure_date: '2024-02-15T10:00:00.000Z',
               departure_time: '10:00 AM',
-              price_per_kg: 15.5,
               currency: 'USD',
               airline_id: '123e4567-e89b-12d3-a456-426614174002',
               createdAt: '2024-01-15T10:30:00.000Z',
@@ -71,10 +70,12 @@ export const ApiCreateTrip = () =>
                 {
                   trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
                   price: 15.5,
+                  available_kg: 5.0,
                 },
                 {
                   trip_item_id: '123e4567-e89b-12d3-a456-426614174001',
                   price: 25.0,
+                  available_kg: 3.5,
                 },
               ],
             },
@@ -187,10 +188,9 @@ export const ApiUpdateTrip = () =>
           },
         },
         priceUpdate: {
-          summary: 'Update trip price',
+          summary: 'Update trip notes',
           value: {
-            price_per_kg: 20.0,
-            notes: 'Updated pricing due to fuel costs',
+            notes: 'Updated notes due to schedule changes',
           },
         },
       },
@@ -209,7 +209,6 @@ export const ApiUpdateTrip = () =>
               user_id: '123e4567-e89b-12d3-a456-426614174000',
               departure_date: '2024-02-15T10:00:00.000Z',
               departure_time: '10:00 AM',
-              price_per_kg: 20.0,
               status: 'CANCELLED',
               updatedAt: '2024-01-15T10:30:00.000Z',
             },

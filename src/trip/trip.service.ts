@@ -62,13 +62,8 @@ export class TripService {
     userId: string,
     lang?: string,
   ): Promise<CreateTripResponseDto> {
-    const {
-      mode_of_transport_id,
-      airline_id,
-      trip_items: originalTripItems,
-      ...tripData
-    } = createTripDto;
-    let trip_items = originalTripItems;
+    const { mode_of_transport_id, airline_id, trip_items, ...tripData } =
+      createTripDto;
 
     // Check if user exists
     const user = await this.prisma.user.findUnique({
@@ -117,48 +112,32 @@ export class TripService {
       throw new NotFoundException(message);
     }
 
-    // Validate fullSuitcaseOnly business rules
-    if (tripData.fullSuitcaseOnly) {
-      // If fullSuitcaseOnly is true, price_per_kg and maximum_weight_in_kg are required
-      if (!tripData.price_per_kg || !tripData.maximum_weight_in_kg) {
-        const message = await this.i18n.translate(
-          'translation.trip.create.fullSuitcaseOnlyRequiresPricing',
-          {
-            lang,
-          },
-        );
-        throw new ConflictException(message);
-      }
-      // When fullSuitcaseOnly is true, trip items should be null/empty (no validation needed)
-      trip_items = [];
-    } else {
-      // If fullSuitcaseOnly is false, validate trip items
-      if (!trip_items || trip_items.length === 0) {
-        const message = await this.i18n.translate(
-          'translation.trip.create.partialSuitcaseRequiresTripItems',
-          {
-            lang,
-          },
-        );
-        throw new ConflictException(message);
-      }
+    // Validate trip items - at least one item is always required
+    if (!trip_items || trip_items.length === 0) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.tripItemsRequired',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
 
-      // Validate trip items exist in database
-      const tripItemIds = trip_items.map((item) => item.trip_item_id);
-      const existingTripItems = await this.prisma.tripItem.findMany({
-        where: { id: { in: tripItemIds } },
-        select: { id: true },
-      });
+    // Validate trip items exist in database
+    const tripItemIds = trip_items.map((item) => item.trip_item_id);
+    const existingTripItems = await this.prisma.tripItem.findMany({
+      where: { id: { in: tripItemIds } },
+      select: { id: true },
+    });
 
-      if (existingTripItems.length !== tripItemIds.length) {
-        const message = await this.i18n.translate(
-          'translation.trip.create.tripItemNotFound',
-          {
-            lang,
-          },
-        );
-        throw new NotFoundException(message);
-      }
+    if (existingTripItems.length !== tripItemIds.length) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.tripItemNotFound',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
     }
 
     try {
@@ -181,9 +160,7 @@ export class TripService {
             arrival_time: tripData.arrival_time || null,
             maximum_weight_in_kg: tripData.maximum_weight_in_kg || null,
             notes: tripData.notes || null,
-            fullSuitcaseOnly: tripData.fullSuitcaseOnly || false,
             meetup_flexible: tripData.meetup_flexible || false,
-            price_per_kg: tripData.price_per_kg,
             currency: tripData.currency,
           },
           select: {
@@ -193,27 +170,25 @@ export class TripService {
             departure_time: true,
             arrival_date: true,
             arrival_time: true,
-            price_per_kg: true,
             currency: true,
             airline_id: true,
             createdAt: true,
           },
         });
 
-        // Create trip items if provided
-        if (trip_items && trip_items.length > 0) {
-          await prisma.tripItemsList.createMany({
-            data: trip_items.map((item) => ({
-              trip_id: trip.id,
-              trip_item_id: item.trip_item_id,
-              price: item.price,
-            })),
-          });
-        }
+        // Create trip items (always required)
+        await prisma.tripItemsList.createMany({
+          data: trip_items.map((item) => ({
+            trip_id: trip.id,
+            trip_item_id: item.trip_item_id,
+            price: item.price,
+            avalailble_kg: item.available_kg || null,
+          })),
+        });
 
         return {
           trip,
-          trip_items: trip_items || [],
+          trip_items,
         };
       });
 
@@ -1105,7 +1080,10 @@ export class TripService {
             },
           },
           trip_items: {
-            include: {
+            select: {
+              trip_item_id: true,
+              price: true,
+              avalailble_kg: true,
               trip_item: {
                 select: {
                   id: true,
@@ -1137,6 +1115,7 @@ export class TripService {
       const tripItems = trip.trip_items.map((item) => ({
         trip_item_id: item.trip_item_id,
         price: Number(item.price),
+        available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
         trip_item: item.trip_item,
       }));
 
@@ -1160,9 +1139,7 @@ export class TripService {
             ? Number(trip.maximum_weight_in_kg)
             : null,
           notes: trip.notes,
-          fullSuitcaseOnly: trip.fullSuitcaseOnly,
           meetup_flexible: trip.meetup_flexible,
-          price_per_kg: Number(trip.price_per_kg),
           status: trip.status,
           createdAt: trip.createdAt,
           updatedAt: trip.updatedAt,
