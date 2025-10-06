@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiditService, DiditCallbackData } from './didit.service';
 import { CreateKycsessionDto } from '../dto/create-kyc-session.dto';
@@ -13,6 +14,7 @@ export class KycService {
   constructor(
     private prisma: PrismaService,
     private diditService: DiditService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -69,7 +71,7 @@ export class KycService {
 
       // Generate callback URL
       const callbackUrl = createKycDto.callbackUrl || 
-        `${process.env.APP_URL || 'http://localhost:3000'}/kyc/callback`;
+        `${this.configService.get<string>('APP_URL')}/kyc/callback`;
 
              // Prepare Didit session request with all available parameters
             const diditSessionRequest = {
