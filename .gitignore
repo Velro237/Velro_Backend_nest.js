@@ -188,7 +188,7 @@ dist/
 build/
 
 # Prisma
-prisma/migrations/*/migration.sql
+# prisma/migrations/*/migration.sql  # Commented out to allow migration files to be tracked
 
 # Database
 *.db
