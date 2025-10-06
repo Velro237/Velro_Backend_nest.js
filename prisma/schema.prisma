@@ -20,6 +20,7 @@ model User {
   password  String?
   name      String?
   picture   String?
+  device_id String?
   role      UserRole      @default(USER)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt

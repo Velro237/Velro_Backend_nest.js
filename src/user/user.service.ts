@@ -14,6 +14,7 @@ const userSelect = {
   email: true,
   name: true,
   picture: true,
+  device_id: true,
   role: true,
   createdAt: true,
   updatedAt: true,

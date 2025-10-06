@@ -24,6 +24,7 @@ import {
   GetMessagesQueryDto,
   GetMessagesResponseDto,
 } from './dto/get-messages.dto';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class ChatService {
@@ -31,6 +32,7 @@ export class ChatService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly redis: RedisService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async createChat(
@@ -167,6 +169,17 @@ export class ChatService {
           return { chat, lastMessage: initialMessage };
         },
       );
+
+      // Send push notification to other chat members (excluding sender) - non-blocking
+      if (messageContent) {
+        this.sendPushNotificationToChatMembers(
+          chat.id,
+          userId,
+          lastMessage,
+        ).catch((error) => {
+          console.error('Push notification error (non-blocking):', error);
+        });
+      }
 
       const message = await this.i18n.translate(
         'translation.chat.create.success',
@@ -636,6 +649,13 @@ export class ChatService {
       // Invalidate cache for this chat
       await this.redis.invalidateChatCache(chatId);
 
+      // Send push notification to other chat members (excluding sender) - non-blocking
+      this.sendPushNotificationToChatMembers(chatId, senderId, message).catch(
+        (error) => {
+          console.error('Push notification error (non-blocking):', error);
+        },
+      );
+
       return result;
     } catch (error) {
       throw new InternalServerErrorException('Failed to create message');
@@ -789,5 +809,72 @@ export class ChatService {
     }
 
     return chat.members;
+  }
+
+  /**
+   * Send push notification to other chat members when a message is sent
+   * This method is designed to be non-blocking and should be called without await
+   * to ensure chat functionality is not delayed by notification failures
+   */
+  private async sendPushNotificationToChatMembers(
+    chatId: string,
+    senderId: string,
+    message: any,
+  ): Promise<void> {
+    try {
+      // Get all chat members except the sender
+      const chatMembers = await this.getChatMembers(chatId);
+      const otherMembers = chatMembers.filter(
+        (member) => member.user_id !== senderId,
+      );
+
+      // Get sender information for the notification
+      const sender = await this.prisma.user.findUnique({
+        where: { id: senderId },
+        select: { id: true, name: true, email: true },
+      });
+
+      if (!sender) return;
+
+      // Send push notification to each other member
+      for (const member of otherMembers) {
+        try {
+          // Get user's device_id for push notification
+          const user = await this.prisma.user.findUnique({
+            where: { id: member.user_id },
+            select: { id: true, device_id: true, name: true },
+          });
+
+          if (!user || !user.device_id) continue;
+
+          // Send push notification
+
+          await this.notificationService.sendPushNotification({
+            deviceId: user.device_id,
+            title: `New message from ${sender.name || sender.email}`,
+            body: message.content || 'New message received',
+            data: {
+              chatId,
+              messageId: message.id,
+              senderId: sender.id,
+              senderName: sender.name || sender.email,
+              type: 'CHAT_MESSAGE',
+            },
+          });
+        } catch (error) {
+          // Log error but don't fail the message creation
+          console.error(
+            `Failed to send push notification to user ${member.user_id}:`,
+            error,
+          );
+        }
+      }
+    } catch (error) {
+      // Log error but don't fail the message creation
+      console.error(
+        `Failed to send push notifications for chat ${chatId}:`,
+        error,
+      );
+    }
   }
 }

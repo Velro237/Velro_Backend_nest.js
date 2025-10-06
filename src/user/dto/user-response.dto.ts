@@ -14,6 +14,13 @@ export class UserResponseDto {
   @ApiProperty({ example: 'https://example.com/avatar.png', nullable: true })
   picture!: string | null;
 
+  @ApiProperty({
+    example: 'device_123456789',
+    nullable: true,
+    description: 'Unique device identifier for push notifications',
+  })
+  device_id!: string | null;
+
   @ApiProperty({ enum: UserRole, example: UserRole.USER })
   role!: UserRole;
 
