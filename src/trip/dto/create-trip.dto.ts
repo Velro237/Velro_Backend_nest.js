@@ -10,6 +10,10 @@ import {
   IsArray,
   ValidateNested,
   IsNotEmpty,
+  Validate,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  ValidationArguments,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TripItemListDto } from './trip-item-list.dto';
@@ -90,6 +94,64 @@ export type LocationType = {
   landmark?: string;
 };
 
+@ValidatorConstraint({ name: 'TripDateValidation', async: false })
+export class TripDateValidationConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(value: any, args: ValidationArguments) {
+    const object = args.object as any;
+    const departureDate = object.departure_date;
+    const arrivalDate = object.arrival_date;
+
+    // Both dates must be provided
+    if (!departureDate || !arrivalDate) {
+      return false;
+    }
+
+    const departure = new Date(departureDate);
+    const arrival = new Date(arrivalDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time to start of day
+
+    // departure_date must be greater than or equal to today
+    if (departure < today) {
+      return false;
+    }
+
+    // arrival_date must be greater than departure_date
+    if (arrival <= departure) {
+      return false;
+    }
+
+    return true;
+  }
+
+  defaultMessage(args: ValidationArguments) {
+    const object = args.object as any;
+    const departureDate = object.departure_date;
+    const arrivalDate = object.arrival_date;
+
+    if (!departureDate || !arrivalDate) {
+      return 'Both departure_date and arrival_date are required';
+    }
+
+    const departure = new Date(departureDate);
+    const arrival = new Date(arrivalDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (departure < today) {
+      return 'Departure date must be greater than or equal to today';
+    }
+
+    if (arrival <= departure) {
+      return 'Arrival date must be greater than departure date';
+    }
+
+    return 'Invalid date range';
+  }
+}
+
 export class CreateTripDto {
   @ApiProperty({
     description: 'Pickup location details (required)',
@@ -149,6 +211,7 @@ export class CreateTripDto {
     format: 'date-time',
   })
   @IsDateString()
+  @Validate(TripDateValidationConstraint)
   departure_date: string;
 
   @ApiProperty({
@@ -159,14 +222,13 @@ export class CreateTripDto {
   departure_time: string;
 
   @ApiProperty({
-    description: 'Arrival date (optional)',
+    description: 'Arrival date (required)',
     example: '2024-02-16T14:00:00.000Z',
     format: 'date-time',
-    required: false,
   })
   @IsDateString()
-  @IsOptional()
-  arrival_date?: string;
+  @Validate(TripDateValidationConstraint)
+  arrival_date: string;
 
   @ApiProperty({
     description: 'Arrival time (optional)',

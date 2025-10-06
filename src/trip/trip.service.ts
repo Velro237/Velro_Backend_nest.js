@@ -929,7 +929,7 @@ export class TripService {
           console.error('Error creating search filters:', error);
         }
       }
-      console.log(baseWhereClause);
+
       // Get trips with normal Prisma pagination
       const [allTrips, total] = await Promise.all([
         this.prisma.trip.findMany({

@@ -124,20 +124,16 @@ export class TripController {
 
   @Patch(':id')
   @ApiUpdateTrip()
+  @UseGuards(JwtAuthGuard)
   async updateTrip(
     @Param('id') tripId: string,
     @Body() updateTripDto: UpdateTripDto,
     @I18nLang() lang: string,
+    @CurrentUser() user: User,
   ): Promise<UpdateTripResponseDto> {
     // For demo purposes, using a dummy user ID
     // In a real app, this would come from authentication
-    const dummyUserId = '123e4567-e89b-12d3-a456-426614174000';
-    return this.tripService.updateTrip(
-      tripId,
-      updateTripDto,
-      dummyUserId,
-      lang,
-    );
+    return this.tripService.updateTrip(tripId, updateTripDto, user.id, lang);
   }
 
   // TransportType endpoints
