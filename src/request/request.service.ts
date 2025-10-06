@@ -91,38 +91,30 @@ export class RequestService {
       throw new ConflictException(message);
     }
 
-    // Handle request items based on trip type
-    let processedRequestItems = request_items;
+    // Validate request items are provided (all trips now require trip items)
+    if (!request_items || request_items.length === 0) {
+      const message = await this.i18n.translate(
+        'translation.trip.request.itemsRequired',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
 
-    if (trip.fullSuitcaseOnly) {
-      // For full suitcase trips, ignore request items completely
-      processedRequestItems = [];
-    } else {
-      // For non-full suitcase trips, validate request items are provided
-      if (!request_items || request_items.length === 0) {
+    // Validate trip items exist and are available in the trip
+    const tripItemIds = trip.trip_items.map((item) => item.trip_item_id);
+    const requestedItemIds = request_items.map((item) => item.trip_item_id);
+
+    for (const itemId of requestedItemIds) {
+      if (!tripItemIds.includes(itemId)) {
         const message = await this.i18n.translate(
-          'translation.trip.request.itemsRequired',
+          'translation.trip.request.itemNotAvailable',
           {
             lang,
           },
         );
         throw new ConflictException(message);
-      }
-
-      // Validate trip items exist and are available in the trip
-      const tripItemIds = trip.trip_items.map((item) => item.trip_item_id);
-      const requestedItemIds = request_items.map((item) => item.trip_item_id);
-
-      for (const itemId of requestedItemIds) {
-        if (!tripItemIds.includes(itemId)) {
-          const message = await this.i18n.translate(
-            'translation.trip.request.itemNotAvailable',
-            {
-              lang,
-            },
-          );
-          throw new ConflictException(message);
-        }
       }
     }
 
@@ -148,9 +140,9 @@ export class RequestService {
         });
 
         // Create request items if provided (only for non-full suitcase trips)
-        if (processedRequestItems && processedRequestItems.length > 0) {
+        if (request_items && request_items.length > 0) {
           await prisma.tripRequestItem.createMany({
-            data: processedRequestItems.map((item) => ({
+            data: request_items.map((item) => ({
               request_id: request.id,
               trip_item_id: item.trip_item_id,
               quantity: item.quantity,
@@ -182,7 +174,7 @@ export class RequestService {
 
         return {
           request,
-          request_items: processedRequestItems || [],
+          request_items: request_items || [],
           images: createdImages,
         };
       });
@@ -365,8 +357,8 @@ export class RequestService {
                 destination: true,
                 departure_date: true,
                 departure_time: true,
-                price_per_kg: true,
-                fullSuitcaseOnly: true,
+                currency: true,
+                airline_id: true,
               },
             },
             user: {
@@ -418,8 +410,8 @@ export class RequestService {
           destination: request.trip.destination,
           departure_date: request.trip.departure_date,
           departure_time: request.trip.departure_time,
-          price_per_kg: Number(request.trip.price_per_kg),
-          fullSuitcaseOnly: request.trip.fullSuitcaseOnly,
+          currency: request.trip.currency,
+          airline_id: request.trip.airline_id,
         },
         user: {
           id: request.user.id,

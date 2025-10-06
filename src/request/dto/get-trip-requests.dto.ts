@@ -163,8 +163,8 @@ export class TripRequestSummaryDto {
       },
       departure_date: '2024-02-15T10:00:00.000Z',
       departure_time: '10:00 AM',
-      price_per_kg: 15.5,
-      fullSuitcaseOnly: false,
+      currency: 'USD',
+      airline_id: '123e4567-e89b-12d3-a456-426614174002',
     },
   })
   trip: {
@@ -173,8 +173,8 @@ export class TripRequestSummaryDto {
     destination: any;
     departure_date: Date;
     departure_time: string;
-    price_per_kg: number;
-    fullSuitcaseOnly: boolean;
+    currency: string;
+    airline_id: string;
   };
 
   @ApiProperty({
