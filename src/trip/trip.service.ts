@@ -847,17 +847,17 @@ export class TripService {
             });
           }
 
-          // Search in delivery JSON fields (country name, code, address) - case insensitive
+          // Search in destination JSON fields (country name, code, address) - case insensitive
           searchFilters.push({
-            delivery: {
-              path: ['country_name'],
+            destination: {
+              path: ['country'],
               string_contains: searchKey,
               mode: 'insensitive',
             },
           });
 
           searchFilters.push({
-            delivery: {
+            destination: {
               path: ['country_code'],
               string_contains: searchKey,
               mode: 'insensitive',
@@ -865,7 +865,7 @@ export class TripService {
           });
 
           searchFilters.push({
-            delivery: {
+            destination: {
               path: ['address'],
               string_contains: searchKey,
               mode: 'insensitive',
@@ -875,7 +875,7 @@ export class TripService {
           // Search in pickup JSON fields (country name, code, address) - case insensitive
           searchFilters.push({
             pickup: {
-              path: ['country_name'],
+              path: ['country'],
               string_contains: searchKey,
               mode: 'insensitive',
             },
@@ -900,7 +900,7 @@ export class TripService {
           // Search in destination JSON fields (country name, code, address) - case insensitive
           searchFilters.push({
             destination: {
-              path: ['country_name'],
+              path: ['country'],
               string_contains: searchKey,
               mode: 'insensitive',
             },
@@ -929,7 +929,7 @@ export class TripService {
           console.error('Error creating search filters:', error);
         }
       }
-
+      console.log(baseWhereClause);
       // Get trips with normal Prisma pagination
       const [allTrips, total] = await Promise.all([
         this.prisma.trip.findMany({
@@ -1016,20 +1016,24 @@ export class TripService {
       // Transform trips to summary format
       const tripSummaries = trips.map((trip) => ({
         id: trip.id,
-        user: {
-          id: trip.user.id,
-          email: trip.user.email,
-          role: trip.user.role,
-        },
+        user: trip.user
+          ? {
+              id: trip.user.id,
+              email: trip.user.email,
+              role: trip.user.role,
+            }
+          : null,
         departure_date: trip.departure_date,
         departure_time: trip.departure_time,
         arrival_date: trip.arrival_date,
         arrival_time: trip.arrival_time,
-        mode_of_transport: {
-          id: trip.mode_of_transport.id,
-          name: trip.mode_of_transport.name,
-          description: trip.mode_of_transport.description,
-        },
+        mode_of_transport: trip.mode_of_transport
+          ? {
+              id: trip.mode_of_transport.id,
+              name: trip.mode_of_transport.name,
+              description: trip.mode_of_transport.description,
+            }
+          : null,
         pickup: trip.pickup,
         destination: trip.destination,
         createdAt: trip.createdAt,
@@ -1054,6 +1058,7 @@ export class TripService {
         },
       };
     } catch (error) {
+      console.error('Error getting trips:', error);
       const message = await this.i18n.translate(
         'translation.trip.getAll.failed',
         { lang },

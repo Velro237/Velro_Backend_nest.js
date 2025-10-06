@@ -103,8 +103,9 @@ export class TripSummaryDto {
   @ApiProperty({
     description: 'User information',
     type: UserInfoDto,
+    required: false,
   })
-  user: UserInfoDto;
+  user: UserInfoDto | null;
 
   @ApiProperty({
     description: 'Departure date',
@@ -135,8 +136,9 @@ export class TripSummaryDto {
   @ApiProperty({
     description: 'Mode of transport information',
     type: ModeOfTransportDto,
+    required: false,
   })
-  mode_of_transport: ModeOfTransportDto;
+  mode_of_transport: ModeOfTransportDto | null;
 
   @ApiProperty({
     description: 'Pickup location',
