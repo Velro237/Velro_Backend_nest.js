@@ -50,8 +50,7 @@
       "transportNotFound": "Transport type not found",
       "airlineNotFound": "Airline not found",
       "tripItemNotFound": "One or more trip items not found",
-      "fullSuitcaseOnlyRequiresPricing": "For full suitcase trips, please provide both price per kg and maximum weight",
-      "partialSuitcaseRequiresTripItems": "For partial suitcase trips, please select at least one item to transport"
+      "tripItemsRequired": "At least one trip item is required for all trips"
     },
       "update": {
         "success": "Trip updated successfully",

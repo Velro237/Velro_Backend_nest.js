@@ -266,8 +266,8 @@ export class ChatService {
                 destination: true,
                 departure_date: true,
                 departure_time: true,
-                price_per_kg: true,
-                fullSuitcaseOnly: true,
+                currency: true,
+                airline_id: true,
                 user: {
                   select: {
                     id: true,
@@ -313,8 +313,8 @@ export class ChatService {
               destination: chat.trip.destination,
               departure_date: chat.trip.departure_date,
               departure_time: chat.trip.departure_time,
-              price_per_kg: Number(chat.trip.price_per_kg),
-              fullSuitcaseOnly: chat.trip.fullSuitcaseOnly,
+              currency: chat.trip.currency,
+              airline_id: chat.trip.airline_id,
               user: chat.trip.user
                 ? {
                     id: chat.trip.user.id,
@@ -403,8 +403,8 @@ export class ChatService {
                     destination: true,
                     departure_date: true,
                     departure_time: true,
-                    price_per_kg: true,
-                    fullSuitcaseOnly: true,
+                    currency: true,
+                    airline_id: true,
                     user: {
                       select: {
                         id: true,
@@ -460,8 +460,8 @@ export class ChatService {
                   destination: message.request.trip.destination,
                   departure_date: message.request.trip.departure_date,
                   departure_time: message.request.trip.departure_time,
-                  price_per_kg: Number(message.request.trip.price_per_kg),
-                  fullSuitcaseOnly: message.request.trip.fullSuitcaseOnly,
+                  currency: message.request.trip.currency,
+                  airline_id: message.request.trip.airline_id,
                   user: message.request.trip.user
                     ? {
                         id: message.request.trip.user.id,
@@ -566,8 +566,8 @@ export class ChatService {
                   destination: true,
                   departure_date: true,
                   departure_time: true,
-                  price_per_kg: true,
-                  fullSuitcaseOnly: true,
+                  currency: true,
+                  airline_id: true,
                   user: {
                     select: {
                       id: true,
@@ -606,8 +606,8 @@ export class ChatService {
               destination: message.request.trip.destination,
               departure_date: message.request.trip.departure_date,
               departure_time: message.request.trip.departure_time,
-              price_per_kg: Number(message.request.trip.price_per_kg),
-              fullSuitcaseOnly: message.request.trip.fullSuitcaseOnly,
+              currency: message.request.trip.currency,
+              airline_id: message.request.trip.airline_id,
               user: message.request.trip.user
                 ? {
                     id: message.request.trip.user.id,

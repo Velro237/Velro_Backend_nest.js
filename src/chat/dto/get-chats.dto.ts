@@ -107,8 +107,8 @@ export class ChatSummaryDto {
     destination: any;
     departure_date: Date;
     departure_time: string;
-    price_per_kg: number;
-    fullSuitcaseOnly: boolean;
+    currency: string;
+    airline_id: string;
     user?: {
       id: string;
       email: string;

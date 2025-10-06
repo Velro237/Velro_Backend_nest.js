@@ -134,13 +134,11 @@ export const ApiCreateTrip = () =>
           message: {
             type: 'string',
             examples: {
-              fullSuitcaseOnlyRequiresPricing: {
-                value:
-                  'For full suitcase trips, please provide both price per kg and maximum weight',
+              tripItemsRequired: {
+                value: 'At least one trip item is required for all trips',
               },
-              partialSuitcaseRequiresTripItems: {
-                value:
-                  'For partial suitcase trips, please select at least one item to transport',
+              tripItemNotFound: {
+                value: 'One or more selected trip items do not exist',
               },
             },
           },
