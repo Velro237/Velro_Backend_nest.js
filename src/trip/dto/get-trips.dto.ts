@@ -1,6 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsOptional, IsString, IsInt, Min, Max, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+import {
+  TripItemImageDto,
+  TripItemDetailsDto,
+} from '../../shared/dto/common.dto';
 
 export enum TripFilterEnum {
   TODAY = 'today',
@@ -111,55 +115,6 @@ export class ModeOfTransportDto {
   description: string;
 }
 
-export class TripItemImageDto {
-  @ApiProperty({
-    description: 'Image ID',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  id: string;
-
-  @ApiProperty({
-    description: 'Image URL',
-    example: 'https://example.com/images/item.jpg',
-  })
-  url: string;
-
-  @ApiProperty({
-    description: 'Image alt text',
-    example: 'Electronics item',
-    required: false,
-  })
-  alt_text?: string;
-}
-
-export class TripItemDetailDto {
-  @ApiProperty({
-    description: 'Trip item ID',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  id: string;
-
-  @ApiProperty({
-    description: 'Trip item name',
-    example: 'Electronics',
-  })
-  name: string;
-
-  @ApiProperty({
-    description: 'Trip item description',
-    example: 'Electronic devices and accessories',
-    required: false,
-  })
-  description?: string;
-
-  @ApiProperty({
-    description: 'Trip item image',
-    type: TripItemImageDto,
-    required: false,
-  })
-  image?: TripItemImageDto;
-}
-
 export class TripItemListItemDto {
   @ApiProperty({
     description: 'Trip item ID reference',
@@ -182,9 +137,9 @@ export class TripItemListItemDto {
 
   @ApiProperty({
     description: 'Trip item details',
-    type: TripItemDetailDto,
+    type: TripItemDetailsDto,
   })
-  trip_item: TripItemDetailDto;
+  trip_item: TripItemDetailsDto;
 }
 
 export class TripSummaryDto {

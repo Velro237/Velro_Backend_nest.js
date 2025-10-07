@@ -60,9 +60,8 @@ import {
   GetTripsQueryDto,
   GetTripsResponseDto,
   UserInfoDto,
+
   ModeOfTransportDto,
-  TripItemImageDto,
-  TripItemDetailDto,
   TripItemListItemDto,
 } from './dto/get-trips.dto';
 import {
@@ -88,6 +87,7 @@ import { DeleteAlertResponseDto } from './dto/delete-alert.dto';
 import { GetAlertsQueryDto, GetAlertsResponseDto } from './dto/get-alerts.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
+import { TripItemImageDto, TripItemDetailsDto } from '../shared/dto/common.dto';
 
 @ApiTags('Trips')
 @ApiBearerAuth('JWT-auth')
@@ -109,7 +109,7 @@ import { User } from 'generated/prisma';
   GetAlertsQueryDto,
   GetAlertsResponseDto,
   TripItemImageDto,
-  TripItemDetailDto,
+  TripItemDetailsDto,
   TripItemListItemDto,
 )
 @Controller('trip')

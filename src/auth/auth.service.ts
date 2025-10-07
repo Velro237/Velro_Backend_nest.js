@@ -45,7 +45,6 @@ export class AuthService {
       companyName,
     } = signupDto;
 
-    console.log(signupDto);
     // Check if user already exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
@@ -212,7 +211,6 @@ export class AuthService {
     idToken?: string | null; // Apple
   }) {
     const provider = oauth.provider;
-    console.log(oauth);
 
     // Si on a un email, on tente de relier à un user existant
     let user = oauth.email
