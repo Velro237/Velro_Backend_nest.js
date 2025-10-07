@@ -17,9 +17,19 @@ enum Provider {
 model User {
   id        String        @id @default(uuid())
   email     String        @unique
-  password  String?
-  name      String?
+  password  String
+  firstName String?
+  lastName  String?
+  phone     String?
+  address   String?
+  city      String?
+  state     String?
+  zip       String?
   picture   String?
+  name      String
+  isFreightForwarder Boolean @default(false)
+  companyName String?
+  companyAddress String?
   device_id String?
   role      UserRole      @default(USER)
   createdAt DateTime      @default(now())

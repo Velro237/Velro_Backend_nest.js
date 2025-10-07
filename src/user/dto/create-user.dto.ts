@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsOptional,
@@ -14,6 +15,41 @@ export class CreateUserDto {
   @IsEmail()
   email!: string;
 
+  @ApiProperty({ example: 'John Doe' })
+  @IsString()
+  firstName: string;
+
+  @ApiProperty({ example: 'Doe' })
+  @IsString()
+  lastName: string;
+
+  @ApiProperty({ example: '1234567890' })
+  @IsString()
+  phone: string;
+
+  @ApiProperty({ example: '123 Main St' })
+  @IsString()
+  address: string;
+
+  @ApiProperty({ example: 'New York' })
+  @IsString()
+  city: string;
+
+  @ApiPropertyOptional({ example: 'NY' })
+  @IsOptional()
+  @IsString()
+  state: string;
+
+  @ApiPropertyOptional({ example: '10001' })
+  @IsOptional()
+  @IsString()
+  zip?: string;
+
+  @ApiPropertyOptional({ example: '/example.com/avatar.png' })
+  @IsOptional()
+  @IsUrl()
+  picture?: string;
+
   @ApiPropertyOptional({ minLength: 8, example: 'S3cur3P@ss' })
   @IsOptional()
   @IsString()
@@ -23,12 +59,22 @@ export class CreateUserDto {
   @ApiPropertyOptional({ example: 'Jane Doe' })
   @IsOptional()
   @IsString()
-  name?: string;
+  name: string;
 
-  @ApiPropertyOptional({ example: 'https://example.com/avatar.png' })
+  @ApiPropertyOptional({ example: true })
   @IsOptional()
-  @IsUrl()
-  picture?: string;
+  @IsBoolean()
+  isFreightForwarder?: boolean;
+
+  @ApiPropertyOptional({ example: 'Freight Forwarder' })
+  @IsOptional()
+  @IsString()
+  companyName?: string;
+
+  @ApiPropertyOptional({ example: '123 Main St' })
+  @IsOptional()
+  @IsString()
+  companyAddress?: string;
 
   @ApiPropertyOptional({ enum: UserRole, example: UserRole.USER })
   @IsOptional()

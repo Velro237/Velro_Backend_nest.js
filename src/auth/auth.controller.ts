@@ -40,6 +40,7 @@ export class AuthController {
     @Body() signupDto: SignupDto,
     @I18nLang() lang: string,
   ): Promise<SignupResponseDto> {
+    console.log(signupDto);
     return this.authService.signup(signupDto, lang);
   }
 

@@ -40,6 +40,17 @@ export class LoginResponseDto {
       email: { type: 'string', example: 'user@example.com' },
       role: { type: 'string', example: 'USER' },
       createdAt: { type: 'string', format: 'date-time' },
+      firstName: { type: 'string', example: 'John' },
+      lastName: { type: 'string', example: 'Doe' },
+      phone: { type: 'string', example: '+237690264140' },
+      address: { type: 'string', example: 'Yaoundé, Cameroon' },
+      city: { type: 'string', example: 'Yaoundé' },
+      state: { type: 'string', example: 'Cameroon' },
+      zip: { type: 'string', example: '123456' },
+      isFreightForwarder: { type: 'boolean', example: 'false' },
+      companyName: { type: 'string', example: 'Com' },
+      companyAddress: { type: 'string', example: 'Com' },
+      picture: { type: 'string', example: 'htts://exemple.com' },
     },
   })
   user: {
@@ -47,6 +58,17 @@ export class LoginResponseDto {
     email: string;
     role: string;
     createdAt: Date;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    address: string;
+    city: string;
+    state: string;
+    zip: string;
+    isFreightForwarder: boolean;
+    companyName: string;
+    companyAddress: string;
+    picture: string;
   };
 }
 
