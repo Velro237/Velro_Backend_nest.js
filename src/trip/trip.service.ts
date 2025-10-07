@@ -810,8 +810,7 @@ export class TripService {
       const {
         country,
         destinations,
-        departureDateFrom,
-        departureDateTo,
+        filter = 'all',
         page = 1,
         limit = 10,
       } = query;
@@ -822,21 +821,35 @@ export class TripService {
         status: 'PUBLISHED' as const, // Only show published trips
       };
 
-      // Add departure date range filter
-      if (departureDateFrom || departureDateTo) {
-        baseWhereClause.departure_date = {};
+      // Add departure date filter based on filter parameter
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-        if (departureDateFrom) {
-          baseWhereClause.departure_date.gte = new Date(departureDateFrom);
-        }
+      if (filter === 'today') {
+        // Show only trips departing today
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
 
-        if (departureDateTo) {
-          baseWhereClause.departure_date.lte = new Date(departureDateTo);
-        }
-      } else {
-        // If no date range specified, only show future trips
         baseWhereClause.departure_date = {
-          gte: new Date(), // Only show trips with departure date >= today
+          gte: today,
+          lt: tomorrow,
+        };
+      } else if (filter === 'week') {
+        // Show only trips departing this week (from today to end of week - Sunday)
+        const endOfWeek = new Date(today);
+        const dayOfWeek = today.getDay();
+        const daysUntilSunday = 7 - dayOfWeek;
+        endOfWeek.setDate(today.getDate() + daysUntilSunday);
+        endOfWeek.setHours(23, 59, 59, 999);
+
+        baseWhereClause.departure_date = {
+          gte: today,
+          lte: endOfWeek,
+        };
+      } else {
+        // filter === 'all': Show all future trips
+        baseWhereClause.departure_date = {
+          gte: today, // Only show trips with departure date >= today
         };
       }
 
@@ -926,7 +939,7 @@ export class TripService {
             departure_time: true,
             arrival_date: true,
             arrival_time: true,
-            pickup: true,
+            departure: true,
             destination: true,
             createdAt: true,
             mode_of_transport: {
@@ -943,6 +956,27 @@ export class TripService {
                 role: true,
               },
             },
+            trip_items: {
+              select: {
+                trip_item_id: true,
+                price: true,
+                avalailble_kg: true,
+                trip_item: {
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    image: {
+                      select: {
+                        id: true,
+                        url: true,
+                        alt_text: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
           skip,
@@ -956,12 +990,6 @@ export class TripService {
       // If country is specified and no destinations search, reorder to put matching trips at the top
       if (country && (!destinations || destinations.trim() === '')) {
         const countryTrips = allTrips.filter((trip) => {
-          const pickupCountry =
-            trip.pickup &&
-            typeof trip.pickup === 'object' &&
-            'country_code' in trip.pickup
-              ? (trip.pickup as any).country_code
-              : null;
           const destinationCountry =
             trip.destination &&
             typeof trip.destination === 'object' &&
@@ -969,19 +997,10 @@ export class TripService {
               ? (trip.destination as any).country_code
               : null;
 
-          return (
-            pickupCountry?.toLowerCase() === country.toLowerCase() ||
-            destinationCountry?.toLowerCase() === country.toLowerCase()
-          );
+          return destinationCountry?.toLowerCase() === country.toLowerCase();
         });
 
         const otherTrips = allTrips.filter((trip) => {
-          const pickupCountry =
-            trip.pickup &&
-            typeof trip.pickup === 'object' &&
-            'country_code' in trip.pickup
-              ? (trip.pickup as any).country_code
-              : null;
           const destinationCountry =
             trip.destination &&
             typeof trip.destination === 'object' &&
@@ -989,10 +1008,7 @@ export class TripService {
               ? (trip.destination as any).country_code
               : null;
 
-          return (
-            pickupCountry?.toLowerCase() !== country.toLowerCase() &&
-            destinationCountry?.toLowerCase() !== country.toLowerCase()
-          );
+          return destinationCountry?.toLowerCase() !== country.toLowerCase();
         });
 
         // Put country-specific trips at the top, then other trips
@@ -1020,8 +1036,14 @@ export class TripService {
               description: trip.mode_of_transport.description,
             }
           : null,
-        pickup: trip.pickup,
+        departure: trip.departure,
         destination: trip.destination,
+        trip_items: trip.trip_items.map((item) => ({
+          trip_item_id: item.trip_item_id,
+          price: Number(item.price),
+          available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
+          trip_item: item.trip_item,
+        })),
         createdAt: trip.createdAt,
       }));
 
@@ -1061,8 +1083,43 @@ export class TripService {
     try {
       const trip = await this.prisma.trip.findUnique({
         where: { id: tripId },
-        include: {
+        select: {
+          id: true,
+          user_id: true,
+          pickup: true,
+          departure: true,
+          destination: true,
+          delivery: true,
+          departure_date: true,
+          departure_time: true,
+          arrival_date: true,
+          arrival_time: true,
+          currency: true,
+          mode_of_transport_id: true,
+          airline_id: true,
+          maximum_weight_in_kg: true,
+          notes: true,
+          meetup_flexible: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              picture: true,
+              role: true,
+            },
+          },
           mode_of_transport: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
+          airline: {
             select: {
               id: true,
               name: true,
@@ -1118,13 +1175,18 @@ export class TripService {
         trip: {
           id: trip.id,
           user_id: trip.user_id,
+          user: trip.user,
           pickup: trip.pickup,
+          departure: trip.departure,
           destination: trip.destination,
+          delivery: trip.delivery,
           departure_date: trip.departure_date,
           departure_time: trip.departure_time,
           arrival_date: trip.arrival_date,
           arrival_time: trip.arrival_time,
+          currency: trip.currency,
           mode_of_transport_id: trip.mode_of_transport_id,
+          airline_id: trip.airline_id,
           maximum_weight_in_kg: trip.maximum_weight_in_kg
             ? Number(trip.maximum_weight_in_kg)
             : null,
@@ -1133,7 +1195,8 @@ export class TripService {
           status: trip.status,
           createdAt: trip.createdAt,
           updatedAt: trip.updatedAt,
-          transport_type: trip.mode_of_transport,
+          mode_of_transport: trip.mode_of_transport,
+          airline: trip.airline,
           trip_items: tripItems,
         },
       };

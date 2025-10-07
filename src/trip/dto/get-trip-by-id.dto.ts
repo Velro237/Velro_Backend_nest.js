@@ -59,6 +59,24 @@ export class TripDetailsDto {
   user_id: string;
 
   @ApiProperty({
+    description: 'User details who created the trip',
+    example: {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      email: 'user@example.com',
+      name: 'John Doe',
+      picture: 'https://example.com/profile.jpg',
+      role: 'USER',
+    },
+  })
+  user: {
+    id: string;
+    email: string;
+    name?: string;
+    picture?: string;
+    role: string;
+  };
+
+  @ApiProperty({
     description: 'Pickup location details',
     example: {
       country: 'United States',
@@ -68,8 +86,23 @@ export class TripDetailsDto {
       lng: -122.4194,
       lat: 37.7749,
     },
+    required: false,
   })
-  pickup: any;
+  pickup?: any;
+
+  @ApiProperty({
+    description: 'Departure location details',
+    example: {
+      country: 'United States',
+      country_code: 'US',
+      region: 'New York',
+      address: '789 Broadway, New York, NY 10003',
+      lng: -73.9912,
+      lat: 40.7308,
+    },
+    required: false,
+  })
+  departure?: any;
 
   @ApiProperty({
     description: 'Destination location details',
@@ -81,8 +114,23 @@ export class TripDetailsDto {
       lng: 2.3522,
       lat: 48.8566,
     },
+    required: false,
   })
-  destination: any;
+  destination?: any;
+
+  @ApiProperty({
+    description: 'Delivery location details',
+    example: {
+      country: 'France',
+      country_code: 'FR',
+      region: 'Provence',
+      address: '101 Rue de Lyon, Marseille, France',
+      lng: 5.3698,
+      lat: 43.2965,
+    },
+    required: false,
+  })
+  delivery?: any;
 
   @ApiProperty({
     description: 'Departure date',
@@ -99,32 +147,49 @@ export class TripDetailsDto {
   @ApiProperty({
     description: 'Arrival date',
     example: '2024-02-16T14:00:00.000Z',
+    required: false,
   })
   arrival_date?: Date;
 
   @ApiProperty({
     description: 'Arrival time',
     example: '2:00 PM',
+    required: false,
   })
   arrival_time?: string;
 
   @ApiProperty({
+    description: 'Currency code',
+    example: 'USD',
+  })
+  currency: string;
+
+  @ApiProperty({
     description: 'Mode of transport ID',
     example: '123e4567-e89b-12d3-a456-426614174001',
+    required: false,
   })
-  mode_of_transport_id: string;
+  mode_of_transport_id?: string;
+
+  @ApiProperty({
+    description: 'Airline ID',
+    example: '123e4567-e89b-12d3-a456-426614174002',
+  })
+  airline_id: string;
 
   @ApiProperty({
     description: 'Maximum weight in kg',
     example: 25.5,
+    required: false,
   })
-  maximum_weight_in_kg: number;
+  maximum_weight_in_kg?: number;
 
   @ApiProperty({
     description: 'Additional notes',
     example: 'Fragile items, handle with care',
+    required: false,
   })
-  notes: string;
+  notes?: string;
 
   @ApiProperty({
     description: 'Meetup time is flexible',
@@ -152,17 +217,32 @@ export class TripDetailsDto {
   updatedAt: Date;
 
   @ApiProperty({
-    description: 'Transport type details',
+    description: 'Mode of transport details',
     example: {
       id: '123e4567-e89b-12d3-a456-426614174001',
       name: 'Airplane',
       description: 'Commercial airline transportation',
     },
+    required: false,
   })
-  transport_type: {
+  mode_of_transport?: {
     id: string;
     name: string;
     description: string;
+  };
+
+  @ApiProperty({
+    description: 'Airline details',
+    example: {
+      id: '123e4567-e89b-12d3-a456-426614174002',
+      name: 'Delta Airlines',
+      description: 'Major American airline',
+    },
+  })
+  airline: {
+    id: string;
+    name: string;
+    description?: string;
   };
 
   @ApiProperty({

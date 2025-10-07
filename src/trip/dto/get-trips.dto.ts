@@ -1,13 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsOptional,
-  IsString,
-  IsInt,
-  Min,
-  Max,
-  IsDateString,
-} from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, Max, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+
+export enum TripFilterEnum {
+  TODAY = 'today',
+  WEEK = 'week',
+  ALL = 'all',
+}
 
 export class GetTripsQueryDto {
   @ApiProperty({
@@ -31,24 +30,16 @@ export class GetTripsQueryDto {
   destinations?: string;
 
   @ApiProperty({
-    description: 'Start date for departure date range filter (ISO 8601 format)',
-    example: '2024-02-01T00:00:00.000Z',
-    format: 'date-time',
+    description:
+      'Filter trips by departure date. Options: "today" (trips departing today), "week" (trips departing this week), "all" (all future trips)',
+    example: 'all',
+    enum: TripFilterEnum,
     required: false,
+    default: 'all',
   })
   @IsOptional()
-  @IsDateString()
-  departureDateFrom?: string;
-
-  @ApiProperty({
-    description: 'End date for departure date range filter (ISO 8601 format)',
-    example: '2024-02-28T23:59:59.999Z',
-    format: 'date-time',
-    required: false,
-  })
-  @IsOptional()
-  @IsDateString()
-  departureDateTo?: string;
+  @IsEnum(TripFilterEnum)
+  filter?: TripFilterEnum = TripFilterEnum.ALL;
 
   @ApiProperty({
     description: 'Page number for pagination (starts from 1)',
@@ -120,6 +111,82 @@ export class ModeOfTransportDto {
   description: string;
 }
 
+export class TripItemImageDto {
+  @ApiProperty({
+    description: 'Image ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  id: string;
+
+  @ApiProperty({
+    description: 'Image URL',
+    example: 'https://example.com/images/item.jpg',
+  })
+  url: string;
+
+  @ApiProperty({
+    description: 'Image alt text',
+    example: 'Electronics item',
+    required: false,
+  })
+  alt_text?: string;
+}
+
+export class TripItemDetailDto {
+  @ApiProperty({
+    description: 'Trip item ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  id: string;
+
+  @ApiProperty({
+    description: 'Trip item name',
+    example: 'Electronics',
+  })
+  name: string;
+
+  @ApiProperty({
+    description: 'Trip item description',
+    example: 'Electronic devices and accessories',
+    required: false,
+  })
+  description?: string;
+
+  @ApiProperty({
+    description: 'Trip item image',
+    type: TripItemImageDto,
+    required: false,
+  })
+  image?: TripItemImageDto;
+}
+
+export class TripItemListItemDto {
+  @ApiProperty({
+    description: 'Trip item ID reference',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  trip_item_id: string;
+
+  @ApiProperty({
+    description: 'Price per kg for this item',
+    example: 15.99,
+  })
+  price: number;
+
+  @ApiProperty({
+    description: 'Available weight in kg for this item',
+    example: 5.5,
+    required: false,
+  })
+  available_kg?: number;
+
+  @ApiProperty({
+    description: 'Trip item details',
+    type: TripItemDetailDto,
+  })
+  trip_item: TripItemDetailDto;
+}
+
 export class TripSummaryDto {
   @ApiProperty({
     description: 'Trip ID',
@@ -168,7 +235,7 @@ export class TripSummaryDto {
   mode_of_transport: ModeOfTransportDto | null;
 
   @ApiProperty({
-    description: 'Pickup location',
+    description: 'Departure location',
     example: {
       country: 'United States',
       country_code: 'US',
@@ -176,7 +243,7 @@ export class TripSummaryDto {
       address: '123 Main St, San Francisco, CA 94105',
     },
   })
-  pickup: any;
+  departure: any;
 
   @ApiProperty({
     description: 'Destination location',
@@ -188,6 +255,12 @@ export class TripSummaryDto {
     },
   })
   destination: any;
+
+  @ApiProperty({
+    description: 'List of trip items with pricing and availability',
+    type: [TripItemListItemDto],
+  })
+  trip_items: TripItemListItemDto[];
 
   @ApiProperty({
     description: 'Trip creation date',

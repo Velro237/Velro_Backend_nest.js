@@ -61,6 +61,9 @@ import {
   GetTripsResponseDto,
   UserInfoDto,
   ModeOfTransportDto,
+  TripItemImageDto,
+  TripItemDetailDto,
+  TripItemListItemDto,
 } from './dto/get-trips.dto';
 import {
   GetTransportTypesQueryDto,
@@ -105,6 +108,9 @@ import { User } from 'generated/prisma';
   DeleteAlertResponseDto,
   GetAlertsQueryDto,
   GetAlertsResponseDto,
+  TripItemImageDto,
+  TripItemDetailDto,
+  TripItemListItemDto,
 )
 @Controller('trip')
 export class TripController {
@@ -227,9 +233,10 @@ export class TripController {
   // Get trips with pagination and country filtering
   @Get('trips')
   @ApiOperation({
-    summary: 'Get trips with pagination, search, and country prioritization',
+    summary:
+      'Get trips with pagination, filtering, search, and country prioritization',
     description:
-      'Retrieve all published trips with optional search, country prioritization, and pagination. Search by departure_date, arrival_date, delivery/pickup/destination country name, code, or address. All searches are case-insensitive. When country is specified (without search), trips from that country are shown first, followed by all other trips. When search is used, country prioritization is disabled and results are returned in natural order. Perfect for mobile app infinite scroll.',
+      'Retrieve all published trips with optional filter (today/week/all), search, country prioritization, and pagination. Each trip includes departure and destination locations, trip items with pricing and availability, and transport details. Filter options: "today" (trips departing today), "week" (trips departing this week), "all" (all future trips, default). Search by destination country name, region, or address. All searches are case-insensitive. When country is specified (without search), trips with matching destination country are shown first, followed by all other trips. When search is used, country prioritization is disabled and results are returned in natural order. Perfect for mobile app infinite scroll.',
   })
   @ApiResponse({
     status: 200,
