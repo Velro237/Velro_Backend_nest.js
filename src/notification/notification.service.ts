@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   CreateNotificationDto,
@@ -21,12 +22,16 @@ import {
   SendPushNotificationDto,
   SendPushNotificationResponseDto,
 } from './dto/send-push-notification.dto';
+import { SendEmailDto, SendEmailResponseDto } from './dto/send-email.dto';
+import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
 
 @Injectable()
 export class NotificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly configService: ConfigService,
     @Inject('FIREBASE_ADMIN') private readonly firebaseAdmin: any,
   ) {}
 
@@ -364,6 +369,96 @@ export class NotificationService {
       const message = await this.i18n.translate(
         'translation.notification.push.failed',
         { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async sendEmail(
+    emailDto: SendEmailDto,
+    lang: string = 'en',
+  ): Promise<SendEmailResponseDto> {
+    try {
+      // Get Mailgun credentials from environment variables
+      const mailgunApiKey = this.configService.get<string>('MAILGUN_API_KEY');
+      const mailgunDomain = this.configService.get<string>('MAILGUN_DOMAIN');
+      const mailgunFromEmail = this.configService.get<string>(
+        'MAILGUN_FROM_EMAIL',
+        'noreply@velro.app',
+      );
+
+      if (!mailgunApiKey || !mailgunDomain) {
+        throw new BadRequestException(
+          'Mailgun credentials are not configured. Please set MAILGUN_API_KEY and MAILGUN_DOMAIN environment variables.',
+        );
+      }
+
+      // Validate that either text or html is provided
+      if (!emailDto.text && !emailDto.html) {
+        throw new BadRequestException(
+          'Either text or html content must be provided',
+        );
+      }
+
+      // Prepare form data
+      const formData = new URLSearchParams();
+      formData.append('from', mailgunFromEmail);
+      formData.append('to', emailDto.to);
+      formData.append('subject', emailDto.subject);
+
+      if (emailDto.text) {
+        formData.append('text', emailDto.text);
+      }
+
+      if (emailDto.html) {
+        formData.append('html', emailDto.html);
+      }
+
+      if (emailDto.cc && emailDto.cc.length > 0) {
+        emailDto.cc.forEach((ccEmail) => formData.append('cc', ccEmail));
+      }
+
+      if (emailDto.bcc && emailDto.bcc.length > 0) {
+        emailDto.bcc.forEach((bccEmail) => formData.append('bcc', bccEmail));
+      }
+
+      // Send email via Mailgun API
+      const response = await axios.post(
+        `https://api.mailgun.net/v3/${mailgunDomain}/messages`,
+        formData.toString(),
+        {
+          headers: {
+            Authorization: `Basic ${Buffer.from(`api:${mailgunApiKey}`).toString('base64')}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        },
+      );
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.sent',
+        {
+          lang,
+          defaultValue: 'Email sent successfully',
+        },
+      );
+
+      return {
+        message,
+        messageId: response.data.id,
+      };
+    } catch (error) {
+      console.error('Email sending error:', error.response?.data || error);
+
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.failed',
+        {
+          lang,
+          defaultValue: 'Failed to send email',
+        },
       );
       throw new InternalServerErrorException(message);
     }

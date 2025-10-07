@@ -33,6 +33,7 @@ import {
   SendPushNotificationDto,
   SendPushNotificationResponseDto,
 } from './dto/send-push-notification.dto';
+import { SendEmailDto, SendEmailResponseDto } from './dto/send-email.dto';
 import {
   ApiGetNotifications,
   ApiUpdateReadStatus,
@@ -54,6 +55,8 @@ import { User } from 'generated/prisma';
   UpdateReadStatusResponseDto,
   SendPushNotificationDto,
   SendPushNotificationResponseDto,
+  SendEmailDto,
+  SendEmailResponseDto,
 )
 @Controller('notification')
 export class NotificationController {
@@ -174,5 +177,91 @@ export class NotificationController {
       pushNotificationDto,
       lang,
     );
+  }
+
+  @Post('email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Send email via Mailgun',
+    description:
+      'Send an email using Mailgun API. Requires MAILGUN_API_KEY and MAILGUN_DOMAIN environment variables to be configured. Either text or html content must be provided.',
+  })
+  @ApiBody({
+    type: SendEmailDto,
+    description: 'Email data',
+    examples: {
+      'Text Email': {
+        summary: 'Simple text email',
+        description: 'Example of a plain text email',
+        value: {
+          to: 'recipient@example.com',
+          subject: 'Welcome to Velro',
+          text: 'Thank you for joining Velro! We are excited to have you on board.',
+        },
+      },
+      'HTML Email': {
+        summary: 'HTML formatted email',
+        description: 'Example of an HTML email with styling',
+        value: {
+          to: 'recipient@example.com',
+          subject: 'Welcome to Velro',
+          html: '<h1>Welcome to Velro</h1><p>Thank you for joining! We are <strong>excited</strong> to have you on board.</p>',
+        },
+      },
+      'Email with CC and BCC': {
+        summary: 'Email with CC and BCC recipients',
+        description: 'Example with multiple recipients',
+        value: {
+          to: 'recipient@example.com',
+          subject: 'Team Update',
+          text: 'This is a team update email',
+          cc: ['cc1@example.com', 'cc2@example.com'],
+          bcc: ['bcc@example.com'],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Email sent successfully',
+    type: SendEmailResponseDto,
+    example: {
+      message: 'Email sent successfully',
+      messageId: '<20230815123456.1.ABCD@example.com>',
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Bad request - Missing email content or invalid Mailgun configuration',
+    example: {
+      statusCode: 400,
+      message: 'Either text or html content must be provided',
+      error: 'Bad Request',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+    example: {
+      statusCode: 401,
+      message: 'Unauthorized',
+      error: 'Unauthorized',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error - Failed to send email',
+    example: {
+      statusCode: 500,
+      message: 'Failed to send email',
+      error: 'Internal Server Error',
+    },
+  })
+  async sendEmail(
+    @Body() emailDto: SendEmailDto,
+    @I18nLang() lang: string,
+  ): Promise<SendEmailResponseDto> {
+    return this.notificationService.sendEmail(emailDto, lang);
   }
 }
