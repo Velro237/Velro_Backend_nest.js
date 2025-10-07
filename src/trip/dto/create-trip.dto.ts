@@ -9,6 +9,11 @@ import {
   IsUUID,
   IsArray,
   ValidateNested,
+  IsNotEmpty,
+  Validate,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  ValidationArguments,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TripItemListDto } from './trip-item-list.dto';
@@ -89,15 +94,65 @@ export type LocationType = {
   landmark?: string;
 };
 
-export class CreateTripDto {
-  @ApiProperty({
-    description: 'User ID who is creating the trip',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @IsString()
-  @IsUUID()
-  user_id: string;
+@ValidatorConstraint({ name: 'TripDateValidation', async: false })
+export class TripDateValidationConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(value: any, args: ValidationArguments) {
+    const object = args.object as any;
+    const departureDate = object.departure_date;
+    const arrivalDate = object.arrival_date;
 
+    // Both dates must be provided
+    if (!departureDate || !arrivalDate) {
+      return false;
+    }
+
+    const departure = new Date(departureDate);
+    const arrival = new Date(arrivalDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time to start of day
+
+    // departure_date must be greater than or equal to today
+    if (departure < today) {
+      return false;
+    }
+
+    // arrival_date must be greater than departure_date
+    if (arrival <= departure) {
+      return false;
+    }
+
+    return true;
+  }
+
+  defaultMessage(args: ValidationArguments) {
+    const object = args.object as any;
+    const departureDate = object.departure_date;
+    const arrivalDate = object.arrival_date;
+
+    if (!departureDate || !arrivalDate) {
+      return 'Both departure_date and arrival_date are required';
+    }
+
+    const departure = new Date(departureDate);
+    const arrival = new Date(arrivalDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (departure < today) {
+      return 'Departure date must be greater than or equal to today';
+    }
+
+    if (arrival <= departure) {
+      return 'Arrival date must be greater than departure date';
+    }
+
+    return 'Invalid date range';
+  }
+}
+
+export class CreateTripDto {
   @ApiProperty({
     description: 'Pickup location details (required)',
     type: 'object',
@@ -156,6 +211,7 @@ export class CreateTripDto {
     format: 'date-time',
   })
   @IsDateString()
+  @Validate(TripDateValidationConstraint)
   departure_date: string;
 
   @ApiProperty({
@@ -166,14 +222,13 @@ export class CreateTripDto {
   departure_time: string;
 
   @ApiProperty({
-    description: 'Arrival date (optional)',
+    description: 'Arrival date (required)',
     example: '2024-02-16T14:00:00.000Z',
     format: 'date-time',
-    required: false,
   })
   @IsDateString()
-  @IsOptional()
-  arrival_date?: string;
+  @Validate(TripDateValidationConstraint)
+  arrival_date: string;
 
   @ApiProperty({
     description: 'Arrival time (optional)',
@@ -185,12 +240,22 @@ export class CreateTripDto {
   arrival_time?: string;
 
   @ApiProperty({
-    description: 'Transport type ID',
+    description: 'Transport type ID (optional)',
     example: '123e4567-e89b-12d3-a456-426614174001',
+    required: false,
   })
   @IsString()
   @IsUUID()
-  mode_of_transport_id: string;
+  @IsOptional()
+  mode_of_transport_id?: string;
+
+  @ApiProperty({
+    description: 'Airline ID (required)',
+    example: '123e4567-e89b-12d3-a456-426614174002',
+  })
+  @IsString()
+  @IsUUID()
+  airline_id: string;
 
   @ApiProperty({
     description: 'Maximum weight in kilograms',
@@ -211,16 +276,6 @@ export class CreateTripDto {
   notes?: string;
 
   @ApiProperty({
-    description:
-      'Full suitcase only - when true, requires price_per_kg and maximum_weight_in_kg (trip items will be ignored); when false, requires at least one trip item',
-    example: false,
-    default: false,
-  })
-  @IsBoolean()
-  @IsOptional()
-  fullSuitcaseOnly?: boolean = false;
-
-  @ApiProperty({
     description: 'Meetup time is flexible',
     example: false,
     default: false,
@@ -230,14 +285,86 @@ export class CreateTripDto {
   meetup_flexible?: boolean = false;
 
   @ApiProperty({
-    description: 'Price per kilogram',
-    example: 15.5,
+    description: 'Currency code (ISO 4217)',
+    example: 'USD',
+    enum: [
+      'USD',
+      'EUR',
+      'GBP',
+      'CAD',
+      'AUD',
+      'JPY',
+      'CHF',
+      'CNY',
+      'SEK',
+      'NOK',
+      'DKK',
+      'PLN',
+      'CZK',
+      'HUF',
+      'RON',
+      'BGN',
+      'HRK',
+      'RUB',
+      'UAH',
+      'TRY',
+      'ILS',
+      'AED',
+      'SAR',
+      'EGP',
+      'ZAR',
+      'NGN',
+      'KES',
+      'GHS',
+      'MAD',
+      'TND',
+      'DZD',
+      'MXN',
+      'BRL',
+      'ARS',
+      'CLP',
+      'COP',
+      'PEN',
+      'UYU',
+      'VES',
+      'INR',
+      'PKR',
+      'BDT',
+      'LKR',
+      'NPR',
+      'AFN',
+      'KZT',
+      'UZS',
+      'KGS',
+      'TJS',
+      'TMT',
+      'MNT',
+      'KRW',
+      'THB',
+      'VND',
+      'IDR',
+      'MYR',
+      'SGD',
+      'PHP',
+      'MMK',
+      'LAK',
+      'KHR',
+      'BND',
+      'FJD',
+      'PGK',
+      'SBD',
+      'VUV',
+      'WST',
+      'TOP',
+      'NZD',
+    ],
   })
-  @IsNumber()
-  price_per_kg: number;
+  @IsString()
+  currency: string;
 
   @ApiProperty({
-    description: 'List of trip items with their prices',
+    description:
+      'List of trip items with their prices (at least one item required)',
     type: 'array',
     items: {
       type: 'object',
@@ -253,6 +380,11 @@ export class CreateTripDto {
           description: 'Price for this trip item',
           example: 15.5,
         },
+        available_kg: {
+          type: 'number',
+          description: 'Available weight in kilograms for this trip item',
+          example: 5.0,
+        },
       },
       required: ['trip_item_id', 'price'],
     },
@@ -260,19 +392,20 @@ export class CreateTripDto {
       {
         trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
         price: 15.5,
+        available_kg: 5.0,
       },
       {
         trip_item_id: '123e4567-e89b-12d3-a456-426614174001',
         price: 25.0,
+        available_kg: 3.5,
       },
     ],
-    required: false,
   })
   @IsArray()
+  @IsNotEmpty()
   @ValidateNested({ each: true })
   @Type(() => TripItemListDto)
-  @IsOptional()
-  trip_items?: TripItemListDto[];
+  trip_items: TripItemListDto[];
 }
 
 export class CreateTripResponseDto {
@@ -291,16 +424,19 @@ export class CreateTripResponseDto {
       departure_time: '10:00 AM',
       arrival_date: '2024-02-16T14:00:00.000Z',
       arrival_time: '2:00 PM',
-      price_per_kg: 15.5,
+      currency: 'USD',
+      airline_id: '123e4567-e89b-12d3-a456-426614174002',
       createdAt: '2024-01-15T10:30:00.000Z',
       trip_items: [
         {
           trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
           price: 15.5,
+          available_kg: 5.0,
         },
         {
           trip_item_id: '123e4567-e89b-12d3-a456-426614174001',
           price: 25.0,
+          available_kg: 3.5,
         },
       ],
     },
@@ -312,11 +448,13 @@ export class CreateTripResponseDto {
     departure_time: string;
     arrival_date?: Date;
     arrival_time?: string;
-    price_per_kg: any; // Decimal from Prisma
+    currency: string;
+    airline_id: string;
     createdAt: Date;
     trip_items?: {
       trip_item_id: string;
       price: number;
+      available_kg?: number;
     }[];
   };
 }

@@ -5,6 +5,7 @@ import {
   IsUUID,
   IsNotEmpty,
   IsPositive,
+  IsOptional,
 } from 'class-validator';
 
 export class TripItemListDto {
@@ -27,4 +28,15 @@ export class TripItemListDto {
   @IsNumber()
   @IsPositive()
   price: number;
+
+  @ApiProperty({
+    description: 'Available weight in kilograms for this trip item',
+    example: 5.0,
+    type: 'number',
+    required: false,
+  })
+  @IsNumber()
+  @IsPositive()
+  @IsOptional()
+  available_kg?: number;
 }

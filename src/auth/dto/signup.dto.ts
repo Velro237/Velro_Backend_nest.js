@@ -13,7 +13,7 @@ import { UserRole } from 'generated/prisma/client';
 export class SignupDto {
   @ApiProperty({
     description: 'User email address',
-    example: 'john.doe@example.com',
+    example: 'user@example.com',
     format: 'email',
   })
   @IsEmail({}, { message: 'Please provide a valid email address' })
@@ -21,7 +21,7 @@ export class SignupDto {
 
   @ApiProperty({
     description: 'User password (minimum 8 characters)',
-    example: 'SecurePassword123!',
+    example: 'password123',
     minLength: 8,
   })
   @IsString()

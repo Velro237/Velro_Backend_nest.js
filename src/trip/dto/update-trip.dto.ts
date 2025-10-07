@@ -29,7 +29,6 @@ export class UpdateTripResponseDto {
       user_id: '123e4567-e89b-12d3-a456-426614174000',
       departure_date: '2024-02-15T10:00:00.000Z',
       departure_time: '10:00 AM',
-      price_per_kg: 15.5,
       status: 'CANCELLED',
       updatedAt: '2024-01-15T10:30:00.000Z',
     },
@@ -39,7 +38,6 @@ export class UpdateTripResponseDto {
     user_id: string;
     departure_date: Date;
     departure_time: string;
-    price_per_kg: any; // Decimal from Prisma
     status: TripStatus;
     updatedAt: Date;
   };

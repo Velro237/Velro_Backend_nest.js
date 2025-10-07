@@ -17,12 +17,15 @@
       "invalidCredentials": "Invalid email or password"
     }
   },
-  "chat": {
-    "create": {
-      "success": "Chat created successfully",
-      "failed": "Failed to create chat",
-      "userNotFound": "One or more users not found"
-    },
+    "chat": {
+      "create": {
+        "success": "Chat created successfully",
+        "failed": "Failed to create chat",
+        "userNotFound": "User not found",
+        "cannotChatWithSelf": "Cannot create a chat with yourself",
+        "chatAlreadyExists": "Chat already exists between these two users",
+        "duplicateTripChat": "A chat already exists between you and this user for this trip"
+      },
     "getAll": {
       "success": "Chats retrieved successfully",
       "failed": "Failed to retrieve chats"
@@ -30,7 +33,13 @@
     "messages": {
       "success": "Messages retrieved successfully",
       "failed": "Failed to retrieve messages",
-      "unauthorized": "Not a member of this chat"
+      "unauthorized": "Not a member of this chat",
+      "newTripRequest": "New trip request",
+      "newTripRequestNotification": "Hello! I'm interested in your trip. Could you please provide more details?",
+      "requestStatusChanged": "Request status has been changed to {status}"
+    },
+    "chatName": {
+      "to": "to"
     }
   },
   "trip": {
@@ -39,9 +48,9 @@
       "failed": "Failed to create trip",
       "userNotFound": "User not found",
       "transportNotFound": "Transport type not found",
+      "airlineNotFound": "Airline not found",
       "tripItemNotFound": "One or more trip items not found",
-      "fullSuitcaseOnlyRequiresPricing": "For full suitcase trips, please provide both price per kg and maximum weight",
-      "partialSuitcaseRequiresTripItems": "For partial suitcase trips, please select at least one item to transport"
+      "tripItemsRequired": "At least one trip item is required for all trips"
     },
       "update": {
         "success": "Trip updated successfully",
@@ -70,7 +79,12 @@
         "notFound": "Trip request not found",
         "cannotRequestOwnTrip": "You cannot request items from your own trip",
         "itemsRequired": "Trip items are required for non-full suitcase trips",
-        "itemNotAvailable": "One or more requested items are not available in this trip"
+        "itemNotAvailable": "One or more requested items are not available in this trip",
+        "chatNotFound": "Chat not found",
+        "unauthorized": "Only the trip owner can change request status",
+        "notPending": "Request status can only be changed if it is currently pending",
+        "statusChanged": "Request status updated successfully",
+        "statusChangeFailed": "Failed to update request status"
       }
     },
   "transportType": {
@@ -116,5 +130,96 @@
       "failed": "Failed to retrieve trip item",
       "notFound": "Trip item not found"
     }
+  },
+  "report": {
+    "userNotFound": "Reported user not found",
+    "tripNotFound": "Trip not found",
+    "requestNotFound": "Trip request not found",
+    "reportNotFound": "Report not found",
+    "cannotReportSelf": "You cannot report yourself",
+    "createSuccess": "Report created successfully",
+    "createFailed": "Failed to create report",
+    "getSuccess": "Reports retrieved successfully",
+    "getFailed": "Failed to retrieve reports",
+    "notFound": "Report not found",
+    "replySuccess": "Report reply created successfully",
+    "replyFailed": "Failed to create report reply",
+    "getAllSuccess": "All reports retrieved successfully",
+    "getAllFailed": "Failed to retrieve all reports"
+  },
+  "rating": {
+    "createdSuccessfully": "Rating created successfully",
+    "createFailed": "Failed to create rating",
+    "receiverNotFound": "User not found",
+    "tripNotFound": "Trip not found",
+    "requestNotFound": "Trip request not found",
+    "cannotRateSelf": "You cannot rate yourself",
+    "alreadyRated": "You have already rated this user for this trip",
+    "userNotFound": "User not found",
+    "getUserRatingsSuccess": "User ratings retrieved successfully",
+    "getUserRatingsFailed": "Failed to retrieve user ratings"
+  },
+  "stats": {
+    "userNotFound": "User not found",
+    "getUserStatsSuccess": "User statistics retrieved successfully",
+    "getUserStatsFailed": "Failed to retrieve user statistics"
+  },
+  "airline": {
+    "create": {
+      "success": "Airline created successfully",
+      "failed": "Failed to create airline",
+      "nameExists": "Airline with this name already exists"
+    },
+    "getAll": {
+      "success": "Airlines retrieved successfully",
+      "failed": "Failed to retrieve airlines"
+    }
+  },
+  "alert": {
+    "create": {
+      "success": "Alert created successfully",
+      "failed": "Failed to create alert"
+    },
+    "update": {
+      "success": "Alert updated successfully",
+      "failed": "Failed to update alert"
+    },
+    "delete": {
+      "success": "Alert deleted successfully",
+      "failed": "Failed to delete alert"
+    },
+    "getAll": {
+      "success": "Alerts retrieved successfully",
+      "failed": "Failed to retrieve alerts"
+    },
+    "notFound": "Alert not found"
+  },
+  "notification": {
+    "create": {
+      "success": "Notification created successfully",
+      "failed": "Failed to create notification"
+    },
+    "getAll": {
+      "success": "Notifications retrieved successfully",
+      "failed": "Failed to retrieve notifications"
+    },
+    "updateReadStatus": {
+      "success": "Notification read status updated successfully",
+      "failed": "Failed to update notification read status"
+    },
+    "delete": {
+      "success": "Notification deleted successfully",
+      "failed": "Failed to delete notification"
+    },
+    "push": {
+      "sent": "Push notification sent successfully",
+      "failed": "Failed to send push notification"
+    },
+    "alertMatch": {
+      "title": "Trip Alert Match Found",
+      "message": "A new trip matching your alert criteria has been found! Trip creator: {tripCreator}, Route: {departure} to {destination}, Departure date: {departureDate}"
+    },
+    "userNotFound": "User not found",
+    "notFound": "Notification not found"
   }
 }

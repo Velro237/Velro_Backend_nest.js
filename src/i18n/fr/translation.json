@@ -21,7 +21,10 @@
     "create": {
       "success": "Chat créé avec succès",
       "failed": "Échec de la création du chat",
-      "userNotFound": "Un ou plusieurs utilisateurs non trouvés"
+      "userNotFound": "Utilisateur non trouvé",
+      "cannotChatWithSelf": "Impossible de créer un chat avec vous-même",
+      "chatAlreadyExists": "Un chat existe déjà entre ces deux utilisateurs",
+      "duplicateTripChat": "Un chat existe déjà entre vous et cet utilisateur pour ce voyage"
     },
     "getAll": {
       "success": "Chats récupérés avec succès",
@@ -30,7 +33,13 @@
     "messages": {
       "success": "Messages récupérés avec succès",
       "failed": "Échec de la récupération des messages",
-      "unauthorized": "Pas membre de ce chat"
+      "unauthorized": "Pas membre de ce chat",
+      "newTripRequest": "Nouvelle demande de voyage",
+      "newTripRequestNotification": "Bonjour ! Je suis intéressé par votre voyage. Pourriez-vous me donner plus de détails ?",
+      "requestStatusChanged": "Le statut de la demande a été changé en {status}"
+    },
+    "chatName": {
+      "to": "vers"
     }
   },
   "trip": {
@@ -39,6 +48,7 @@
       "failed": "Échec de la création du voyage",
       "userNotFound": "Utilisateur non trouvé",
       "transportNotFound": "Type de transport non trouvé",
+      "airlineNotFound": "Compagnie aérienne non trouvée",
       "tripItemNotFound": "Un ou plusieurs articles de voyage non trouvés",
       "fullSuitcaseOnlyRequiresPricing": "Pour les voyages de valise complète, veuillez fournir le prix par kg et le poids maximum",
       "partialSuitcaseRequiresTripItems": "Pour les voyages de valise partielle, veuillez sélectionner au moins un article à transporter"
@@ -70,7 +80,12 @@
         "notFound": "Demande de voyage non trouvée",
         "cannotRequestOwnTrip": "Vous ne pouvez pas demander des articles de votre propre voyage",
         "itemsRequired": "Les articles de voyage sont requis pour les voyages de valise partielle",
-        "itemNotAvailable": "Un ou plusieurs articles demandés ne sont pas disponibles dans ce voyage"
+        "itemNotAvailable": "Un ou plusieurs articles demandés ne sont pas disponibles dans ce voyage",
+        "chatNotFound": "Chat non trouvé",
+        "unauthorized": "Seul le propriétaire du voyage peut changer le statut de la demande",
+        "notPending": "Le statut de la demande ne peut être changé que s'il est actuellement en attente",
+        "statusChanged": "Statut de la demande mis à jour avec succès",
+        "statusChangeFailed": "Échec de la mise à jour du statut de la demande"
       }
     },
   "transportType": {
@@ -116,5 +131,96 @@
       "failed": "Échec de la récupération de l'article de voyage",
       "notFound": "Article de voyage non trouvé"
     }
+  },
+  "report": {
+    "userNotFound": "Utilisateur signalé non trouvé",
+    "tripNotFound": "Voyage non trouvé",
+    "requestNotFound": "Demande de voyage non trouvée",
+    "reportNotFound": "Signalement non trouvé",
+    "cannotReportSelf": "Vous ne pouvez pas vous signaler vous-même",
+    "createSuccess": "Signalement créé avec succès",
+    "createFailed": "Échec de la création du signalement",
+    "getSuccess": "Signalements récupérés avec succès",
+    "getFailed": "Échec de la récupération des signalements",
+    "notFound": "Signalement non trouvé",
+    "replySuccess": "Réponse au signalement créée avec succès",
+    "replyFailed": "Échec de la création de la réponse au signalement",
+    "getAllSuccess": "Tous les signalements ont été récupérés avec succès",
+    "getAllFailed": "Échec de la récupération de tous les signalements"
+  },
+  "rating": {
+    "createdSuccessfully": "Note créée avec succès",
+    "createFailed": "Échec de la création de la note",
+    "receiverNotFound": "Utilisateur non trouvé",
+    "tripNotFound": "Voyage non trouvé",
+    "requestNotFound": "Demande de voyage non trouvée",
+    "cannotRateSelf": "Vous ne pouvez pas vous noter vous-même",
+    "alreadyRated": "Vous avez déjà noté cet utilisateur pour ce voyage",
+    "userNotFound": "Utilisateur non trouvé",
+    "getUserRatingsSuccess": "Notes de l'utilisateur récupérées avec succès",
+    "getUserRatingsFailed": "Échec de la récupération des notes de l'utilisateur"
+  },
+  "stats": {
+    "userNotFound": "Utilisateur non trouvé",
+    "getUserStatsSuccess": "Statistiques de l'utilisateur récupérées avec succès",
+    "getUserStatsFailed": "Échec de la récupération des statistiques de l'utilisateur"
+  },
+  "airline": {
+    "create": {
+      "success": "Compagnie aérienne créée avec succès",
+      "failed": "Échec de la création de la compagnie aérienne",
+      "nameExists": "Une compagnie aérienne avec ce nom existe déjà"
+    },
+    "getAll": {
+      "success": "Compagnies aériennes récupérées avec succès",
+      "failed": "Échec de la récupération des compagnies aériennes"
+    }
+  },
+  "alert": {
+    "create": {
+      "success": "Alerte créée avec succès",
+      "failed": "Échec de la création de l'alerte"
+    },
+    "update": {
+      "success": "Alerte mise à jour avec succès",
+      "failed": "Échec de la mise à jour de l'alerte"
+    },
+    "delete": {
+      "success": "Alerte supprimée avec succès",
+      "failed": "Échec de la suppression de l'alerte"
+    },
+    "getAll": {
+      "success": "Alertes récupérées avec succès",
+      "failed": "Échec de la récupération des alertes"
+    },
+    "notFound": "Alerte non trouvée"
+  },
+  "notification": {
+    "create": {
+      "success": "Notification créée avec succès",
+      "failed": "Échec de la création de la notification"
+    },
+    "getAll": {
+      "success": "Notifications récupérées avec succès",
+      "failed": "Échec de la récupération des notifications"
+    },
+    "updateReadStatus": {
+      "success": "Statut de lecture de la notification mis à jour avec succès",
+      "failed": "Échec de la mise à jour du statut de lecture de la notification"
+    },
+    "delete": {
+      "success": "Notification supprimée avec succès",
+      "failed": "Échec de la suppression de la notification"
+    },
+    "push": {
+      "sent": "Notification push envoyée avec succès",
+      "failed": "Échec de l'envoi de la notification push"
+    },
+    "alertMatch": {
+      "title": "Correspondance d'alerte de voyage trouvée",
+      "message": "Un nouveau voyage correspondant à vos critères d'alerte a été trouvé ! Créateur du voyage : {tripCreator}, Itinéraire : {departure} vers {destination}, Date de départ : {departureDate}"
+    },
+    "userNotFound": "Utilisateur non trouvé",
+    "notFound": "Notification non trouvée"
   }
 }

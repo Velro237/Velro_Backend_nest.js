@@ -11,7 +11,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --force
+RUN npm ci --legacy-peer-deps
 
 # Copy source code
 COPY . .
@@ -22,14 +22,5 @@ RUN npx prisma generate
 # Expose NestJS port
 EXPOSE 3000
 
-# Create startup script
-RUN echo '#!/bin/bash\n\
-  echo "Waiting for database to be ready..."\n\
-  sleep 15\n\
-  echo "Running Prisma migrations..."\n\
-  npx prisma migrate deploy\n\
-  echo "Starting application..."\n\
-  npm run start:dev' > /app/start.sh && chmod +x /app/start.sh
-
-# Run the startup script
-CMD ["/bin/bash", "/app/start.sh"]
+# Run startup commands directly
+CMD ["/bin/bash", "-c", "echo 'Waiting for database to be ready...' && sleep 15 && echo 'Running Prisma migrations...' && npx prisma migrate deploy && echo 'Starting application...' && npm run start:dev"]

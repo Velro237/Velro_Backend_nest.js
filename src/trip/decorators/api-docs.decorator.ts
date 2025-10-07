@@ -1,5 +1,11 @@
 import { applyDecorators } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiBody, ApiParam } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiParam,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { CreateTripDto, CreateTripResponseDto } from '../dto/create-trip.dto';
 import { UpdateTripDto, UpdateTripResponseDto } from '../dto/update-trip.dto';
 
@@ -33,10 +39,11 @@ import { GetTripByIdResponseDto } from '../dto/get-trip-by-id.dto';
 // Trip Documentation Decorators
 export const ApiCreateTrip = () =>
   applyDecorators(
+    ApiBearerAuth('JWT-auth'),
     ApiOperation({
       summary: 'Create a new trip',
       description:
-        'Create a new trip for a user with required pickup/destination locations, travel details, and pricing. Business rules: If fullSuitcaseOnly is true, both price_per_kg and maximum_weight_in_kg are required (trip items are not validated). If fullSuitcaseOnly is false, at least one trip item must be provided.',
+        'Create a new trip for a user with required pickup/destination locations, travel details, and trip items. At least one trip item is always required.',
     }),
     ApiBody({
       type: CreateTripDto,
@@ -56,16 +63,19 @@ export const ApiCreateTrip = () =>
               user_id: '123e4567-e89b-12d3-a456-426614174000',
               departure_date: '2024-02-15T10:00:00.000Z',
               departure_time: '10:00 AM',
-              price_per_kg: 15.5,
+              currency: 'USD',
+              airline_id: '123e4567-e89b-12d3-a456-426614174002',
               createdAt: '2024-01-15T10:30:00.000Z',
               trip_items: [
                 {
                   trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
                   price: 15.5,
+                  available_kg: 5.0,
                 },
                 {
                   trip_item_id: '123e4567-e89b-12d3-a456-426614174001',
                   price: 25.0,
+                  available_kg: 3.5,
                 },
               ],
             },
@@ -76,7 +86,7 @@ export const ApiCreateTrip = () =>
     ApiResponse({
       status: 404,
       description:
-        'User, transport type, or trip item not found (message will be translated)',
+        'User, transport type, airline, or trip item not found (message will be translated)',
       schema: {
         type: 'object',
         properties: {
@@ -86,6 +96,7 @@ export const ApiCreateTrip = () =>
             examples: {
               userNotFound: { value: 'User not found' },
               transportNotFound: { value: 'Transport type not found' },
+              airlineNotFound: { value: 'Airline not found' },
               tripItemNotFound: { value: 'One or more trip items not found' },
             },
           },
@@ -123,13 +134,11 @@ export const ApiCreateTrip = () =>
           message: {
             type: 'string',
             examples: {
-              fullSuitcaseOnlyRequiresPricing: {
-                value:
-                  'For full suitcase trips, please provide both price per kg and maximum weight',
+              tripItemsRequired: {
+                value: 'At least one trip item is required for all trips',
               },
-              partialSuitcaseRequiresTripItems: {
-                value:
-                  'For partial suitcase trips, please select at least one item to transport',
+              tripItemNotFound: {
+                value: 'One or more selected trip items do not exist',
               },
             },
           },
@@ -177,10 +186,9 @@ export const ApiUpdateTrip = () =>
           },
         },
         priceUpdate: {
-          summary: 'Update trip price',
+          summary: 'Update trip notes',
           value: {
-            price_per_kg: 20.0,
-            notes: 'Updated pricing due to fuel costs',
+            notes: 'Updated notes due to schedule changes',
           },
         },
       },
@@ -199,7 +207,6 @@ export const ApiUpdateTrip = () =>
               user_id: '123e4567-e89b-12d3-a456-426614174000',
               departure_date: '2024-02-15T10:00:00.000Z',
               departure_time: '10:00 AM',
-              price_per_kg: 20.0,
               status: 'CANCELLED',
               updatedAt: '2024-01-15T10:30:00.000Z',
             },
@@ -244,8 +251,9 @@ export const ApiUpdateTrip = () =>
 export const ApiCreateTransportType = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Create a new transport type',
-      description: 'Create a new transport type for trip categorization.',
+      summary: 'Create a new transport type (Admin Only)',
+      description:
+        'Create a new transport type for trip categorization. Requires admin privileges.',
     }),
     ApiBody({
       type: CreateTransportTypeDto,
@@ -287,6 +295,21 @@ export const ApiCreateTransportType = () =>
       },
     }),
     ApiResponse({
+      status: 403,
+      description: 'Forbidden - Admin access required',
+      schema: {
+        type: 'object',
+        properties: {
+          statusCode: { type: 'number', example: 403 },
+          message: {
+            type: 'string',
+            example: 'Access denied. Admin privileges required.',
+          },
+          error: { type: 'string', example: 'Forbidden' },
+        },
+      },
+    }),
+    ApiResponse({
       status: 409,
       description:
         'Transport type name already exists (message will be translated)',
@@ -322,8 +345,9 @@ export const ApiCreateTransportType = () =>
 export const ApiUpdateTransportType = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Update a transport type',
-      description: 'Update an existing transport type.',
+      summary: 'Update a transport type (Admin Only)',
+      description:
+        'Update an existing transport type. Requires admin privileges.',
     }),
     ApiParam({
       name: 'id',
@@ -554,8 +578,9 @@ export const ApiGetTransportTypeById = () =>
 export const ApiCreateTripItem = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Create a new trip item',
-      description: 'Create a new trip item for trip categorization.',
+      summary: 'Create a new trip item (Admin Only)',
+      description:
+        'Create a new trip item for trip categorization. Requires admin privileges.',
     }),
     ApiBody({
       type: CreateTripItemDto,
@@ -646,8 +671,8 @@ export const ApiCreateTripItem = () =>
 export const ApiUpdateTripItem = () =>
   applyDecorators(
     ApiOperation({
-      summary: 'Update a trip item',
-      description: 'Update an existing trip item.',
+      summary: 'Update a trip item (Admin Only)',
+      description: 'Update an existing trip item. Requires admin privileges.',
     }),
     ApiParam({
       name: 'id',

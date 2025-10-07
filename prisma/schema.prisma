@@ -1,7 +1,7 @@
 generator client {
   provider      = "prisma-client-js"
   output        = "../generated/prisma"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {
@@ -30,6 +30,7 @@ model User {
   isFreightForwarder Boolean @default(false)
   companyName String?
   companyAddress String?
+  device_id String?
   role      UserRole      @default(USER)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
@@ -38,8 +39,16 @@ model User {
   messages  Message[]
   chats     ChatMember[]
 
-  refreshTokens RefreshToken[]
-  accounts      Account[]
+  reportsSubmitted Report[]       @relation("ReportReporter")
+  reportsReceived  Report[]       @relation("ReportReported")
+  reportsReplied   Report[]       @relation("ReportReplier")
+  refreshTokens    RefreshToken[]
+  accounts         Account[]
+  kycRecords       UserKYC[]
+  alerts           Alert[]
+  ratingsGiven     Rating[]       @relation("RatingGiver")
+  ratingsReceived  Rating[]       @relation("RatingReceiver")
+  notifications    Notification[]
 }
 
 model Account {
@@ -68,14 +77,16 @@ model RefreshToken {
 }
 
 model Chat {
-  id   String  @id @default(uuid())
-  name String?
+  id      String  @id @default(uuid())
+  name    String?
+  trip_id String? @unique // Optional: link to trip request (unique for one-to-one)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   members  ChatMember[]
   messages Message[]
+  trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
 }
 
 model ChatMember {
@@ -136,23 +147,38 @@ model Trip {
   delivery             Json?
   departure_date       DateTime
   departure_time       String
+  currency             String     @default("USD")
   arrival_date         DateTime?
   arrival_time         String?
-  mode_of_transport_id String
+  mode_of_transport_id String?
+  airline_id           String
   maximum_weight_in_kg Decimal?   @db.Decimal(5, 2)
   notes                String?
-  fullSuitcaseOnly     Boolean    @default(false)
   meetup_flexible      Boolean    @default(false)
-  price_per_kg         Decimal    @db.Decimal(10, 2)
   status               TripStatus @default(PUBLISHED)
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 
   // Relations
   user              User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  mode_of_transport TransportType   @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
+  mode_of_transport TransportType?  @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
+  airline           Airline         @relation(fields: [airline_id], references: [id], onDelete: Cascade)
   trip_items        TripItemsList[]
   requests          TripRequest[]
+  chats             Chat[]
+  reports           Report[]
+  ratings           Rating[]
+}
+
+model Airline {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  trips Trip[]
 }
 
 model Image {
@@ -183,11 +209,12 @@ model TripItem {
 }
 
 model TripItemsList {
-  trip_id      String
-  trip_item_id String
-  price        Decimal  @db.Decimal(10, 2)
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  trip_id       String
+  trip_item_id  String
+  price         Decimal  @db.Decimal(10, 2)
+  avalailble_kg Decimal? @db.Decimal(10, 2)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
 
   // Relations
   trip      Trip     @relation(fields: [trip_id], references: [id], onDelete: Cascade)
@@ -211,6 +238,8 @@ model TripRequest {
   request_items TripRequestItem[]
   images        TripRequestImage[]
   messages      Message[] // messages that reference this request via request_id
+  reports       Report[]
+  ratings       Rating[]
 }
 
 model TripRequestItem {
@@ -271,4 +300,148 @@ enum RequestStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+enum ReportType {
+  TRAVEL_ISSUES
+  OTHER_ISSUES
+  RESPONSE_TO_REPORT
+}
+
+enum ReportPriority {
+  HIGH
+  LOW
+}
+
+enum ReportStatus {
+  PENDING
+  REPLIED
+}
+
+model Report {
+  id          String         @id @default(uuid())
+  user_id     String // User reporting
+  reported_id String // User being reported
+  reply_to_id String? // ID of report we are replying to (not required)
+  trip_id     String // Trip ID (required)
+  request_id  String? // Request ID (not required)
+  type        ReportType
+  text        String? // Report text (not required)
+  priority    ReportPriority
+  status      ReportStatus   @default(PENDING)
+  data        Json? // Additional data in JSON format
+  replied_by  String? // ID of user replying to report (not required)
+  created_at  DateTime       @default(now())
+  updated_at  DateTime       @updatedAt
+  images      Json?
+
+  // Relations
+  user     User         @relation("ReportReporter", fields: [user_id], references: [id], onDelete: Cascade)
+  reported User         @relation("ReportReported", fields: [reported_id], references: [id], onDelete: Cascade)
+  replyTo  Report?      @relation("ReportReplies", fields: [reply_to_id], references: [id])
+  replies  Report[]     @relation("ReportReplies")
+  trip     Trip         @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  replier  User?        @relation("ReportReplier", fields: [replied_by], references: [id])
+}
+
+// KYC Verification Models
+enum KYCStatus {
+  NOT_STARTED // The verification process has not been initiated by the user yet
+  IN_PROGRESS // The user has started the verification process and is currently submitting information
+  APPROVED // The verification has been successfully completed and approved
+  DECLINED // The verification has been rejected due to issues with submitted information
+  KYC_EXPIRED // The previously verified KYC has expired and needs to be renewed
+  IN_REVIEW // The verification requires manual review by the compliance team
+  EXPIRED // The verification session has timed out before completion
+  ABANDONED // The user started but did not complete the verification process
+}
+
+enum KYCProvider {
+  DIDIT
+  OTHER
+}
+
+model UserKYC {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Didit.me specific fields
+  diditSessionId  String? @unique
+  diditWorkflowId String?
+  sessionUrl      String?
+  callbackUrl     String?
+
+  // Verification status and data
+  status   KYCStatus   @default(NOT_STARTED)
+  provider KYCProvider @default(DIDIT)
+
+  // Verification results
+  verificationData Json? // Store verification results from Didit
+  rejectionReason  String? // Reason for rejection if applicable
+
+  // Metadata
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  verifiedAt DateTime? // When verification was completed
+  expiresAt  DateTime? // When the verification session expires
+
+  @@unique([userId, provider]) // One active verification per provider per user
+}
+
+model Rating {
+  id          String   @id @default(uuid())
+  giver_id    String // User giving the rating
+  receiver_id String // User receiving the rating
+  trip_id     String // Trip being rated
+  request_id  String? // Optional: specific request being rated
+  rating      Int // Rating value (1-5)
+  comment     String? // Optional comment
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  giver    User         @relation("RatingGiver", fields: [giver_id], references: [id], onDelete: Cascade)
+  receiver User         @relation("RatingReceiver", fields: [receiver_id], references: [id], onDelete: Cascade)
+  trip     Trip         @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+
+  @@unique([giver_id, receiver_id, trip_id]) // Prevent duplicate ratings for same trip
+}
+
+model Alert {
+  id            String    @id @default(uuid())
+  user_id       String
+  depature      String
+  destination   String
+  form_date     DateTime?
+  to_date       DateTime?
+  notificaction Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  // Relations
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id      String @id @default(uuid())
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user_id String
+
+  title   String
+  message String
+  type    NotificationType // enum for categorizing
+  data    Json? // extra metadata (e.g. { "postId": "123" })
+
+  read      Boolean   @default(false) // track read/unread
+  createdAt DateTime  @default(now())
+  read_at   DateTime?
+}
+
+enum NotificationType {
+  SYSTEM
+  REQUEST
+  ALERT
 }

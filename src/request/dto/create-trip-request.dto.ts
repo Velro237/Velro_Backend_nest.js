@@ -70,14 +70,6 @@ export class CreateTripRequestDto {
   trip_id: string;
 
   @ApiProperty({
-    description: 'User ID making the request',
-    example: '123e4567-e89b-12d3-a456-426614174001',
-  })
-  @IsString()
-  @IsUUID()
-  user_id: string;
-
-  @ApiProperty({
     description: 'Optional message to the trip owner',
     example: 'I would like to request these items for my upcoming trip',
     required: false,

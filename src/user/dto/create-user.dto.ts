@@ -80,4 +80,12 @@ export class CreateUserDto {
   @IsOptional()
   @IsEnum(UserRole)
   role?: UserRole;
+
+  @ApiPropertyOptional({
+    example: 'device_123456789',
+    description: 'Unique device identifier for push notifications',
+  })
+  @IsOptional()
+  @IsString()
+  device_id?: string;
 }

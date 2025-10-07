@@ -33,31 +33,41 @@ import {
   GetTripItemsResponseDto,
 } from './dto/get-trip-items.dto';
 import { GetTripByIdResponseDto } from './dto/get-trip-by-id.dto';
+import {
+  CreateAirlineDto,
+  CreateAirlineResponseDto,
+} from './dto/create-airline.dto';
+import {
+  GetAirlinesQueryDto,
+  GetAirlinesResponseDto,
+} from './dto/get-airlines.dto';
+import { CreateAlertDto, CreateAlertResponseDto } from './dto/create-alert.dto';
+import { UpdateAlertDto, UpdateAlertResponseDto } from './dto/update-alert.dto';
+import { DeleteAlertResponseDto } from './dto/delete-alert.dto';
+import { GetAlertsQueryDto, GetAlertsResponseDto } from './dto/get-alerts.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class TripService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async createTrip(
     createTripDto: CreateTripDto,
+    userId: string,
     lang?: string,
   ): Promise<CreateTripResponseDto> {
-    const {
-      user_id,
-      mode_of_transport_id,
-      trip_items: originalTripItems,
-      ...tripData
-    } = createTripDto;
-    let trip_items = originalTripItems;
+    const { mode_of_transport_id, airline_id, trip_items, ...tripData } =
+      createTripDto;
 
     // Check if user exists
     const user = await this.prisma.user.findUnique({
-      where: { id: user_id },
+      where: { id: userId },
     });
 
     if (!user) {
@@ -70,57 +80,15 @@ export class TripService {
       throw new NotFoundException(message);
     }
 
-    // Check if transport type exists
-    const transportType = await this.prisma.transportType.findUnique({
-      where: { id: mode_of_transport_id },
-    });
-
-    if (!transportType) {
-      const message = await this.i18n.translate(
-        'translation.trip.create.transportNotFound',
-        {
-          lang,
-        },
-      );
-      throw new NotFoundException(message);
-    }
-
-    // Validate fullSuitcaseOnly business rules
-    if (tripData.fullSuitcaseOnly) {
-      // If fullSuitcaseOnly is true, price_per_kg and maximum_weight_in_kg are required
-      if (!tripData.price_per_kg || !tripData.maximum_weight_in_kg) {
-        const message = await this.i18n.translate(
-          'translation.trip.create.fullSuitcaseOnlyRequiresPricing',
-          {
-            lang,
-          },
-        );
-        throw new ConflictException(message);
-      }
-      // When fullSuitcaseOnly is true, trip items should be null/empty (no validation needed)
-      trip_items = [];
-    } else {
-      // If fullSuitcaseOnly is false, validate trip items
-      if (!trip_items || trip_items.length === 0) {
-        const message = await this.i18n.translate(
-          'translation.trip.create.partialSuitcaseRequiresTripItems',
-          {
-            lang,
-          },
-        );
-        throw new ConflictException(message);
-      }
-
-      // Validate trip items exist in database
-      const tripItemIds = trip_items.map((item) => item.trip_item_id);
-      const existingTripItems = await this.prisma.tripItem.findMany({
-        where: { id: { in: tripItemIds } },
-        select: { id: true },
+    // Check if transport type exists (only if provided)
+    if (mode_of_transport_id) {
+      const transportType = await this.prisma.transportType.findUnique({
+        where: { id: mode_of_transport_id },
       });
 
-      if (existingTripItems.length !== tripItemIds.length) {
+      if (!transportType) {
         const message = await this.i18n.translate(
-          'translation.trip.create.tripItemNotFound',
+          'translation.trip.create.transportNotFound',
           {
             lang,
           },
@@ -129,14 +97,58 @@ export class TripService {
       }
     }
 
+    // Check if airline exists
+    const airline = await this.prisma.airline.findUnique({
+      where: { id: airline_id },
+    });
+
+    if (!airline) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.airlineNotFound',
+        {
+          lang,
+        },
+      );
+      throw new NotFoundException(message);
+    }
+
+    // Validate trip items - at least one item is always required
+    if (!trip_items || trip_items.length === 0) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.tripItemsRequired',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
+
+    // Validate trip items exist in database
+    const tripItemIds = trip_items.map((item) => item.trip_item_id);
+    const existingTripItems = await this.prisma.tripItem.findMany({
+      where: { id: { in: tripItemIds } },
+      select: { id: true },
+    });
+
+    if (existingTripItems.length !== tripItemIds.length) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.tripItemNotFound',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
+
     try {
       // Create trip with trip items in a transaction
       const result = await this.prisma.$transaction(async (prisma) => {
         // Create the trip
         const trip = await prisma.trip.create({
           data: {
-            user_id,
-            mode_of_transport_id,
+            user_id: userId,
+            mode_of_transport_id: mode_of_transport_id || null,
+            airline_id,
             pickup: tripData.pickup,
             destination: tripData.destination,
             departure: tripData.departure,
@@ -148,9 +160,8 @@ export class TripService {
             arrival_time: tripData.arrival_time || null,
             maximum_weight_in_kg: tripData.maximum_weight_in_kg || null,
             notes: tripData.notes || null,
-            fullSuitcaseOnly: tripData.fullSuitcaseOnly || false,
             meetup_flexible: tripData.meetup_flexible || false,
-            price_per_kg: tripData.price_per_kg,
+            currency: tripData.currency,
           },
           select: {
             id: true,
@@ -159,27 +170,29 @@ export class TripService {
             departure_time: true,
             arrival_date: true,
             arrival_time: true,
-            price_per_kg: true,
+            currency: true,
+            airline_id: true,
             createdAt: true,
           },
         });
 
-        // Create trip items if provided
-        if (trip_items && trip_items.length > 0) {
-          await prisma.tripItemsList.createMany({
-            data: trip_items.map((item) => ({
-              trip_id: trip.id,
-              trip_item_id: item.trip_item_id,
-              price: item.price,
-            })),
-          });
-        }
+        // Create trip items (always required)
+        await prisma.tripItemsList.createMany({
+          data: trip_items.map((item) => ({
+            trip_id: trip.id,
+            trip_item_id: item.trip_item_id,
+            price: item.price,
+            avalailble_kg: item.available_kg || null,
+          })),
+        });
 
         return {
           trip,
-          trip_items: trip_items || [],
+          trip_items,
         };
       });
+
+      // Alert checking is now handled by the hourly scheduler
 
       const message = await this.i18n.translate(
         'translation.trip.create.success',
@@ -262,7 +275,6 @@ export class TripService {
           user_id: true,
           departure_date: true,
           departure_time: true,
-          price_per_kg: true,
           status: true,
           updatedAt: true,
         },
@@ -438,6 +450,7 @@ export class TripService {
 
     try {
       const { image_id, ...tripItemData } = createTripItemDto;
+
       const tripItem = await this.prisma.tripItem.create({
         data: {
           ...tripItemData,
@@ -521,6 +534,7 @@ export class TripService {
 
     try {
       const { image_id, ...tripItemData } = updateTripItemDto;
+
       const tripItem = await this.prisma.tripItem.update({
         where: { id: tripItemId },
         data: {
@@ -793,7 +807,13 @@ export class TripService {
     lang?: string,
   ): Promise<GetTripsResponseDto> {
     try {
-      const { country, searchKey, page = 1, limit = 10 } = query;
+      const {
+        country,
+        destinations,
+        filter = 'all',
+        page = 1,
+        limit = 10,
+      } = query;
       const skip = (page - 1) * limit;
 
       // Base where clause for published trips
@@ -801,78 +821,77 @@ export class TripService {
         status: 'PUBLISHED' as const, // Only show published trips
       };
 
-      // Add search filters if searchKey is provided
-      if (searchKey && searchKey.trim() !== '') {
+      // Add departure date filter based on filter parameter
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (filter === 'today') {
+        // Show only trips departing today
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        baseWhereClause.departure_date = {
+          gte: today,
+          lt: tomorrow,
+        };
+      } else if (filter === 'week') {
+        // Show only trips departing this week (from today to end of week - Sunday)
+        const endOfWeek = new Date(today);
+        const dayOfWeek = today.getDay();
+        const daysUntilSunday = 7 - dayOfWeek;
+        endOfWeek.setDate(today.getDate() + daysUntilSunday);
+        endOfWeek.setHours(23, 59, 59, 999);
+
+        baseWhereClause.departure_date = {
+          gte: today,
+          lte: endOfWeek,
+        };
+      } else {
+        // filter === 'all': Show all future trips
+        baseWhereClause.departure_date = {
+          gte: today, // Only show trips with departure date >= today
+        };
+      }
+
+      // Add search filters if destinations is provided
+      if (destinations && destinations.trim() !== '') {
         try {
           const searchFilters = [];
 
-          // Check if searchKey is a valid date
-          const searchDate = new Date(searchKey);
+          // Check if destinations is a valid date
+          const searchDate = new Date(destinations);
           const isValidDate = !isNaN(searchDate.getTime());
 
-          // Only add date filters if searchKey is a valid date
-          if (isValidDate) {
-            // Search in departure_date (convert to string for partial matching)
-            searchFilters.push({
-              departure_date: {
-                gte: searchDate, // Greater than or equal to search date
-              },
-            });
-
-            // Search in arrival_date (convert to string for partial matching)
-            searchFilters.push({
-              arrival_date: {
-                gte: searchDate, // Greater than or equal to search date
-              },
-            });
-          }
-
-          // Search in delivery JSON fields (country name, code, address) - case insensitive
+          // Search in departure location - country name and region
           searchFilters.push({
-            delivery: {
-              path: ['country_name'],
-              string_contains: searchKey,
+            departure: {
+              path: ['country'],
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
 
           searchFilters.push({
-            delivery: {
-              path: ['country_code'],
-              string_contains: searchKey,
+            departure: {
+              path: ['region'],
+              string_contains: destinations,
+              mode: 'insensitive',
+            },
+          });
+
+          // Search in destination location - country name and region
+          searchFilters.push({
+            destination: {
+              path: ['country'],
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
 
           searchFilters.push({
-            delivery: {
-              path: ['address'],
-              string_contains: searchKey,
-              mode: 'insensitive',
-            },
-          });
-
-          // Search in pickup JSON fields (country name, code, address) - case insensitive
-          searchFilters.push({
-            pickup: {
-              path: ['country_name'],
-              string_contains: searchKey,
-              mode: 'insensitive',
-            },
-          });
-
-          searchFilters.push({
-            pickup: {
-              path: ['country_code'],
-              string_contains: searchKey,
-              mode: 'insensitive',
-            },
-          });
-
-          searchFilters.push({
-            pickup: {
-              path: ['address'],
-              string_contains: searchKey,
+            destination: {
+              path: ['region'],
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
@@ -880,8 +899,8 @@ export class TripService {
           // Search in destination JSON fields (country name, code, address) - case insensitive
           searchFilters.push({
             destination: {
-              path: ['country_name'],
-              string_contains: searchKey,
+              path: ['country'],
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
@@ -889,7 +908,7 @@ export class TripService {
           searchFilters.push({
             destination: {
               path: ['country_code'],
-              string_contains: searchKey,
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
@@ -897,7 +916,7 @@ export class TripService {
           searchFilters.push({
             destination: {
               path: ['address'],
-              string_contains: searchKey,
+              string_contains: destinations,
               mode: 'insensitive',
             },
           });
@@ -920,7 +939,7 @@ export class TripService {
             departure_time: true,
             arrival_date: true,
             arrival_time: true,
-            pickup: true,
+            departure: true,
             destination: true,
             createdAt: true,
             mode_of_transport: {
@@ -937,6 +956,27 @@ export class TripService {
                 role: true,
               },
             },
+            trip_items: {
+              select: {
+                trip_item_id: true,
+                price: true,
+                avalailble_kg: true,
+                trip_item: {
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    image: {
+                      select: {
+                        id: true,
+                        url: true,
+                        alt_text: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
           skip,
@@ -947,15 +987,9 @@ export class TripService {
 
       let trips: any[] = allTrips;
 
-      // If country is specified and no search key, reorder to put matching trips at the top
-      if (country && (!searchKey || searchKey.trim() === '')) {
+      // If country is specified and no destinations search, reorder to put matching trips at the top
+      if (country && (!destinations || destinations.trim() === '')) {
         const countryTrips = allTrips.filter((trip) => {
-          const pickupCountry =
-            trip.pickup &&
-            typeof trip.pickup === 'object' &&
-            'country_code' in trip.pickup
-              ? (trip.pickup as any).country_code
-              : null;
           const destinationCountry =
             trip.destination &&
             typeof trip.destination === 'object' &&
@@ -963,19 +997,10 @@ export class TripService {
               ? (trip.destination as any).country_code
               : null;
 
-          return (
-            pickupCountry?.toLowerCase() === country.toLowerCase() ||
-            destinationCountry?.toLowerCase() === country.toLowerCase()
-          );
+          return destinationCountry?.toLowerCase() === country.toLowerCase();
         });
 
         const otherTrips = allTrips.filter((trip) => {
-          const pickupCountry =
-            trip.pickup &&
-            typeof trip.pickup === 'object' &&
-            'country_code' in trip.pickup
-              ? (trip.pickup as any).country_code
-              : null;
           const destinationCountry =
             trip.destination &&
             typeof trip.destination === 'object' &&
@@ -983,10 +1008,7 @@ export class TripService {
               ? (trip.destination as any).country_code
               : null;
 
-          return (
-            pickupCountry?.toLowerCase() !== country.toLowerCase() &&
-            destinationCountry?.toLowerCase() !== country.toLowerCase()
-          );
+          return destinationCountry?.toLowerCase() !== country.toLowerCase();
         });
 
         // Put country-specific trips at the top, then other trips
@@ -996,22 +1018,32 @@ export class TripService {
       // Transform trips to summary format
       const tripSummaries = trips.map((trip) => ({
         id: trip.id,
-        user: {
-          id: trip.user.id,
-          email: trip.user.email,
-          role: trip.user.role,
-        },
+        user: trip.user
+          ? {
+              id: trip.user.id,
+              email: trip.user.email,
+              role: trip.user.role,
+            }
+          : null,
         departure_date: trip.departure_date,
         departure_time: trip.departure_time,
         arrival_date: trip.arrival_date,
         arrival_time: trip.arrival_time,
-        mode_of_transport: {
-          id: trip.mode_of_transport.id,
-          name: trip.mode_of_transport.name,
-          description: trip.mode_of_transport.description,
-        },
-        pickup: trip.pickup,
+        mode_of_transport: trip.mode_of_transport
+          ? {
+              id: trip.mode_of_transport.id,
+              name: trip.mode_of_transport.name,
+              description: trip.mode_of_transport.description,
+            }
+          : null,
+        departure: trip.departure,
         destination: trip.destination,
+        trip_items: trip.trip_items.map((item) => ({
+          trip_item_id: item.trip_item_id,
+          price: Number(item.price),
+          available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
+          trip_item: item.trip_item,
+        })),
         createdAt: trip.createdAt,
       }));
 
@@ -1034,6 +1066,7 @@ export class TripService {
         },
       };
     } catch (error) {
+      console.error('Error getting trips:', error);
       const message = await this.i18n.translate(
         'translation.trip.getAll.failed',
         { lang },
@@ -1050,7 +1083,35 @@ export class TripService {
     try {
       const trip = await this.prisma.trip.findUnique({
         where: { id: tripId },
-        include: {
+        select: {
+          id: true,
+          user_id: true,
+          pickup: true,
+          departure: true,
+          destination: true,
+          delivery: true,
+          departure_date: true,
+          departure_time: true,
+          arrival_date: true,
+          arrival_time: true,
+          currency: true,
+          mode_of_transport_id: true,
+          airline_id: true,
+          maximum_weight_in_kg: true,
+          notes: true,
+          meetup_flexible: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              picture: true,
+              role: true,
+            },
+          },
           mode_of_transport: {
             select: {
               id: true,
@@ -1058,8 +1119,18 @@ export class TripService {
               description: true,
             },
           },
+          airline: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
           trip_items: {
-            include: {
+            select: {
+              trip_item_id: true,
+              price: true,
+              avalailble_kg: true,
               trip_item: {
                 select: {
                   id: true,
@@ -1091,6 +1162,7 @@ export class TripService {
       const tripItems = trip.trip_items.map((item) => ({
         trip_item_id: item.trip_item_id,
         price: Number(item.price),
+        available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
         trip_item: item.trip_item,
       }));
 
@@ -1103,24 +1175,28 @@ export class TripService {
         trip: {
           id: trip.id,
           user_id: trip.user_id,
+          user: trip.user,
           pickup: trip.pickup,
+          departure: trip.departure,
           destination: trip.destination,
+          delivery: trip.delivery,
           departure_date: trip.departure_date,
           departure_time: trip.departure_time,
           arrival_date: trip.arrival_date,
           arrival_time: trip.arrival_time,
+          currency: trip.currency,
           mode_of_transport_id: trip.mode_of_transport_id,
+          airline_id: trip.airline_id,
           maximum_weight_in_kg: trip.maximum_weight_in_kg
             ? Number(trip.maximum_weight_in_kg)
             : null,
           notes: trip.notes,
-          fullSuitcaseOnly: trip.fullSuitcaseOnly,
           meetup_flexible: trip.meetup_flexible,
-          price_per_kg: Number(trip.price_per_kg),
           status: trip.status,
           createdAt: trip.createdAt,
           updatedAt: trip.updatedAt,
-          transport_type: trip.mode_of_transport,
+          mode_of_transport: trip.mode_of_transport,
+          airline: trip.airline,
           trip_items: tripItems,
         },
       };
@@ -1132,6 +1208,390 @@ export class TripService {
       const message = await this.i18n.translate(
         'translation.trip.getById.failed',
         { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  // Airline methods
+  async createAirline(
+    createAirlineDto: CreateAirlineDto,
+    lang?: string,
+  ): Promise<CreateAirlineResponseDto> {
+    // Check if airline with this name already exists
+    const existingAirline = await this.prisma.airline.findUnique({
+      where: { name: createAirlineDto.name },
+    });
+
+    if (existingAirline) {
+      const message = await this.i18n.translate(
+        'translation.airline.create.nameExists',
+        {
+          lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
+
+    try {
+      const airline = await this.prisma.airline.create({
+        data: createAirlineDto,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          created_at: true,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.airline.create.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        airline,
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.airline.create.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getAllAirlines(
+    query: GetAirlinesQueryDto,
+    lang?: string,
+  ): Promise<GetAirlinesResponseDto> {
+    try {
+      const { page = 1, limit = 10, searchKey } = query;
+      const skip = (page - 1) * limit;
+
+      // Build where clause for search
+      const whereClause: any = {};
+      if (searchKey && searchKey.trim() !== '') {
+        whereClause.name = {
+          contains: searchKey,
+          mode: 'insensitive',
+        };
+      }
+
+      const [airlines, total] = await Promise.all([
+        this.prisma.airline.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            created_at: true,
+          },
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.airline.count({ where: whereClause }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
+
+      const message = await this.i18n.translate(
+        'translation.airline.getAll.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        airlines,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+        },
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.airline.getAll.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  // Alert methods
+  async createAlert(
+    userId: string,
+    createAlertDto: CreateAlertDto,
+    lang: string,
+  ): Promise<CreateAlertResponseDto> {
+    try {
+      const alert = await this.prisma.alert.create({
+        data: {
+          user_id: userId,
+          depature: createAlertDto.depature,
+          destination: createAlertDto.destination,
+          notificaction: createAlertDto.notificaction ?? true,
+          form_date: createAlertDto.form_date
+            ? new Date(createAlertDto.form_date)
+            : null,
+          to_date: createAlertDto.to_date
+            ? new Date(createAlertDto.to_date)
+            : null,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.alert.create.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        alert,
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.alert.create.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async updateAlert(
+    alertId: string,
+    userId: string,
+    updateAlertDto: UpdateAlertDto,
+    lang: string,
+  ): Promise<UpdateAlertResponseDto> {
+    try {
+      // Check if alert exists and belongs to user
+      const existingAlert = await this.prisma.alert.findFirst({
+        where: {
+          id: alertId,
+          user_id: userId,
+        },
+      });
+
+      if (!existingAlert) {
+        const message = await this.i18n.translate(
+          'translation.alert.notFound',
+          {
+            lang,
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      const updateData: any = {};
+      if (updateAlertDto.depature !== undefined) {
+        updateData.depature = updateAlertDto.depature;
+      }
+      if (updateAlertDto.destination !== undefined) {
+        updateData.destination = updateAlertDto.destination;
+      }
+      if (updateAlertDto.notificaction !== undefined) {
+        updateData.notificaction = updateAlertDto.notificaction;
+      }
+      if (updateAlertDto.form_date !== undefined) {
+        updateData.form_date = updateAlertDto.form_date
+          ? new Date(updateAlertDto.form_date)
+          : null;
+      }
+      if (updateAlertDto.to_date !== undefined) {
+        updateData.to_date = updateAlertDto.to_date
+          ? new Date(updateAlertDto.to_date)
+          : null;
+      }
+
+      const alert = await this.prisma.alert.update({
+        where: {
+          id: alertId,
+        },
+        data: updateData,
+      });
+
+      const message = await this.i18n.translate(
+        'translation.alert.update.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        alert,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.alert.update.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async deleteAlert(
+    alertId: string,
+    userId: string,
+    lang: string,
+  ): Promise<DeleteAlertResponseDto> {
+    try {
+      // Check if alert exists and belongs to user
+      const existingAlert = await this.prisma.alert.findFirst({
+        where: {
+          id: alertId,
+          user_id: userId,
+        },
+      });
+
+      if (!existingAlert) {
+        const message = await this.i18n.translate(
+          'translation.alert.notFound',
+          {
+            lang,
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      await this.prisma.alert.delete({
+        where: {
+          id: alertId,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.alert.delete.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.alert.delete.failed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getUserAlerts(
+    userId: string,
+    query: GetAlertsQueryDto,
+    lang: string,
+  ): Promise<GetAlertsResponseDto> {
+    try {
+      const { page = 1, limit = 10, searchKey } = query;
+      const skip = (page - 1) * limit;
+
+      // Build where clause with search functionality
+      const whereClause: any = {
+        user_id: userId,
+      };
+
+      if (searchKey) {
+        whereClause.OR = [
+          {
+            depature: {
+              contains: searchKey,
+              mode: 'insensitive',
+            },
+          },
+          {
+            destination: {
+              contains: searchKey,
+              mode: 'insensitive',
+            },
+          },
+        ];
+      }
+
+      const [alerts, total] = await Promise.all([
+        this.prisma.alert.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            user_id: true,
+            depature: true,
+            destination: true,
+            notificaction: true,
+            form_date: true,
+            to_date: true,
+            created_at: true,
+            updated_at: true,
+          },
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.alert.count({
+          where: whereClause,
+        }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.alert.getAll.success',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        alerts,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+        },
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.alert.getAll.failed',
+        {
+          lang,
+        },
       );
       throw new InternalServerErrorException(message);
     }

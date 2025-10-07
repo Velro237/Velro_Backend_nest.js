@@ -6,8 +6,11 @@ import {
   Patch,
   Param,
   Query,
+  Delete,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,6 +19,7 @@ import {
   ApiBody,
   ApiResponse,
   ApiParam,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { TripService } from './trip.service';
 import { CreateTripDto, CreateTripResponseDto } from './dto/create-trip.dto';
@@ -38,6 +42,8 @@ import {
   UpdateTripItemResponseDto,
 } from './dto/update-trip-item.dto';
 import { I18nLang } from 'nestjs-i18n';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
 import {
   ApiCreateTrip,
   ApiUpdateTrip,
@@ -55,6 +61,9 @@ import {
   GetTripsResponseDto,
   UserInfoDto,
   ModeOfTransportDto,
+  TripItemImageDto,
+  TripItemDetailDto,
+  TripItemListItemDto,
 } from './dto/get-trips.dto';
 import {
   GetTransportTypesQueryDto,
@@ -65,14 +74,43 @@ import {
   GetTripItemsResponseDto,
 } from './dto/get-trip-items.dto';
 import { GetTripByIdResponseDto } from './dto/get-trip-by-id.dto';
+import {
+  CreateAirlineDto,
+  CreateAirlineResponseDto,
+} from './dto/create-airline.dto';
+import {
+  GetAirlinesQueryDto,
+  GetAirlinesResponseDto,
+} from './dto/get-airlines.dto';
+import { CreateAlertDto, CreateAlertResponseDto } from './dto/create-alert.dto';
+import { UpdateAlertDto, UpdateAlertResponseDto } from './dto/update-alert.dto';
+import { DeleteAlertResponseDto } from './dto/delete-alert.dto';
+import { GetAlertsQueryDto, GetAlertsResponseDto } from './dto/get-alerts.dto';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { User } from 'generated/prisma';
 
 @ApiTags('Trips')
+@ApiBearerAuth('JWT-auth')
 @ApiExtraModels(
   TripItemListDto,
   GetTransportTypesQueryDto,
   GetTransportTypesResponseDto,
   GetTripItemsQueryDto,
   GetTripItemsResponseDto,
+  CreateAirlineDto,
+  CreateAirlineResponseDto,
+  GetAirlinesQueryDto,
+  GetAirlinesResponseDto,
+  CreateAlertDto,
+  CreateAlertResponseDto,
+  UpdateAlertDto,
+  UpdateAlertResponseDto,
+  DeleteAlertResponseDto,
+  GetAlertsQueryDto,
+  GetAlertsResponseDto,
+  TripItemImageDto,
+  TripItemDetailDto,
+  TripItemListItemDto,
 )
 @Controller('trip')
 export class TripController {
@@ -80,35 +118,34 @@ export class TripController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard)
   @ApiCreateTrip()
   async createTrip(
     @Body() createTripDto: CreateTripDto,
+    @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<CreateTripResponseDto> {
-    return this.tripService.createTrip(createTripDto, lang);
+    return this.tripService.createTrip(createTripDto, user.id, lang);
   }
 
   @Patch(':id')
   @ApiUpdateTrip()
+  @UseGuards(JwtAuthGuard)
   async updateTrip(
     @Param('id') tripId: string,
     @Body() updateTripDto: UpdateTripDto,
     @I18nLang() lang: string,
+    @CurrentUser() user: User,
   ): Promise<UpdateTripResponseDto> {
     // For demo purposes, using a dummy user ID
     // In a real app, this would come from authentication
-    const dummyUserId = '123e4567-e89b-12d3-a456-426614174000';
-    return this.tripService.updateTrip(
-      tripId,
-      updateTripDto,
-      dummyUserId,
-      lang,
-    );
+    return this.tripService.updateTrip(tripId, updateTripDto, user.id, lang);
   }
 
   // TransportType endpoints
   @Post('transport-types')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @ApiCreateTransportType()
   async createTransportType(
     @Body() createTransportTypeDto: CreateTransportTypeDto,
@@ -118,6 +155,7 @@ export class TripController {
   }
 
   @Patch('transport-types/:id')
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @ApiUpdateTransportType()
   async updateTransportType(
     @Param('id') transportTypeId: string,
@@ -134,6 +172,7 @@ export class TripController {
   // TripItem endpoints
   @Post('trip-items')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @ApiCreateTripItem()
   async createTripItem(
     @Body() createTripItemDto: CreateTripItemDto,
@@ -143,6 +182,7 @@ export class TripController {
   }
 
   @Patch('trip-items/:id')
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @ApiUpdateTripItem()
   async updateTripItem(
     @Param('id') tripItemId: string,
@@ -193,9 +233,10 @@ export class TripController {
   // Get trips with pagination and country filtering
   @Get('trips')
   @ApiOperation({
-    summary: 'Get trips with pagination, search, and country prioritization',
+    summary:
+      'Get trips with pagination, filtering, search, and country prioritization',
     description:
-      'Retrieve all published trips with optional search, country prioritization, and pagination. Search by departure_date, arrival_date, delivery/pickup/destination country name, code, or address. All searches are case-insensitive. When country is specified (without search), trips from that country are shown first, followed by all other trips. When search is used, country prioritization is disabled and results are returned in natural order. Perfect for mobile app infinite scroll.',
+      'Retrieve all published trips with optional filter (today/week/all), search, country prioritization, and pagination. Each trip includes departure and destination locations, trip items with pricing and availability, and transport details. Filter options: "today" (trips departing today), "week" (trips departing this week), "all" (all future trips, default). Search by destination country name, region, or address. All searches are case-insensitive. When country is specified (without search), trips with matching destination country are shown first, followed by all other trips. When search is used, country prioritization is disabled and results are returned in natural order. Perfect for mobile app infinite scroll.',
   })
   @ApiResponse({
     status: 200,
@@ -215,10 +256,11 @@ export class TripController {
 
   // Get trip by ID with full details
   @Get('trips/:id')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Get trip by ID with full details',
     description:
-      'Retrieve complete trip information including all trip items and transport details.',
+      'Retrieve complete trip information including all trip items and transport details. Requires authentication.',
   })
   @ApiParam({
     name: 'id',
@@ -229,6 +271,10 @@ export class TripController {
     status: 200,
     description: 'Trip retrieved successfully (message will be translated)',
     type: GetTripByIdResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
   })
   @ApiResponse({
     status: 404,
@@ -243,5 +289,530 @@ export class TripController {
     @I18nLang() lang: string,
   ): Promise<GetTripByIdResponseDto> {
     return this.tripService.getTripById(tripId, lang);
+  }
+
+  // Airline endpoints
+  @Post('airlines')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Create a new airline (Admin Only)',
+    description:
+      'Create a new airline with name and optional description. Requires admin privileges.',
+  })
+  @ApiBody({
+    type: CreateAirlineDto,
+    description: 'Airline creation data',
+    examples: {
+      americanAirlines: {
+        summary: 'American Airlines',
+        value: {
+          name: 'American Airlines',
+          description:
+            'Major US airline serving domestic and international routes',
+        },
+      },
+      deltaAirlines: {
+        summary: 'Delta Air Lines',
+        value: {
+          name: 'Delta Air Lines',
+          description: 'American airline serving global destinations',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Airline created successfully (message will be translated)',
+    type: CreateAirlineResponseDto,
+    examples: {
+      success: {
+        summary: 'Airline created successfully',
+        value: {
+          message: 'Airline created successfully',
+          airline: {
+            id: '123e4567-e89b-12d3-a456-426614174000',
+            name: 'American Airlines',
+            description:
+              'Major US airline serving domestic and international routes',
+            created_at: '2024-01-15T10:30:00.000Z',
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 403 },
+        message: {
+          type: 'string',
+          example: 'Access denied. Admin privileges required.',
+        },
+        error: { type: 'string', example: 'Forbidden' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Airline name already exists (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 409 },
+        message: {
+          type: 'string',
+          example: 'Airline with this name already exists',
+        },
+        error: { type: 'string', example: 'Conflict' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: {
+          type: 'string',
+          example: 'Failed to create airline',
+        },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async createAirline(
+    @Body() createAirlineDto: CreateAirlineDto,
+    @I18nLang() lang: string,
+  ): Promise<CreateAirlineResponseDto> {
+    return this.tripService.createAirline(createAirlineDto, lang);
+  }
+
+  @Get('airlines')
+  @ApiOperation({
+    summary: 'Get all airlines with pagination and search',
+    description:
+      'Retrieve all airlines with optional search by name and pagination support.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Airlines retrieved successfully (message will be translated)',
+    type: GetAirlinesResponseDto,
+    examples: {
+      success: {
+        summary: 'Airlines retrieved successfully',
+        value: {
+          message: 'Airlines retrieved successfully',
+          airlines: [
+            {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              name: 'American Airlines',
+              description:
+                'Major US airline serving domestic and international routes',
+              created_at: '2024-01-15T10:30:00.000Z',
+            },
+            {
+              id: '123e4567-e89b-12d3-a456-426614174001',
+              name: 'Delta Air Lines',
+              description: 'American airline serving global destinations',
+              created_at: '2024-01-14T09:15:00.000Z',
+            },
+          ],
+          pagination: {
+            page: 1,
+            limit: 10,
+            total: 25,
+            totalPages: 3,
+            hasNext: true,
+            hasPrev: false,
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: {
+          type: 'string',
+          example: 'Failed to retrieve airlines',
+        },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async getAllAirlines(
+    @Query() query: GetAirlinesQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<GetAirlinesResponseDto> {
+    return this.tripService.getAllAirlines(query, lang);
+  }
+
+  // Alert endpoints
+  @Post('alerts')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Create a new alert',
+    description:
+      'Create a new travel alert for departure and destination locations. If from_date is provided, to_date must also be provided. from_date must be greater than today, and to_date must be greater than from_date.',
+  })
+  @ApiBody({
+    type: CreateAlertDto,
+    description: 'Alert creation data',
+    examples: {
+      basic: {
+        summary: 'Basic alert',
+        value: {
+          depature: 'New York',
+          destination: 'Los Angeles',
+          notificaction: true,
+        },
+      },
+      withFromDate: {
+        summary: 'Alert with from_date only',
+        value: {
+          depature: 'San Francisco',
+          destination: 'Seattle',
+          notificaction: true,
+          form_date: '2024-02-01T00:00:00.000Z',
+        },
+      },
+      withToDate: {
+        summary: 'Alert with to_date only',
+        value: {
+          depature: 'Miami',
+          destination: 'Orlando',
+          notificaction: true,
+          to_date: '2024-02-15T00:00:00.000Z',
+        },
+      },
+      withDateRange: {
+        summary: 'Alert with complete date range',
+        value: {
+          depature: 'Paris',
+          destination: 'London',
+          notificaction: true,
+          form_date: '2024-02-01T00:00:00.000Z',
+          to_date: '2024-02-15T00:00:00.000Z',
+        },
+      },
+      noNotifications: {
+        summary: 'Alert with notifications disabled',
+        value: {
+          depature: 'Tokyo',
+          destination: 'Osaka',
+          notificaction: false,
+          form_date: '2024-03-01T00:00:00.000Z',
+          to_date: '2024-03-31T00:00:00.000Z',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Alert created successfully (message will be translated)',
+    type: CreateAlertResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Validation error',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 400 },
+        message: {
+          type: 'array',
+          items: { type: 'string' },
+          example: [
+            'If from_date is provided, to_date must also be provided',
+            'from_date must be greater than today',
+            'to_date must be greater than from_date',
+          ],
+        },
+        error: { type: 'string', example: 'Bad Request' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: 'Unauthorized' },
+        error: { type: 'string', example: 'Unauthorized' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'string', example: 'Failed to create alert' },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async createAlert(
+    @Body() createAlertDto: CreateAlertDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<CreateAlertResponseDto> {
+    return this.tripService.createAlert(user.id, createAlertDto, lang);
+  }
+
+  @Get('alerts')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get user alerts',
+    description:
+      'Retrieve all alerts for the authenticated user with pagination and search functionality.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Alerts retrieved successfully (message will be translated)',
+    type: GetAlertsResponseDto,
+    examples: {
+      success: {
+        summary: 'Alerts retrieved successfully',
+        value: {
+          message: 'Alerts retrieved successfully',
+          alerts: [
+            {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              user_id: '123e4567-e89b-12d3-a456-426614174001',
+              depature: 'New York',
+              destination: 'Los Angeles',
+              notificaction: true,
+              form_date: '2024-01-15T00:00:00.000Z',
+              to_date: '2024-01-20T00:00:00.000Z',
+              created_at: '2024-01-10T10:00:00.000Z',
+              updated_at: '2024-01-10T10:00:00.000Z',
+            },
+          ],
+          pagination: {
+            page: 1,
+            limit: 10,
+            total: 1,
+            totalPages: 1,
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: 'Unauthorized' },
+        error: { type: 'string', example: 'Unauthorized' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'string', example: 'Failed to retrieve alerts' },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async getUserAlerts(
+    @Query() query: GetAlertsQueryDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<GetAlertsResponseDto> {
+    return this.tripService.getUserAlerts(user.id, query, lang);
+  }
+
+  @Patch('alerts/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Update an alert',
+    description:
+      'Update an existing alert. Only the alert owner can update it. If from_date is provided, to_date must also be provided. from_date must be greater than today, and to_date must be greater than from_date.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Alert ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({
+    type: UpdateAlertDto,
+    description: 'Alert update data',
+    examples: {
+      updateLocation: {
+        summary: 'Update departure and destination',
+        value: {
+          depature: 'San Francisco',
+          destination: 'Seattle',
+        },
+      },
+      updateNotification: {
+        summary: 'Update notification setting',
+        value: {
+          notificaction: false,
+        },
+      },
+      updateDates: {
+        summary: 'Update date range',
+        value: {
+          form_date: '2024-03-01T00:00:00.000Z',
+          to_date: '2024-03-31T00:00:00.000Z',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Alert updated successfully (message will be translated)',
+    type: UpdateAlertResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Validation error',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 400 },
+        message: {
+          type: 'array',
+          items: { type: 'string' },
+          example: [
+            'If from_date is provided, to_date must also be provided',
+            'from_date must be greater than today',
+            'to_date must be greater than from_date',
+          ],
+        },
+        error: { type: 'string', example: 'Bad Request' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: 'Unauthorized' },
+        error: { type: 'string', example: 'Unauthorized' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Alert not found (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 404 },
+        message: { type: 'string', example: 'Alert not found' },
+        error: { type: 'string', example: 'Not Found' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'string', example: 'Failed to update alert' },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async updateAlert(
+    @Param('id') alertId: string,
+    @Body() updateAlertDto: UpdateAlertDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<UpdateAlertResponseDto> {
+    return this.tripService.updateAlert(alertId, user.id, updateAlertDto, lang);
+  }
+
+  @Delete('alerts/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Delete an alert',
+    description:
+      'Delete an existing alert. Only the alert owner can delete it.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Alert ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Alert deleted successfully (message will be translated)',
+    type: DeleteAlertResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: 'Unauthorized' },
+        error: { type: 'string', example: 'Unauthorized' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Alert not found (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 404 },
+        message: { type: 'string', example: 'Alert not found' },
+        error: { type: 'string', example: 'Not Found' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'string', example: 'Failed to delete alert' },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async deleteAlert(
+    @Param('id') alertId: string,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<DeleteAlertResponseDto> {
+    return this.tripService.deleteAlert(alertId, user.id, lang);
   }
 }
