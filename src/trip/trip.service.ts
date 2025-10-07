@@ -939,6 +939,7 @@ export class TripService {
             departure_time: true,
             arrival_date: true,
             arrival_time: true,
+            currency: true,
             departure: true,
             destination: true,
             createdAt: true,
@@ -1029,6 +1030,7 @@ export class TripService {
         departure_time: trip.departure_time,
         arrival_date: trip.arrival_date,
         arrival_time: trip.arrival_time,
+        currency: trip.currency,
         mode_of_transport: trip.mode_of_transport
           ? {
               id: trip.mode_of_transport.id,
@@ -1342,6 +1344,32 @@ export class TripService {
     lang: string,
   ): Promise<CreateAlertResponseDto> {
     try {
+      // Check for existing alert with the same data
+      const existingAlert = await this.prisma.alert.findFirst({
+        where: {
+          user_id: userId,
+          depature: createAlertDto.depature,
+          destination: createAlertDto.destination,
+          form_date: createAlertDto.form_date
+            ? new Date(createAlertDto.form_date)
+            : null,
+          to_date: createAlertDto.to_date
+            ? new Date(createAlertDto.to_date)
+            : null,
+        },
+      });
+
+      if (existingAlert) {
+        const message = await this.i18n.translate(
+          'translation.alert.create.duplicate',
+          {
+            lang,
+            defaultValue: 'An alert with the same details already exists',
+          },
+        );
+        throw new ConflictException(message);
+      }
+
       const alert = await this.prisma.alert.create({
         data: {
           user_id: userId,
@@ -1369,6 +1397,9 @@ export class TripService {
         alert,
       };
     } catch (error) {
+      if (error instanceof ConflictException) {
+        throw error;
+      }
       const message = await this.i18n.translate(
         'translation.alert.create.failed',
         {

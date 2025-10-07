@@ -183,6 +183,12 @@ export class TripSummaryDto {
   arrival_time?: string;
 
   @ApiProperty({
+    description: 'Currency code',
+    example: 'USD',
+  })
+  currency: string;
+
+  @ApiProperty({
     description: 'Mode of transport information',
     type: ModeOfTransportDto,
     required: false,

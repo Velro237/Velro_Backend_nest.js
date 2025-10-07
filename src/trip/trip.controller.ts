@@ -60,7 +60,6 @@ import {
   GetTripsQueryDto,
   GetTripsResponseDto,
   UserInfoDto,
-
   ModeOfTransportDto,
   TripItemListItemDto,
 } from './dto/get-trips.dto';
@@ -464,7 +463,7 @@ export class TripController {
   @ApiOperation({
     summary: 'Create a new alert',
     description:
-      'Create a new travel alert for departure and destination locations. If from_date is provided, to_date must also be provided. from_date must be greater than today, and to_date must be greater than from_date.',
+      'Create a new travel alert for departure and destination locations. Duplicate alerts (same user, departure, destination, and date range) are prevented. If from_date is provided, to_date must also be provided. from_date must be greater than today, and to_date must be greater than from_date.',
   })
   @ApiBody({
     type: CreateAlertDto,
@@ -552,6 +551,21 @@ export class TripController {
         statusCode: { type: 'number', example: 401 },
         message: { type: 'string', example: 'Unauthorized' },
         error: { type: 'string', example: 'Unauthorized' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflict - Duplicate alert already exists',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 409 },
+        message: {
+          type: 'string',
+          example: 'An alert with the same details already exists',
+        },
+        error: { type: 'string', example: 'Conflict' },
       },
     },
   })
