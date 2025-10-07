@@ -25,6 +25,7 @@ import {
 import { SendEmailDto, SendEmailResponseDto } from './dto/send-email.dto';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import Mailgun from 'mailgun.js';
 
 @Injectable()
 export class NotificationService {
@@ -386,6 +387,7 @@ export class NotificationService {
         'MAILGUN_FROM_EMAIL',
         'noreply@velro.app',
       );
+      const mailgunURL = this.configService.get<string>('MAILGUN_URL');
 
       if (!mailgunApiKey || !mailgunDomain) {
         throw new BadRequestException(
@@ -399,40 +401,21 @@ export class NotificationService {
           'Either text or html content must be provided',
         );
       }
+      const mailgun = new Mailgun(FormData);
+      const mg = mailgun.client({
+        username: 'api',
+        key: mailgunApiKey,
+        // When you have an EU-domain, you must specify the endpoint:
+        url: mailgunURL,
+      });
 
-      // Prepare form data
-      const formData = new URLSearchParams();
-      formData.append('from', mailgunFromEmail);
-      formData.append('to', emailDto.to);
-      formData.append('subject', emailDto.subject);
-
-      if (emailDto.text) {
-        formData.append('text', emailDto.text);
-      }
-
-      if (emailDto.html) {
-        formData.append('html', emailDto.html);
-      }
-
-      if (emailDto.cc && emailDto.cc.length > 0) {
-        emailDto.cc.forEach((ccEmail) => formData.append('cc', ccEmail));
-      }
-
-      if (emailDto.bcc && emailDto.bcc.length > 0) {
-        emailDto.bcc.forEach((bccEmail) => formData.append('bcc', bccEmail));
-      }
-
-      // Send email via Mailgun API
-      const response = await axios.post(
-        `https://api.mailgun.net/v3/${mailgunDomain}/messages`,
-        formData.toString(),
-        {
-          headers: {
-            Authorization: `Basic ${Buffer.from(`api:${mailgunApiKey}`).toString('base64')}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        },
-      );
+      await mg.messages.create(mailgunDomain, {
+        from: mailgunFromEmail,
+        to: emailDto.to,
+        subject: emailDto.subject,
+        text: emailDto.text,
+        html: emailDto.html,
+      });
 
       const message = await this.i18n.translate(
         'translation.notification.email.sent',
@@ -444,7 +427,6 @@ export class NotificationService {
 
       return {
         message,
-        messageId: response.data.id,
       };
     } catch (error) {
       console.error('Email sending error:', error.response?.data || error);
