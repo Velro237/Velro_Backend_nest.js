@@ -25,6 +25,14 @@ export class GetRequestByIdResponseDto {
         name: 'John Requester',
         picture: 'https://example.com/requester.jpg',
         role: 'USER',
+        kycRecord: {
+          id: 'kyc-456',
+          status: 'VERIFIED',
+          provider: 'DIDIT',
+          rejectionReason: null,
+          createdAt: '2024-01-10T10:00:00.000Z',
+          updatedAt: '2024-01-10T10:00:00.000Z',
+        },
       },
       trip: {
         id: '123e4567-e89b-12d3-a456-426614174000',
@@ -35,6 +43,14 @@ export class GetRequestByIdResponseDto {
           name: 'Trip Owner',
           picture: 'https://example.com/owner.jpg',
           role: 'USER',
+          kycRecord: {
+            id: 'kyc-123',
+            status: 'VERIFIED',
+            provider: 'DIDIT',
+            rejectionReason: null,
+            createdAt: '2024-01-10T10:00:00.000Z',
+            updatedAt: '2024-01-10T10:00:00.000Z',
+          },
         },
         pickup: {
           country: 'United States',
@@ -137,6 +153,14 @@ export class GetRequestByIdResponseDto {
       name?: string;
       picture?: string;
       role: string;
+      kycRecord?: {
+        id: string;
+        status: string;
+        provider: string;
+        rejectionReason?: string;
+        createdAt: Date;
+        updatedAt: Date;
+      } | null;
     };
     trip: {
       id: string;
@@ -147,6 +171,14 @@ export class GetRequestByIdResponseDto {
         name?: string;
         picture?: string;
         role: string;
+        kycRecord?: {
+          id: string;
+          status: string;
+          provider: string;
+          rejectionReason?: string;
+          createdAt: Date;
+          updatedAt: Date;
+        } | null;
       };
       pickup?: any;
       departure?: any;

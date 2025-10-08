@@ -140,6 +140,21 @@ export class CreateTripRequestResponseDto {
       message: 'I would like to request these items for my upcoming trip',
       cost: 31.98,
       created_at: '2024-01-15T10:30:00.000Z',
+      user: {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        email: 'requester@example.com',
+        name: 'John Requester',
+        picture: 'https://example.com/requester.jpg',
+        role: 'USER',
+        kycRecord: {
+          id: 'kyc-456',
+          status: 'VERIFIED',
+          provider: 'DIDIT',
+          rejectionReason: null,
+          createdAt: '2024-01-10T10:00:00.000Z',
+          updatedAt: '2024-01-10T10:00:00.000Z',
+        },
+      },
       trip: {
         id: '123e4567-e89b-12d3-a456-426614174000',
         user_id: '123e4567-e89b-12d3-a456-426614174003',
@@ -149,6 +164,14 @@ export class CreateTripRequestResponseDto {
           name: 'Trip Owner',
           picture: 'https://example.com/profile.jpg',
           role: 'USER',
+          kycRecord: {
+            id: 'kyc-123',
+            status: 'VERIFIED',
+            provider: 'DIDIT',
+            rejectionReason: null,
+            createdAt: '2024-01-10T10:00:00.000Z',
+            updatedAt: '2024-01-10T10:00:00.000Z',
+          },
         },
         departure: {
           country: 'United States',
@@ -220,6 +243,21 @@ export class CreateTripRequestResponseDto {
     message?: string;
     cost?: number;
     created_at: Date;
+    user: {
+      id: string;
+      email: string;
+      name?: string;
+      picture?: string;
+      role: string;
+      kycRecord?: {
+        id: string;
+        status: string;
+        provider: string;
+        rejectionReason?: string;
+        createdAt: Date;
+        updatedAt: Date;
+      } | null;
+    };
     trip: {
       id: string;
       user_id: string;
@@ -229,6 +267,14 @@ export class CreateTripRequestResponseDto {
         name?: string;
         picture?: string;
         role: string;
+        kycRecord?: {
+          id: string;
+          status: string;
+          provider: string;
+          rejectionReason?: string;
+          createdAt: Date;
+          updatedAt: Date;
+        } | null;
       };
       departure?: any;
       destination?: any;

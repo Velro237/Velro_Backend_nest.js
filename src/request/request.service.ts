@@ -351,6 +351,25 @@ export class RequestService {
       const fullRequest = await this.prisma.tripRequest.findUnique({
         where: { id: result.request.id },
         include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              picture: true,
+              role: true,
+              kycRecords: {
+                select: {
+                  id: true,
+                  status: true,
+                  provider: true,
+                  rejectionReason: true,
+                  createdAt: true,
+                  updatedAt: true,
+                },
+              },
+            },
+          },
           request_items: {
             include: {
               trip_item: {
@@ -378,6 +397,16 @@ export class RequestService {
                   name: true,
                   picture: true,
                   role: true,
+                  kycRecords: {
+                    select: {
+                      id: true,
+                      status: true,
+                      provider: true,
+                      rejectionReason: true,
+                      createdAt: true,
+                      updatedAt: true,
+                    },
+                  },
                 },
               },
               trip_items: {
@@ -411,10 +440,25 @@ export class RequestService {
           message: fullRequest.message,
           cost: fullRequest.cost ? Number(fullRequest.cost) : null,
           created_at: fullRequest.created_at,
+          user: {
+            id: fullRequest.user.id,
+            email: fullRequest.user.email,
+            name: fullRequest.user.name,
+            picture: fullRequest.user.picture,
+            role: fullRequest.user.role,
+            kycRecord: fullRequest.user.kycRecords?.[0] || null,
+          },
           trip: {
             id: fullRequest.trip.id,
             user_id: fullRequest.trip.user_id,
-            user: fullRequest.trip.user,
+            user: {
+              id: fullRequest.trip.user.id,
+              email: fullRequest.trip.user.email,
+              name: fullRequest.trip.user.name,
+              picture: fullRequest.trip.user.picture,
+              role: fullRequest.trip.user.role,
+              kycRecord: fullRequest.trip.user.kycRecords?.[0] || null,
+            },
             departure: fullRequest.trip.departure,
             destination: fullRequest.trip.destination,
             departure_date: fullRequest.trip.departure_date,
@@ -610,6 +654,16 @@ export class RequestService {
               name: true,
               picture: true,
               role: true,
+              kycRecords: {
+                select: {
+                  id: true,
+                  status: true,
+                  provider: true,
+                  rejectionReason: true,
+                  createdAt: true,
+                  updatedAt: true,
+                },
+              },
             },
           },
           trip: {
@@ -638,6 +692,16 @@ export class RequestService {
                   name: true,
                   picture: true,
                   role: true,
+                  kycRecords: {
+                    select: {
+                      id: true,
+                      status: true,
+                      provider: true,
+                      rejectionReason: true,
+                      createdAt: true,
+                      updatedAt: true,
+                    },
+                  },
                 },
               },
               mode_of_transport: {
@@ -717,11 +781,25 @@ export class RequestService {
           cost: request.cost ? Number(request.cost) : null,
           created_at: request.created_at,
           updated_at: request.updated_at,
-          user: request.user,
+          user: {
+            id: request.user.id,
+            email: request.user.email,
+            name: request.user.name,
+            picture: request.user.picture,
+            role: request.user.role,
+            kycRecord: request.user.kycRecords?.[0] || null,
+          },
           trip: {
             id: request.trip.id,
             user_id: request.trip.user_id,
-            user: request.trip.user,
+            user: {
+              id: request.trip.user.id,
+              email: request.trip.user.email,
+              name: request.trip.user.name,
+              picture: request.trip.user.picture,
+              role: request.trip.user.role,
+              kycRecord: request.trip.user.kycRecords?.[0] || null,
+            },
             pickup: request.trip.pickup,
             departure: request.trip.departure,
             destination: request.trip.destination,
