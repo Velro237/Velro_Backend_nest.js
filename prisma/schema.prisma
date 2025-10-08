@@ -15,29 +15,29 @@ enum Provider {
 }
 
 model User {
-  id        String        @id @default(uuid())
-  email     String        @unique
-  password  String
-  firstName String?
-  lastName  String?
-  phone     String?
-  address   String?
-  city      String?
-  state     String?
-  zip       String?
-  picture   String?
-  name      String
-  isFreightForwarder Boolean @default(false)
-  companyName String?
-  companyAddress String?
-  device_id String?
-  role      UserRole      @default(USER)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  trips     Trip[]
-  requests  TripRequest[]
-  messages  Message[]
-  chats     ChatMember[]
+  id                 String        @id @default(uuid())
+  email              String        @unique
+  password           String
+  firstName          String?
+  lastName           String?
+  phone              String?
+  address            String?
+  city               String?
+  state              String?
+  zip                String?
+  picture            String?
+  name               String
+  isFreightForwarder Boolean       @default(false)
+  companyName        String?
+  companyAddress     String?
+  device_id          String?
+  role               UserRole      @default(USER)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  trips              Trip[]
+  requests           TripRequest[]
+  messages           Message[]
+  chats              ChatMember[]
 
   reportsSubmitted Report[]       @relation("ReportReporter")
   reportsReceived  Report[]       @relation("ReportReported")
@@ -231,6 +231,7 @@ model TripRequest {
   message    String?
   created_at DateTime      @default(now())
   updated_at DateTime      @updatedAt
+  cost       Decimal?      @db.Decimal(10, 2)
 
   // Relations
   trip          Trip               @relation(fields: [trip_id], references: [id], onDelete: Cascade)

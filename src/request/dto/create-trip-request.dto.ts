@@ -131,18 +131,65 @@ export class CreateTripRequestResponseDto {
   message: string;
 
   @ApiProperty({
-    description: 'Created trip request information',
+    description: 'Created trip request information with full trip details',
     example: {
       id: '123e4567-e89b-12d3-a456-426614174002',
       trip_id: '123e4567-e89b-12d3-a456-426614174000',
       user_id: '123e4567-e89b-12d3-a456-426614174001',
       status: 'PENDING',
       message: 'I would like to request these items for my upcoming trip',
+      cost: 31.98,
       created_at: '2024-01-15T10:30:00.000Z',
+      trip: {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        user_id: '123e4567-e89b-12d3-a456-426614174003',
+        user: {
+          id: '123e4567-e89b-12d3-a456-426614174003',
+          email: 'tripowner@example.com',
+          name: 'Trip Owner',
+          picture: 'https://example.com/profile.jpg',
+          role: 'USER',
+        },
+        departure: {
+          country: 'United States',
+          country_code: 'US',
+          region: 'California',
+          address: '123 Main St, San Francisco, CA',
+        },
+        destination: {
+          country: 'France',
+          country_code: 'FR',
+          region: 'Île-de-France',
+          address: '456 Champs-Élysées, Paris',
+        },
+        departure_date: '2024-02-15T10:00:00.000Z',
+        departure_time: '10:00 AM',
+        arrival_date: '2024-02-16T14:00:00.000Z',
+        arrival_time: '2:00 PM',
+        currency: 'USD',
+        trip_items: [
+          {
+            trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
+            price: 15.99,
+            available_kg: 5.0,
+            trip_item: {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              name: 'Electronics',
+              description: 'Electronic devices and gadgets',
+              image: {
+                id: '123e4567-e89b-12d3-a456-426614174004',
+                url: 'https://example.com/images/electronics.jpg',
+                alt_text: 'Electronics image',
+              },
+            },
+          },
+        ],
+      },
       request_items: [
         {
           trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
           quantity: 2,
+          price: 15.99,
           special_notes: 'Please handle with care',
           trip_item: {
             id: '123e4567-e89b-12d3-a456-426614174000',
@@ -162,11 +209,6 @@ export class CreateTripRequestResponseDto {
           url: 'https://example.com/images/request-1.jpg',
           alt_text: 'Items to be transported',
         },
-        {
-          id: '123e4567-e89b-12d3-a456-426614174006',
-          url: 'https://example.com/images/request-2.jpg',
-          alt_text: 'Additional items',
-        },
       ],
     },
   })
@@ -176,10 +218,36 @@ export class CreateTripRequestResponseDto {
     user_id: string;
     status: string;
     message?: string;
+    cost?: number;
     created_at: Date;
+    trip: {
+      id: string;
+      user_id: string;
+      user: {
+        id: string;
+        email: string;
+        name?: string;
+        picture?: string;
+        role: string;
+      };
+      departure?: any;
+      destination?: any;
+      departure_date: Date;
+      departure_time: string;
+      arrival_date?: Date;
+      arrival_time?: string;
+      currency: string;
+      trip_items: {
+        trip_item_id: string;
+        price: number;
+        available_kg?: number;
+        trip_item: TripItemDetailsDto;
+      }[];
+    };
     request_items?: {
       trip_item_id: string;
       quantity: number;
+      price: number;
       special_notes?: string;
       trip_item?: TripItemDetailsDto;
     }[];

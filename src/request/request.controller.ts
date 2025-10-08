@@ -11,7 +11,14 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
-import { ApiTags, ApiExtraModels, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiExtraModels,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { RequestService } from './request.service';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -37,6 +44,7 @@ import {
   ChangeRequestStatusDto,
   ChangeRequestStatusResponseDto,
 } from './dto/change-request-status.dto';
+import { GetRequestByIdResponseDto } from './dto/get-request-by-id.dto';
 import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
@@ -51,6 +59,7 @@ import {
   CreateTripRequestImageDto,
   GetTripRequestsQueryDto,
   GetTripRequestsResponseDto,
+  GetRequestByIdResponseDto,
   UpdateTripRequestDto,
   UpdateTripRequestResponseDto,
   TripItemImageDto,
@@ -88,6 +97,66 @@ export class RequestController {
     @I18nLang() lang: string,
   ): Promise<GetTripRequestsResponseDto> {
     return this.requestService.getTripRequests(query, lang);
+  }
+
+  @Get('trip/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get trip request by ID with full details',
+    description:
+      'Retrieve complete trip request information including full trip details (all locations, dates, times, trip items), requester information, requested items with prices, and request images.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip request ID',
+    example: '123e4567-e89b-12d3-a456-426614174002',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request retrieved successfully (message will be translated)',
+    type: GetRequestByIdResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: 'Unauthorized' },
+        error: { type: 'string', example: 'Unauthorized' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Request not found (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 404 },
+        message: { type: 'string', example: 'Request not found' },
+        error: { type: 'string', example: 'Not Found' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'string', example: 'Failed to retrieve request' },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async getRequestById(
+    @Param('id') requestId: string,
+    @I18nLang() lang: string,
+  ): Promise<GetRequestByIdResponseDto> {
+    return this.requestService.getRequestById(requestId, lang);
   }
 
   @Patch('trip/:id')

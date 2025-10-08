@@ -39,7 +39,7 @@ export const ApiCreateTripRequest = () =>
     ApiOperation({
       summary: 'Create a trip request',
       description:
-        'Create a request for items from a trip. For non-full suitcase trips, trip items with quantities are required. For full suitcase trips, request items are ignored even if provided. Users cannot request items from their own trips.',
+        'Create a request for items from a trip. For non-full suitcase trips, trip items with quantities are required. The requested quantity cannot exceed the available quantity (available_kg) set by the trip owner for each item. For full suitcase trips, request items are ignored even if provided. Users cannot request items from their own trips. The total cost is automatically calculated as sum of (quantity × price) for all requested items.',
     }),
     ApiBody({
       type: CreateTripRequestDto,
@@ -179,6 +179,15 @@ export const ApiCreateTripRequest = () =>
           value: {
             message:
               'One or more requested items are not available in this trip',
+            error: 'Conflict',
+            statusCode: 409,
+          },
+        },
+        quantityExceedsAvailable: {
+          summary: 'Requested quantity exceeds available quantity',
+          value: {
+            message:
+              'Requested quantity (10 kg) exceeds available quantity (5 kg) for Electronics',
             error: 'Conflict',
             statusCode: 409,
           },

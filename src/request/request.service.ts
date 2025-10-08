@@ -23,6 +23,7 @@ import {
   UpdateTripRequestDto,
   UpdateTripRequestResponseDto,
 } from './dto/update-trip-request.dto';
+import { GetRequestByIdResponseDto } from './dto/get-request-by-id.dto';
 
 @Injectable()
 export class RequestService {
@@ -118,16 +119,56 @@ export class RequestService {
       }
     }
 
+    // Validate requested quantities don't exceed available quantities
+    for (const requestedItem of request_items) {
+      const tripItem = trip.trip_items.find(
+        (item) => item.trip_item_id === requestedItem.trip_item_id,
+      );
+
+      if (tripItem && tripItem.avalailble_kg !== null) {
+        const availableKg = Number(tripItem.avalailble_kg);
+
+        if (requestedItem.quantity > availableKg) {
+          const itemDetails = tripItem.trip_item;
+          const message = await this.i18n.translate(
+            'translation.trip.request.quantityExceedsAvailable',
+            {
+              lang,
+              args: {
+                itemName: itemDetails.name,
+                requested: requestedItem.quantity,
+                available: availableKg,
+              },
+              defaultValue: `Requested quantity (${requestedItem.quantity} kg) exceeds available quantity (${availableKg} kg) for ${itemDetails.name}`,
+            },
+          );
+          throw new ConflictException(message);
+        }
+      }
+    }
+
     try {
+      // Calculate total cost: sum of (quantity × price) for each requested item
+      let totalCost = 0;
+      for (const requestedItem of request_items) {
+        const tripItem = trip.trip_items.find(
+          (item) => item.trip_item_id === requestedItem.trip_item_id,
+        );
+        if (tripItem) {
+          totalCost += requestedItem.quantity * Number(tripItem.price);
+        }
+      }
+
       // Create trip request with request items in a transaction
       const result = await this.prisma.$transaction(async (prisma) => {
-        // Create the trip request
+        // Create the trip request with calculated cost
         const request = await prisma.tripRequest.create({
           data: {
             trip_id,
             user_id: userId,
             message: requestData.message,
             status: 'PENDING',
+            cost: totalCost,
           },
           select: {
             id: true,
@@ -135,6 +176,7 @@ export class RequestService {
             user_id: true,
             status: true,
             message: true,
+            cost: true,
             created_at: true,
           },
         });
@@ -305,6 +347,53 @@ export class RequestService {
         console.error('Failed to create chat/message for request:', chatError);
       }
 
+      // Get full request details with trip items data
+      const fullRequest = await this.prisma.tripRequest.findUnique({
+        where: { id: result.request.id },
+        include: {
+          request_items: {
+            include: {
+              trip_item: {
+                include: {
+                  image: true,
+                },
+              },
+            },
+          },
+          trip: {
+            select: {
+              id: true,
+              user_id: true,
+              departure: true,
+              destination: true,
+              departure_date: true,
+              departure_time: true,
+              arrival_date: true,
+              arrival_time: true,
+              currency: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  picture: true,
+                  role: true,
+                },
+              },
+              trip_items: {
+                include: {
+                  trip_item: {
+                    include: {
+                      image: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
       const message = await this.i18n.translate(
         'translation.trip.request.createSuccess',
         {
@@ -315,8 +404,46 @@ export class RequestService {
       return {
         message,
         request: {
-          ...result.request,
-          request_items: result.request_items,
+          id: fullRequest.id,
+          trip_id: fullRequest.trip_id,
+          user_id: fullRequest.user_id,
+          status: fullRequest.status,
+          message: fullRequest.message,
+          cost: fullRequest.cost ? Number(fullRequest.cost) : null,
+          created_at: fullRequest.created_at,
+          trip: {
+            id: fullRequest.trip.id,
+            user_id: fullRequest.trip.user_id,
+            user: fullRequest.trip.user,
+            departure: fullRequest.trip.departure,
+            destination: fullRequest.trip.destination,
+            departure_date: fullRequest.trip.departure_date,
+            departure_time: fullRequest.trip.departure_time,
+            arrival_date: fullRequest.trip.arrival_date,
+            arrival_time: fullRequest.trip.arrival_time,
+            currency: fullRequest.trip.currency,
+            trip_items: fullRequest.trip.trip_items.map((item) => ({
+              trip_item_id: item.trip_item_id,
+              price: Number(item.price),
+              available_kg: item.avalailble_kg
+                ? Number(item.avalailble_kg)
+                : null,
+              trip_item: item.trip_item,
+            })),
+          },
+          request_items: fullRequest.request_items.map((item) => {
+            // Find the price from trip_items
+            const tripItemWithPrice = fullRequest.trip.trip_items.find(
+              (ti) => ti.trip_item_id === item.trip_item_id,
+            );
+            return {
+              trip_item_id: item.trip_item_id,
+              quantity: item.quantity,
+              price: tripItemWithPrice ? Number(tripItemWithPrice.price) : 0,
+              special_notes: item.special_notes,
+              trip_item: item.trip_item,
+            };
+          }),
           images: result.images,
         },
       };
@@ -463,6 +590,195 @@ export class RequestService {
       const message = await this.i18n.translate(
         'translation.trip.request.getFailed',
         { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  async getRequestById(
+    requestId: string,
+    lang?: string,
+  ): Promise<GetRequestByIdResponseDto> {
+    try {
+      const request = await this.prisma.tripRequest.findUnique({
+        where: { id: requestId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              picture: true,
+              role: true,
+            },
+          },
+          trip: {
+            select: {
+              id: true,
+              user_id: true,
+              pickup: true,
+              departure: true,
+              destination: true,
+              delivery: true,
+              departure_date: true,
+              departure_time: true,
+              arrival_date: true,
+              arrival_time: true,
+              currency: true,
+              maximum_weight_in_kg: true,
+              notes: true,
+              meetup_flexible: true,
+              status: true,
+              mode_of_transport_id: true,
+              airline_id: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  picture: true,
+                  role: true,
+                },
+              },
+              mode_of_transport: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                },
+              },
+              airline: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                },
+              },
+              trip_items: {
+                include: {
+                  trip_item: {
+                    include: {
+                      image: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          request_items: {
+            include: {
+              trip_item: {
+                include: {
+                  image: true,
+                },
+              },
+            },
+          },
+          images: {
+            include: {
+              image: {
+                select: {
+                  id: true,
+                  url: true,
+                  alt_text: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!request) {
+        const message = await this.i18n.translate(
+          'translation.trip.request.notFound',
+          {
+            lang,
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      const message = await this.i18n.translate(
+        'translation.trip.request.getByIdSuccess',
+        {
+          lang,
+          defaultValue: 'Request retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        request: {
+          id: request.id,
+          trip_id: request.trip_id,
+          user_id: request.user_id,
+          status: request.status,
+          message: request.message,
+          cost: request.cost ? Number(request.cost) : null,
+          created_at: request.created_at,
+          updated_at: request.updated_at,
+          user: request.user,
+          trip: {
+            id: request.trip.id,
+            user_id: request.trip.user_id,
+            user: request.trip.user,
+            pickup: request.trip.pickup,
+            departure: request.trip.departure,
+            destination: request.trip.destination,
+            delivery: request.trip.delivery,
+            departure_date: request.trip.departure_date,
+            departure_time: request.trip.departure_time,
+            arrival_date: request.trip.arrival_date,
+            arrival_time: request.trip.arrival_time,
+            currency: request.trip.currency,
+            maximum_weight_in_kg: request.trip.maximum_weight_in_kg
+              ? Number(request.trip.maximum_weight_in_kg)
+              : null,
+            notes: request.trip.notes,
+            meetup_flexible: request.trip.meetup_flexible,
+            status: request.trip.status,
+            mode_of_transport_id: request.trip.mode_of_transport_id,
+            airline_id: request.trip.airline_id,
+            mode_of_transport: request.trip.mode_of_transport,
+            airline: request.trip.airline,
+            trip_items: request.trip.trip_items.map((item) => ({
+              trip_item_id: item.trip_item_id,
+              price: Number(item.price),
+              available_kg: item.avalailble_kg
+                ? Number(item.avalailble_kg)
+                : null,
+              trip_item: item.trip_item,
+            })),
+          },
+          request_items: request.request_items.map((item) => {
+            const tripItemWithPrice = request.trip.trip_items.find(
+              (ti) => ti.trip_item_id === item.trip_item_id,
+            );
+            return {
+              trip_item_id: item.trip_item_id,
+              quantity: item.quantity,
+              price: tripItemWithPrice ? Number(tripItemWithPrice.price) : 0,
+              special_notes: item.special_notes,
+              trip_item: item.trip_item,
+            };
+          }),
+          images: request.images.map((img) => ({
+            id: img.image.id,
+            url: img.image.url,
+            alt_text: img.image.alt_text,
+          })),
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.trip.request.getByIdFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve request',
+        },
       );
       throw new InternalServerErrorException(message);
     }
