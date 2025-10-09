@@ -15,17 +15,18 @@ enum Provider {
 }
 
 model User {
-  id                 String        @id @default(uuid())
-  email              String        @unique
-  password           String
-  firstName          String?
-  lastName           String?
-  phone              String?
-  address            String?
-  city               String?
-  state              String?
-  zip                String?
-  picture            String?
+  id        String  @id @default(uuid())
+  email     String  @unique
+  password  String
+  firstName String?
+  lastName  String?
+  phone     String?
+  address   String?
+  city      String?
+  state     String?
+  zip       String?
+  picture   String?
+
   name               String
   isFreightForwarder Boolean       @default(false)
   companyName        String?
@@ -38,6 +39,7 @@ model User {
   requests           TripRequest[]
   messages           Message[]
   chats              ChatMember[]
+  wallet             Wallet?
 
   reportsSubmitted Report[]       @relation("ReportReporter")
   reportsReceived  Report[]       @relation("ReportReported")
@@ -139,7 +141,7 @@ enum MessageType {
 }
 
 model Trip {
-  id                   String     @id @default(uuid())
+  id                   String    @id @default(uuid())
   user_id              String
   pickup               Json?
   destination          Json?
@@ -147,17 +149,18 @@ model Trip {
   delivery             Json?
   departure_date       DateTime
   departure_time       String
-  currency             String     @default("USD")
+  currency             String    @default("USD")
   arrival_date         DateTime?
   arrival_time         String?
   mode_of_transport_id String?
   airline_id           String
-  maximum_weight_in_kg Decimal?   @db.Decimal(5, 2)
+  maximum_weight_in_kg Decimal?  @db.Decimal(5, 2)
   notes                String?
-  meetup_flexible      Boolean    @default(false)
-  status               TripStatus @default(PUBLISHED)
-  createdAt            DateTime   @default(now())
-  updatedAt            DateTime   @updatedAt
+
+  meetup_flexible Boolean    @default(false)
+  status          TripStatus @default(PUBLISHED)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   // Relations
   user              User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
@@ -168,6 +171,7 @@ model Trip {
   chats             Chat[]
   reports           Report[]
   ratings           Rating[]
+  transactions      Transaction[]
 }
 
 model Airline {
@@ -241,6 +245,7 @@ model TripRequest {
   messages      Message[] // messages that reference this request via request_id
   reports       Report[]
   ratings       Rating[]
+  transactions  Transaction[]
 }
 
 model TripRequestItem {
@@ -445,4 +450,62 @@ enum NotificationType {
   SYSTEM
   REQUEST
   ALERT
+}
+
+model Wallet {
+  id                String        @id @default(uuid())
+  user              User          @relation(fields: [userId], references: [id])
+  userId            String        @unique
+  available_balance Decimal       @default(0.00) @db.Decimal(10, 2)
+  hold_balance      Decimal       @default(0.00) @db.Decimal(10, 2)
+  total_balance     Decimal       @default(0.00) @db.Decimal(10, 2)
+  state             WalletState   @default(BLOCKED)
+  currency          String        @default("XAF") // or USD, EUR, etc.
+  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime      @default(now())
+  transactions      Transaction[]
+}
+
+model Transaction {
+  id         String            @id @default(uuid())
+  userId     String
+  trip_id    String?
+  request_id String?
+  amount     Decimal           @db.Decimal(10, 2)
+  type       TransactionType
+  status     TransactionStatus @default(PENDING)
+  reference String              @unique
+  provider  TransactionProvider // MTN, Orange, Stripe, etc.
+  createdAt DateTime            @default(now())
+  wallet    Wallet              @relation(fields: [walletId], references: [id])
+  walletId  String
+  updatedAt DateTime            @updatedAt
+  trip      Trip?               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request   TripRequest?        @relation(fields: [request_id], references: [id], onDelete: Cascade)
+}
+
+enum TransactionType {
+  TRIP_EARNING
+  WITHDRAW
+  REFUND
+  FEE
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  ONHOLD
+  COMPLETED
+  FAILED
+}
+
+enum TransactionProvider {
+  MTN
+  ORANGE
+  STRIPE
+}
+
+enum WalletState {
+  ACTIVE
+  BLOCKED
 }

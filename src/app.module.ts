@@ -15,6 +15,7 @@ import { ChatModule } from './chat/chat.module';
 import { KycModule } from './kyc/kyc.module';
 import { NotificationModule } from './notification/notification.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { PaymentModule } from './payment/payment.module';
 import * as path from 'path';
 
 @Module({
@@ -43,6 +44,7 @@ import * as path from 'path';
     KycModule,
     NotificationModule,
     SchedulerModule,
+    PaymentModule,
   ],
   controllers: [],
   providers: [],
