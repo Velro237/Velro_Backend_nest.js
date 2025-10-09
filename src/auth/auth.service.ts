@@ -101,6 +101,15 @@ export class AuthService {
         },
       });
 
+      // Create initial UserKYC record with NOT_STARTED status
+      await this.prisma.userKYC.create({
+        data: {
+          userId: user.id,
+          status: 'NOT_STARTED',
+          provider: 'DIDIT',
+        },
+      });
+
       const message = await this.i18n.translate(
         'translation.auth.signup.success',
         {
@@ -238,6 +247,15 @@ export class AuthService {
           password: '',
           name: oauth.name,
           picture: oauth.picture,
+        },
+      });
+
+      // Create initial UserKYC record with NOT_STARTED status for OAuth users
+      await this.prisma.userKYC.create({
+        data: {
+          userId: user.id,
+          status: 'NOT_STARTED',
+          provider: 'DIDIT',
         },
       });
     }

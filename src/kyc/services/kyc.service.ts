@@ -34,25 +34,28 @@ export class KycService {
         throw new NotFoundException('User not found');
       }
 
-      // Check if user already has a pending or verified KYC
+      // Check if user already has a KYC record
       const existingKyc = await this.prisma.userKYC.findFirst({
         where: {
           userId,
           provider: KYCProvider.DIDIT,
-        status: {
-          in: [KYCStatus.NOT_STARTED, KYCStatus.IN_PROGRESS, KYCStatus.APPROVED],
-        },
         },
       });
 
       if (existingKyc) {
-        // If verified, return existing session info
+        // If already verified, don't allow creating new session
         if (existingKyc.status === KYCStatus.APPROVED) {
           throw new BadRequestException('User is already verified');
         }
         
-        // If pending/in_progress, return existing session
-        if (existingKyc.sessionUrl) {
+        // If there's an existing session that hasn't expired, return it
+        if (
+          existingKyc.sessionUrl && 
+          existingKyc.expiresAt && 
+          new Date(existingKyc.expiresAt) > new Date() &&
+          (existingKyc.status === KYCStatus.NOT_STARTED || existingKyc.status === KYCStatus.IN_PROGRESS)
+        ) {
+          this.logger.log(`Returning existing valid session for user ${userId}`);
           return {
             sessionId: existingKyc.diditSessionId || existingKyc.id,
             sessionNumber: 0, // Not available for existing sessions
@@ -67,6 +70,9 @@ export class KycService {
             expiresAt: existingKyc.expiresAt?.toISOString() || '',
           };
         }
+        
+        // If session expired or was rejected/declined, we'll create a new one below
+        this.logger.log(`Existing session expired or invalid for user ${userId}, creating new session`);
       }
 
       // Generate callback URL
