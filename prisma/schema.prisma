@@ -453,42 +453,72 @@ enum NotificationType {
 }
 
 model Wallet {
-  id                String        @id @default(uuid())
-  user              User          @relation(fields: [userId], references: [id])
-  userId            String        @unique
-  available_balance Decimal       @default(0.00) @db.Decimal(10, 2)
-  hold_balance      Decimal       @default(0.00) @db.Decimal(10, 2)
-  total_balance     Decimal       @default(0.00) @db.Decimal(10, 2)
-  state             WalletState   @default(BLOCKED)
-  currency          String        @default("XAF") // or USD, EUR, etc.
-  updatedAt         DateTime      @updatedAt
-  createdAt         DateTime      @default(now())
-  transactions      Transaction[]
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String @unique
+
+  available_balance     Decimal     @default(0.00) @db.Decimal(10, 2)
+  hold_balance          Decimal     @default(0.00) @db.Decimal(10, 2)
+  total_balance         Decimal     @default(0.00) @db.Decimal(10, 2)
+  state                 WalletState @default(BLOCKED)
+  currency              String      @default("XAF") // or USD, EUR, etc.
+  wallet_status_message String?
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  transactions Transaction[]
+
+  @@index([userId])
 }
 
 model Transaction {
-  id         String            @id @default(uuid())
-  userId     String
-  trip_id    String?
-  request_id String?
-  amount     Decimal           @db.Decimal(10, 2)
-  type       TransactionType
-  status     TransactionStatus @default(PENDING)
-  reference String              @unique
-  provider  TransactionProvider // MTN, Orange, Stripe, etc.
-  createdAt DateTime            @default(now())
-  wallet    Wallet              @relation(fields: [walletId], references: [id])
-  walletId  String
-  updatedAt DateTime            @updatedAt
-  trip      Trip?               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  request   TripRequest?        @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  id               String  @id @default(uuid())
+  userId           String
+  trip_id          String?
+  request_id       String?
+  amount_requested Decimal @db.Decimal(10, 2)
+  fee_applied      Decimal @db.Decimal(10, 2)
+  amount_paid      Decimal @db.Decimal(10, 2)
+  wallet_id        String
+  currency         String
+
+  status_message String?
+
+  description String? // Human-readable description
+  metadata    Json? // Additional data
+  reference   String? @unique
+
+  balanceAfter Decimal? @db.Decimal(10, 2)
+
+  createdAt   DateTime  @default(now())
+  processedAt DateTime? // When transfer was completed
+  updatedAt   DateTime  @updatedAt
+
+  type   TransactionType
+  source TransactionSource
+  status TransactionStatus @default(PENDING)
+
+  provider TransactionProvider // MTN, Orange, Stripe, etc.
+
+  wallet  Wallet       @relation(fields: [wallet_id], references: [id])
+  trip    Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([reference])
 }
 
-enum TransactionType {
+enum TransactionSource {
   TRIP_EARNING
   WITHDRAW
   REFUND
   FEE
+}
+
+enum TransactionType {
+  CREDIT // Money added to wallet
+  DEBIT // Money removed from wallet
 }
 
 enum TransactionStatus {
