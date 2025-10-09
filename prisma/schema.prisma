@@ -457,12 +457,12 @@ model Wallet {
   user   User   @relation(fields: [userId], references: [id])
   userId String @unique
 
-  available_balance     Decimal     @default(0.00) @db.Decimal(10, 2)
-  hold_balance          Decimal     @default(0.00) @db.Decimal(10, 2)
-  total_balance         Decimal     @default(0.00) @db.Decimal(10, 2)
-  state                 WalletState @default(BLOCKED)
-  currency              String      @default("XAF") // or USD, EUR, etc.
-  wallet_status_message String?
+  available_balance Decimal     @default(0.00) @db.Decimal(10, 2)
+  hold_balance      Decimal     @default(0.00) @db.Decimal(10, 2)
+  total_balance     Decimal     @default(0.00) @db.Decimal(10, 2)
+  state             WalletState @default(BLOCKED)
+  currency          String      @default("XAF") // or USD, EUR, etc.
+  status_message    String?
 
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
@@ -489,7 +489,7 @@ model Transaction {
   metadata    Json? // Additional data
   reference   String? @unique
 
-  balanceAfter Decimal? @db.Decimal(10, 2)
+  balance_after Decimal? @db.Decimal(10, 2)
 
   createdAt   DateTime  @default(now())
   processedAt DateTime? // When transfer was completed
