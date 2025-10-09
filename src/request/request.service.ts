@@ -3,12 +3,14 @@ import {
   NotFoundException,
   ConflictException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { RedisService } from '../redis/redis.service';
+import { WalletService } from '../wallet/wallet.service';
 import { MessageType as PrismaMessageType } from 'generated/prisma';
 import { MessageType } from '../chat/dto/send-message.dto';
 import {
@@ -24,6 +26,7 @@ import {
   UpdateTripRequestResponseDto,
 } from './dto/update-trip-request.dto';
 import { GetRequestByIdResponseDto } from './dto/get-request-by-id.dto';
+import { ConfirmDeliveryResponseDto } from './dto/confirm-delivery.dto';
 
 @Injectable()
 export class RequestService {
@@ -33,6 +36,7 @@ export class RequestService {
     private readonly chatService: ChatService,
     private readonly chatGateway: ChatGateway,
     private readonly redis: RedisService,
+    private readonly walletService: WalletService,
   ) {}
 
   // Trip Request methods
@@ -1048,6 +1052,114 @@ export class RequestService {
         { lang },
       );
       throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Confirm delivery (by sender or traveler)
+   */
+  async confirmDelivery(
+    orderId: string,
+    userId: string,
+    lang?: string,
+  ): Promise<ConfirmDeliveryResponseDto> {
+    try {
+      // Get order with relations
+      const order = await this.prisma.tripRequest.findUnique({
+        where: { id: orderId },
+        include: {
+          trip: {
+            include: {
+              user: true, // Traveler
+            },
+          },
+          user: true, // Sender
+        },
+      });
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      // Check if order is approved and paid
+      if (order.status !== 'APPROVED') {
+        throw new BadRequestException('Order must be approved first');
+      }
+
+      if (order.payment_status !== 'SUCCEEDED') {
+        throw new BadRequestException('Order must be paid first');
+      }
+
+      // Determine if user is sender or traveler
+      const isSender = order.user_id === userId;
+      const isTraveler = order.trip.user_id === userId;
+
+      if (!isSender && !isTraveler) {
+        throw new BadRequestException('You are not authorized to confirm this delivery');
+      }
+
+      // Update confirmation status
+      const updateData: any = {};
+      if (isSender) {
+        if (order.sender_confirmed_delivery) {
+          throw new BadRequestException('You have already confirmed delivery');
+        }
+        updateData.sender_confirmed_delivery = true;
+      } else {
+        if (order.traveler_confirmed_delivery) {
+          throw new BadRequestException('You have already confirmed delivery');
+        }
+        updateData.traveler_confirmed_delivery = true;
+      }
+
+      // Check if this is the first confirmation
+      const isFirstConfirmation = !order.sender_confirmed_delivery && !order.traveler_confirmed_delivery;
+      if (isFirstConfirmation) {
+        updateData.delivered_at = new Date();
+      }
+
+      // Update order
+      const updatedOrder = await this.prisma.tripRequest.update({
+        where: { id: orderId },
+        data: updateData,
+      });
+
+      const bothConfirmed = updatedOrder.sender_confirmed_delivery && updatedOrder.traveler_confirmed_delivery;
+
+      // If both parties confirmed, move earnings to available balance
+      let earningsReleased = false;
+      if (bothConfirmed) {
+        try {
+          await this.walletService.moveToAvailable(orderId);
+          earningsReleased = true;
+        } catch (error) {
+          console.error('Failed to release earnings:', error);
+          // Don't fail the confirmation if wallet update fails
+        }
+      }
+
+      const message = await this.i18n.translate(
+        bothConfirmed 
+          ? 'translation.trip.request.deliveryConfirmedBoth'
+          : 'translation.trip.request.deliveryConfirmedOne',
+        { lang },
+      );
+
+      return {
+        message: message || 'Delivery confirmed successfully',
+        bothConfirmed,
+        senderConfirmed: updatedOrder.sender_confirmed_delivery,
+        travelerConfirmed: updatedOrder.traveler_confirmed_delivery,
+        earningsReleased,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to confirm delivery');
     }
   }
 }

@@ -45,6 +45,7 @@ import {
   ChangeRequestStatusResponseDto,
 } from './dto/change-request-status.dto';
 import { GetRequestByIdResponseDto } from './dto/get-request-by-id.dto';
+import { ConfirmDeliveryResponseDto } from './dto/confirm-delivery.dto';
 import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
@@ -188,5 +189,24 @@ export class RequestController {
       user.id,
       lang,
     );
+  }
+
+  @Post('orders/:id/confirm-delivery')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm delivery of order',
+    description: 'Called by sender or traveler to confirm item delivery',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Delivery confirmed',
+    type: ConfirmDeliveryResponseDto,
+  })
+  async confirmDelivery(
+    @Param('id') orderId: string,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<ConfirmDeliveryResponseDto> {
+    return this.requestService.confirmDelivery(orderId, user.id, lang);
   }
 }

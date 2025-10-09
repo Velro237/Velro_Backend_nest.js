@@ -5,9 +5,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { ChatModule } from '../chat/chat.module';
 import { AuthModule } from '../auth/auth.module';
 import { RedisModule } from '../redis/redis.module';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [PrismaModule, ChatModule, AuthModule, RedisModule],
+  imports: [PrismaModule, ChatModule, AuthModule, RedisModule, WalletModule],
   controllers: [RequestController],
   providers: [RequestService],
 })
