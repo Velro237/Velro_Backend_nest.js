@@ -64,20 +64,7 @@ export class UserController {
   @Get('me')
   @ApiUserWelcome()
   async getMe(@CurrentUser() user: User, @I18nLang() lang: string) {
-    const message = await this.i18n.translate('translation.hello', {
-      lang,
-      args: { name: user.email.split('@')[0] }, // Use email prefix as name
-    });
-
-    return {
-      message,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        createdAt: user.createdAt,
-      },
-    };
+    return this.userService.getMe(user.id, lang);
   }
 
   /* ---------------- USER ENDPOINTS ---------------- */

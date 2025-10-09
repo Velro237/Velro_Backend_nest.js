@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { GetMeResponseDto } from './dto/get-me.dto';
 
 import * as bcrypt from 'bcryptjs';
 const userSelect = {
@@ -28,6 +29,16 @@ const userSelect = {
   companyAddress: true,
   createdAt: true,
   updatedAt: true,
+  kycRecords: {
+    select: {
+      id: true,
+      status: true,
+      provider: true,
+      rejectionReason: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
 };
 
 import {
@@ -60,6 +71,62 @@ export class UserService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
   ) {}
+
+  async getMe(userId: string, lang: string = 'en'): Promise<GetMeResponseDto> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: userSelect,
+      });
+
+      if (!user) {
+        const message = await this.i18n.translate('translation.user.notFound', {
+          lang,
+          defaultValue: 'User not found',
+        });
+        throw new NotFoundException(message);
+      }
+
+      const message = await this.i18n.translate('translation.hello', {
+        lang,
+        args: { name: user.name || user.email.split('@')[0] },
+      });
+
+      return {
+        message,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phone: user.phone,
+          address: user.address,
+          city: user.city,
+          state: user.state,
+          zip: user.zip,
+          picture: user.picture,
+          device_id: user.device_id,
+          role: user.role,
+          isFreightForwarder: user.isFreightForwarder,
+          companyName: user.companyName,
+          companyAddress: user.companyAddress,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          kycRecord: user.kycRecords?.[0] || null,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate('translation.user.getFailed', {
+        lang,
+        defaultValue: 'Failed to retrieve user information',
+      });
+      throw new InternalServerErrorException(message);
+    }
+  }
 
   async findById(id: string) {
     const user = await this.prisma.user.findUnique({

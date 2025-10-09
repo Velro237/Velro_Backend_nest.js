@@ -82,12 +82,13 @@ export function ApiUserWelcome() {
     ApiOperation({
       summary: 'Get current user information',
       description:
-        'Returns the current authenticated user information with a personalized welcome message',
+        'Returns complete authenticated user information including all profile fields and KYC verification status with a personalized welcome message',
     }),
     ApiBearerAuth('JWT-auth'),
     ApiResponse({
       status: 200,
-      description: 'Current user information with personalized message',
+      description:
+        'Complete user information with KYC record and personalized message',
       schema: {
         type: 'object',
         properties: {
@@ -100,8 +101,41 @@ export function ApiUserWelcome() {
                 example: '123e4567-e89b-12d3-a456-426614174000',
               },
               email: { type: 'string', example: 'john@example.com' },
+              name: { type: 'string', example: 'John Doe' },
+              firstName: { type: 'string', example: 'John' },
+              lastName: { type: 'string', example: 'Doe' },
+              phone: { type: 'string', example: '+1234567890' },
+              address: { type: 'string', example: '123 Main St' },
+              city: { type: 'string', example: 'New York' },
+              state: { type: 'string', example: 'NY' },
+              zip: { type: 'string', example: '10001' },
+              picture: {
+                type: 'string',
+                example: 'https://example.com/profile.jpg',
+              },
+              device_id: { type: 'string', example: 'device-123' },
               role: { type: 'string', example: 'USER' },
+              isFreightForwarder: { type: 'boolean', example: false },
+              companyName: { type: 'string', example: null },
+              companyAddress: { type: 'string', example: null },
               createdAt: { type: 'string', format: 'date-time' },
+              updatedAt: { type: 'string', format: 'date-time' },
+              kycRecord: {
+                type: 'object',
+                nullable: true,
+                properties: {
+                  id: { type: 'string', example: 'kyc-123' },
+                  status: { type: 'string', example: 'VERIFIED' },
+                  provider: { type: 'string', example: 'DIDIT' },
+                  rejectionReason: {
+                    type: 'string',
+                    nullable: true,
+                    example: null,
+                  },
+                  createdAt: { type: 'string', format: 'date-time' },
+                  updatedAt: { type: 'string', format: 'date-time' },
+                },
+              },
             },
           },
         },
@@ -110,6 +144,33 @@ export function ApiUserWelcome() {
     ApiResponse({
       status: 401,
       description: 'Unauthorized - Invalid or missing JWT token',
+    }),
+    ApiResponse({
+      status: 404,
+      description: 'User not found',
+      schema: {
+        type: 'object',
+        properties: {
+          statusCode: { type: 'number', example: 404 },
+          message: { type: 'string', example: 'User not found' },
+          error: { type: 'string', example: 'Not Found' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+      schema: {
+        type: 'object',
+        properties: {
+          statusCode: { type: 'number', example: 500 },
+          message: {
+            type: 'string',
+            example: 'Failed to retrieve user information',
+          },
+          error: { type: 'string', example: 'Internal Server Error' },
+        },
+      },
     }),
   );
 }
