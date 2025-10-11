@@ -343,17 +343,21 @@ export class PaymentService {
       // Get or create wallet for traveler
       const wallet = await this.ensureWallet(order.trip.user_id);
 
-      // Calculate earnings (will be moved from pending to available after delivery)
-      const stripeFee = await this.stripeService.getStripeFee(paymentIntentId);
-      const orderAmount = Number(order.cost || 0);
-      const platformCommission = this.calculatePlatformCommission(orderAmount);
-      const pendingEarnings = orderAmount - stripeFee - platformCommission;
+      // Client spec: Traveler receives EXACTLY their set price
+      // Sender pays: travelerPrice + platformFee
+      // Platform keeps the fee (Stripe fee comes out of platform's share)
+      const travelerPrice = Number(order.cost || 0);
+      const pendingEarnings = travelerPrice;
 
-      this.logger.log(`Earnings breakdown - Order: ${orderAmount}, Stripe Fee: ${stripeFee}, Commission: ${platformCommission}, Pending: ${pendingEarnings}`);
+      // Log the breakdown for tracking
+      const stripeFee = await this.stripeService.getStripeFee(paymentIntentId);
+      const platformCommission = this.calculatePlatformCommission(travelerPrice);
+      
+      this.logger.log(`Payment breakdown - Traveler gets: €${travelerPrice}, Platform fee: €${platformCommission}, Stripe fee: €${stripeFee}`);
 
       // Validate earnings
-      if (isNaN(pendingEarnings) || pendingEarnings < 0) {
-        throw new Error(`Invalid pending earnings: ${pendingEarnings}`);
+      if (isNaN(pendingEarnings) || pendingEarnings <= 0) {
+        throw new Error(`Invalid traveler price: ${pendingEarnings}`);
       }
 
       // Add to pending balance
@@ -373,7 +377,7 @@ export class PaymentService {
           wallet_id: wallet.id,
           type: 'CREDIT',
           source: 'ORDER',
-          amount_requested: orderAmount,
+          amount_requested: travelerPrice,
           fee_applied: stripeFee + platformCommission,
           amount_paid: pendingEarnings,
           currency: order.currency || 'EUR',
@@ -510,13 +514,39 @@ export class PaymentService {
   }
 
   /**
+   * Calculate payment breakdown for frontend
+   * Client spec: Sender pays traveler price + platform fee
+   */
+  async calculatePaymentBreakdown(travelerPrice: number, currency: string = 'EUR'): Promise<any> {
+    const platformFee = this.calculatePlatformCommission(travelerPrice);
+    const senderTotal = travelerPrice + platformFee;
+
+    const feePercent = Number(this.configService.get<number>('VELRO_FEE_PERCENT'));
+    const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
+    const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN'));
+
+    return {
+      travelerPrice: Math.round(travelerPrice * 100) / 100,
+      platformFee: Math.round(platformFee * 100) / 100,
+      senderTotal: Math.round(senderTotal * 100) / 100,
+      currency,
+      breakdown: {
+        feePercent,
+        feeFixed,
+        feeMin,
+      },
+    };
+  }
+
+  /**
    * Calculate platform commission
    */
   private calculatePlatformCommission(grossAmount: number): number {
-    const feePercent = Number(this.configService.get<number>('VELRO_FEE_PERCENT', 8.0));
-    const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED', 0.50));
-    const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN', 0.0));
-    const feeMax = Number(this.configService.get<number>('VELRO_FEE_MAX', 999999));
+    // Client spec: 7% + €1.00 (minimum €1.99)
+    const feePercent = Number(this.configService.get<number>('VELRO_FEE_PERCENT'));
+    const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
+    const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN'));
+    const feeMax = Number(this.configService.get<number>('VELRO_FEE_MAX'));
 
     let commission = (grossAmount * feePercent / 100) + feeFixed;
     commission = Math.max(commission, feeMin);

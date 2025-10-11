@@ -28,6 +28,7 @@ import {
   GetWalletRequestDto,
   GetWalletResponseDto,
 } from './dto/get-wallet-request.dto';
+import { CalculatePaymentDto, PaymentBreakdownDto } from './dto/calculate-payment.dto';
 import {
   ApiInitializeWallet,
   ApiGetWallet,
@@ -81,6 +82,24 @@ export class PaymentController {
   // ============================================
   // Stripe Payment Endpoints
   // ============================================
+
+  @Post('calculate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Calculate payment breakdown',
+    description: 'Calculate how much sender will pay based on traveler price. Shows platform fee breakdown.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Payment breakdown calculated successfully',
+    type: PaymentBreakdownDto,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid traveler price' })
+  async calculatePayment(
+    @Body() dto: CalculatePaymentDto,
+  ): Promise<PaymentBreakdownDto> {
+    return this.paymentService.calculatePaymentBreakdown(dto.travelerPrice);
+  }
 
   @Post('init')
   @HttpCode(HttpStatus.CREATED)
