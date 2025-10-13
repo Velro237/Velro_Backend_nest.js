@@ -134,7 +134,7 @@ export class ChatService {
                 : PrismaMessageType.TEXT,
               chat_id: newChat.id,
               sender_id: userId,
-              reply_to_id: messageReplyToId || null,
+              reply_to_id: null, // Initial message in a new chat cannot be a reply
               image_url: messageImageUrl || null,
               request_id: messageRequestId || null,
             },
@@ -210,6 +210,7 @@ export class ChatService {
         },
       };
     } catch (error) {
+      console.log(error);
       const message = await this.i18n.translate(
         'translation.chat.create.failed',
         { lang },
