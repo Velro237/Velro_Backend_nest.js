@@ -345,6 +345,14 @@ export class PaymentService {
         return;
       }
 
+      // ✅ IDEMPOTENCY CHECK: Prevent duplicate webhook processing
+      if (order.payment_status === PaymentStatus.SUCCEEDED) {
+        this.logger.warn(
+          `Payment already processed for order ${order.id}. Skipping duplicate webhook.`,
+        );
+        return; // Already processed, skip
+      }
+
       // Update order status
       await this.prisma.tripRequest.update({
         where: { id: order.id },
@@ -398,7 +406,7 @@ export class PaymentService {
           userId: order.trip.user_id,
           wallet_id: wallet.id,
           type: 'CREDIT',
-          source: 'ORDER',
+          source: 'TRIP_EARNING',
           amount_requested: travelerPrice,
           fee_applied: stripeFee + platformCommission,
           amount_paid: pendingEarnings,

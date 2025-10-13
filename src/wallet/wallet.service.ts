@@ -38,7 +38,7 @@ export class WalletService {
       });
 
       // Filter withdrawals from transactions
-      const withdrawals = transactions.filter(t => t.source === 'WITHDRAWAL');
+      const withdrawals = transactions.filter(t => t.source === 'WITHDRAW');
 
       return {
         balance: {
@@ -115,7 +115,7 @@ export class WalletService {
           userId,
           wallet_id: wallet.id,
           type: 'DEBIT',
-          source: 'WITHDRAWAL',
+          source: 'WITHDRAW',
           amount_requested: dto.amount,
           fee_applied: fee,
           amount_paid: netAmount,
@@ -225,7 +225,7 @@ export class WalletService {
         where: {
           userId: travelerId,
           request_id: orderId,
-          source: 'ORDER',
+          source: 'TRIP_EARNING',
           type: 'CREDIT',
         },
         orderBy: {
