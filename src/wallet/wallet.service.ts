@@ -381,9 +381,10 @@ export class WalletService {
    * Calculate withdrawal fee
    */
   private calculateWithdrawalFee(amount: number): number {
-    const feePercent = Number(this.configService.get<number>('WITHDRAWAL_FEE_PERCENT', 2.0));
-    const feeFixed = Number(this.configService.get<number>('WITHDRAWAL_FEE_FIXED', 1.0));
-    const feeMin = Number(this.configService.get<number>('WITHDRAWAL_FEE_MIN', 0.50));
+    // Client spec: 2% (minimum €1.00, no fixed fee)
+    const feePercent = Number(this.configService.get<number>('WITHDRAWAL_FEE_PERCENT'));
+    const feeFixed = Number(this.configService.get<number>('WITHDRAWAL_FEE_FIXED'));
+    const feeMin = Number(this.configService.get<number>('WITHDRAWAL_FEE_MIN'));
 
     let fee = (amount * feePercent / 100) + feeFixed;
     fee = Math.max(fee, feeMin);
