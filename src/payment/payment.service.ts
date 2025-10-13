@@ -10,8 +10,15 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from './stripe.service';
 import { I18nService } from 'nestjs-i18n';
-import { CreatePaymentIntentDto, PaymentIntentResponseDto } from './dto/create-payment-intent.dto';
-import { ConnectOnboardingDto, ConnectOnboardingResponseDto, ConnectStatusResponseDto } from './dto/connect-onboarding.dto';
+import {
+  CreatePaymentIntentDto,
+  PaymentIntentResponseDto,
+} from './dto/create-payment-intent.dto';
+import {
+  ConnectOnboardingDto,
+  ConnectOnboardingResponseDto,
+  ConnectStatusResponseDto,
+} from './dto/connect-onboarding.dto';
 import { InitializeWalletRequestDto } from './dto/initialize-wallet-request.dto';
 import { InitializeWalletResponseDto } from './dto/initialize-wallet.dto';
 import {
@@ -228,7 +235,9 @@ export class PaymentService {
     senderId: string,
   ): Promise<PaymentIntentResponseDto> {
     try {
-      this.logger.log(`Creating payment for order ${dto.orderId} by sender ${senderId}`);
+      this.logger.log(
+        `Creating payment for order ${dto.orderId} by sender ${senderId}`,
+      );
 
       // Verify order exists and is valid
       const order = await this.prisma.tripRequest.findUnique({
@@ -255,8 +264,10 @@ export class PaymentService {
       // Check if payment already exists
       if (order.payment_intent_id) {
         // Retrieve existing payment intent
-        const existingIntent = await this.stripeService.getPaymentIntent(order.payment_intent_id);
-        
+        const existingIntent = await this.stripeService.getPaymentIntent(
+          order.payment_intent_id,
+        );
+
         if (existingIntent.status === 'succeeded') {
           throw new BadRequestException('This order has already been paid');
         }
@@ -292,7 +303,9 @@ export class PaymentService {
         },
       });
 
-      this.logger.log(`PaymentIntent created successfully: ${paymentIntent.id}`);
+      this.logger.log(
+        `PaymentIntent created successfully: ${paymentIntent.id}`,
+      );
 
       return {
         clientSecret: paymentIntent.client_secret,
@@ -326,7 +339,9 @@ export class PaymentService {
       });
 
       if (!order) {
-        this.logger.warn(`Order not found for PaymentIntent: ${paymentIntentId}`);
+        this.logger.warn(
+          `Order not found for PaymentIntent: ${paymentIntentId}`,
+        );
         return;
       }
 
@@ -349,7 +364,9 @@ export class PaymentService {
       const platformCommission = this.calculatePlatformCommission(orderAmount);
       const pendingEarnings = orderAmount - stripeFee - platformCommission;
 
-      this.logger.log(`Earnings breakdown - Order: ${orderAmount}, Stripe Fee: ${stripeFee}, Commission: ${platformCommission}, Pending: ${pendingEarnings}`);
+      this.logger.log(
+        `Earnings breakdown - Order: ${orderAmount}, Stripe Fee: ${stripeFee}, Commission: ${platformCommission}, Pending: ${pendingEarnings}`,
+      );
 
       // Validate earnings
       if (isNaN(pendingEarnings) || pendingEarnings < 0) {
@@ -381,7 +398,8 @@ export class PaymentService {
           status: 'ONHOLD',
           provider: 'STRIPE',
           description: `Earnings from order ${order.id} (pending delivery)`,
-          balance_after: Number(wallet.pending_balance_stripe) + pendingEarnings,
+          balance_after:
+            Number(wallet.pending_balance_stripe) + pendingEarnings,
           metadata: {
             orderId: order.id,
             stripeFee,
@@ -448,7 +466,8 @@ export class PaymentService {
       }
 
       // Create onboarding link
-      const onboardingUrl = await this.stripeService.createAccountLink(accountId);
+      const onboardingUrl =
+        await this.stripeService.createAccountLink(accountId);
 
       return {
         onboardingUrl,
@@ -483,7 +502,9 @@ export class PaymentService {
       }
 
       // Get account details from Stripe
-      const account = await this.stripeService.getAccountDetails(user.stripe_account_id);
+      const account = await this.stripeService.getAccountDetails(
+        user.stripe_account_id,
+      );
 
       const transfersCapability = account.capabilities?.transfers || 'inactive';
       const isComplete = transfersCapability === 'active';
@@ -513,12 +534,18 @@ export class PaymentService {
    * Calculate platform commission
    */
   private calculatePlatformCommission(grossAmount: number): number {
-    const feePercent = Number(this.configService.get<number>('VELRO_FEE_PERCENT', 8.0));
-    const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED', 0.50));
+    const feePercent = Number(
+      this.configService.get<number>('VELRO_FEE_PERCENT', 8.0),
+    );
+    const feeFixed = Number(
+      this.configService.get<number>('VELRO_FEE_FIXED', 0.5),
+    );
     const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN', 0.0));
-    const feeMax = Number(this.configService.get<number>('VELRO_FEE_MAX', 999999));
+    const feeMax = Number(
+      this.configService.get<number>('VELRO_FEE_MAX', 999999),
+    );
 
-    let commission = (grossAmount * feePercent / 100) + feeFixed;
+    let commission = (grossAmount * feePercent) / 100 + feeFixed;
     commission = Math.max(commission, feeMin);
     commission = Math.min(commission, feeMax);
 
