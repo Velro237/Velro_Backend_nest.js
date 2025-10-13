@@ -350,7 +350,14 @@ export class PaymentService {
       const pendingEarnings = travelerPrice;
 
       // Log the breakdown for tracking
-      const stripeFee = await this.stripeService.getStripeFee(paymentIntentId);
+      let stripeFee = 0;
+      try {
+        stripeFee = await this.stripeService.getStripeFee(paymentIntentId);
+      } catch (error) {
+        this.logger.warn(`Could not retrieve Stripe fee for ${paymentIntentId}: ${error.message}`);
+        // Continue without Stripe fee in logs - payment still succeeds
+      }
+      
       const platformCommission = this.calculatePlatformCommission(travelerPrice);
       
       this.logger.log(`Payment breakdown - Traveler gets: €${travelerPrice}, Platform fee: €${platformCommission}, Stripe fee: €${stripeFee}`);

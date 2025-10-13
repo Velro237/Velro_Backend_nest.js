@@ -188,13 +188,11 @@ export class StripeService {
         return balanceTransaction.fee / 100;
       }
 
-      // Fallback: estimate Stripe fee (2.9% + €0.30 for European cards)
-      const amount = paymentIntent.amount / 100;
-      return (amount * 0.029) + 0.30;
+      // No fallback - if we can't get real fee, throw error
+      throw new Error('Unable to retrieve Stripe fee: no balance transaction found');
     } catch (error) {
       this.logger.error('Failed to get Stripe fee:', error);
-      // Return estimated fee
-      return 0;
+      throw new Error(`Stripe fee retrieval failed: ${error.message}`);
     }
   }
 
