@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   InternalServerErrorException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { CreateTripDto, CreateTripResponseDto } from './dto/create-trip.dto';
 import { UpdateTripDto, UpdateTripResponseDto } from './dto/update-trip.dto';
@@ -48,6 +49,7 @@ import { GetAlertsQueryDto, GetAlertsResponseDto } from './dto/get-alerts.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
 import { NotificationService } from '../notification/notification.service';
+import { UserRole } from 'generated/prisma/client';
 
 @Injectable()
 export class TripService {
@@ -78,6 +80,18 @@ export class TripService {
         },
       );
       throw new NotFoundException(message);
+    }
+
+    // Admins cannot create trips
+    if (user.role === UserRole.ADMIN) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.adminCannotCreate',
+        {
+          lang,
+          defaultValue: 'Admins are not allowed to create trips',
+        },
+      );
+      throw new ForbiddenException(message);
     }
 
     // Check if transport type exists (only if provided)

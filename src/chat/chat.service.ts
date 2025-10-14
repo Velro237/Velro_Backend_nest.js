@@ -74,21 +74,39 @@ export class ChatService {
       throw new NotFoundException(message);
     }
 
-    // Check if a chat already exists for this trip (trip_id has unique constraint)
+    // Check if a chat already exists for this trip with both users as members
     if (tripId) {
-      const existingChat = await this.prisma.chat.findUnique({
+      const existingChat = await this.prisma.chat.findFirst({
         where: {
           trip_id: tripId,
+          members: {
+            some: {
+              user_id: userId,
+            },
+          },
+        },
+        include: {
+          members: {
+            select: {
+              user_id: true,
+            },
+          },
         },
       });
 
-      // If chat already exists for this trip, prevent creation
+      // If chat exists and both users are members, prevent creation
       if (existingChat) {
-        const message = await this.i18n.translate(
-          'translation.chat.create.duplicateTripChat',
-          { lang },
-        );
-        throw new ConflictException(message);
+        const memberUserIds = existingChat.members.map((m) => m.user_id);
+        const bothUsersAreMembersOfChat =
+          memberUserIds.includes(userId) && memberUserIds.includes(otherUserId);
+
+        if (bothUsersAreMembersOfChat) {
+          const message = await this.i18n.translate(
+            'translation.chat.create.duplicateTripChat',
+            { lang },
+          );
+          throw new ConflictException(message);
+        }
       }
     }
 

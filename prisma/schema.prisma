@@ -41,10 +41,10 @@ model User {
   chats              ChatMember[]
 
   // Stripe Connect fields
-  stripe_account_id         String?  @unique
-  payout_country            String?
-  payout_currency           String?  @default("EUR")
-  transfers_capability      String?  @default("inactive")
+  stripe_account_id          String? @unique
+  payout_country             String?
+  payout_currency            String? @default("EUR")
+  transfers_capability       String? @default("inactive")
   stripe_onboarding_complete Boolean @default(false)
 
   reportsSubmitted Report[]       @relation("ReportReporter")
@@ -55,10 +55,10 @@ model User {
   kycRecords       UserKYC[]
   alerts           Alert[]
   ratingsGiven     Rating[]       @relation("RatingGiver")
-  ratingsReceived    Rating[]            @relation("RatingReceiver")
-  notifications      Notification[]
-  wallet             Wallet?
-  transactions       Transaction[]
+  ratingsReceived  Rating[]       @relation("RatingReceiver")
+  notifications    Notification[]
+  wallet           Wallet?
+  transactions     Transaction[]
 }
 
 model Account {
@@ -89,7 +89,7 @@ model RefreshToken {
 model Chat {
   id      String  @id @default(uuid())
   name    String?
-  trip_id String? @unique // Optional: link to trip request (unique for one-to-one)
+  trip_id String? // Optional: link to trip (multiple chats allowed per trip)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -246,14 +246,14 @@ model TripRequest {
   cost       Decimal?      @db.Decimal(10, 2)
 
   // Payment fields
-  currency           String?   @default("EUR")
-  payment_intent_id  String?   @unique
-  payment_status     PaymentStatus? @default(PENDING)
-  paid_at            DateTime?
-  
+  currency          String?        @default("EUR")
+  payment_intent_id String?        @unique
+  payment_status    PaymentStatus? @default(PENDING)
+  paid_at           DateTime?
+
   // Delivery confirmation
-  sender_confirmed_delivery   Boolean @default(false)
-  traveler_confirmed_delivery Boolean @default(false)
+  sender_confirmed_delivery   Boolean   @default(false)
+  traveler_confirmed_delivery Boolean   @default(false)
   delivered_at                DateTime?
 
   // Relations
@@ -483,18 +483,18 @@ enum PaymentStatus {
 
 enum TransactionType {
   CREDIT // Money added to wallet
-  DEBIT  // Money removed from wallet
+  DEBIT // Money removed from wallet
 }
 
 enum TransactionSource {
-  ORDER        // From completed order
-  WITHDRAW     // Withdrawal request
-  WITHDRAWAL   // Withdrawal request
-  ADJUSTMENT   // Manual adjustment by admin
-  REFUND       // Refund to sender
-  COMMISSION   // Platform commission deduction
+  ORDER // From completed order
+  WITHDRAW // Withdrawal request
+  WITHDRAWAL // Withdrawal request
+  ADJUSTMENT // Manual adjustment by admin
+  REFUND // Refund to sender
+  COMMISSION // Platform commission deduction
   TRIP_EARNING // Trip earning
-  FEE          // Fee deduction
+  FEE // Fee deduction
 }
 
 enum TransactionStatus {

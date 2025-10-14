@@ -4,6 +4,7 @@ import {
   ConflictException,
   InternalServerErrorException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
@@ -11,7 +12,7 @@ import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { RedisService } from '../redis/redis.service';
 import { WalletService } from '../wallet/wallet.service';
-import { MessageType as PrismaMessageType } from 'generated/prisma';
+import { MessageType as PrismaMessageType, UserRole } from 'generated/prisma';
 import { MessageType } from '../chat/dto/send-message.dto';
 import {
   CreateTripRequestDto,
@@ -83,6 +84,18 @@ export class RequestService {
         },
       );
       throw new NotFoundException(message);
+    }
+
+    // Admins cannot create trip requests
+    if (user.role === UserRole.ADMIN) {
+      const message = await this.i18n.translate(
+        'translation.trip.request.adminCannotCreate',
+        {
+          lang,
+          defaultValue: 'Admins are not allowed to create trip requests',
+        },
+      );
+      throw new ForbiddenException(message);
     }
 
     // Check if user is not the trip owner
@@ -1095,7 +1108,9 @@ export class RequestService {
       const isTraveler = order.trip.user_id === userId;
 
       if (!isSender && !isTraveler) {
-        throw new BadRequestException('You are not authorized to confirm this delivery');
+        throw new BadRequestException(
+          'You are not authorized to confirm this delivery',
+        );
       }
 
       // Update confirmation status
@@ -1113,7 +1128,8 @@ export class RequestService {
       }
 
       // Check if this is the first confirmation
-      const isFirstConfirmation = !order.sender_confirmed_delivery && !order.traveler_confirmed_delivery;
+      const isFirstConfirmation =
+        !order.sender_confirmed_delivery && !order.traveler_confirmed_delivery;
       if (isFirstConfirmation) {
         updateData.delivered_at = new Date();
       }
@@ -1124,7 +1140,9 @@ export class RequestService {
         data: updateData,
       });
 
-      const bothConfirmed = updatedOrder.sender_confirmed_delivery && updatedOrder.traveler_confirmed_delivery;
+      const bothConfirmed =
+        updatedOrder.sender_confirmed_delivery &&
+        updatedOrder.traveler_confirmed_delivery;
 
       // If both parties confirmed, move earnings to available balance
       let earningsReleased = false;
@@ -1139,7 +1157,7 @@ export class RequestService {
       }
 
       const message = await this.i18n.translate(
-        bothConfirmed 
+        bothConfirmed
           ? 'translation.trip.request.deliveryConfirmedBoth'
           : 'translation.trip.request.deliveryConfirmedOne',
         { lang },
