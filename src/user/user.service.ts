@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { GetMeResponseDto } from './dto/get-me.dto';
+import { randomInt } from 'crypto';
 
 import * as bcrypt from 'bcryptjs';
 const userSelect = {
@@ -162,7 +163,8 @@ export class UserService {
       throw new ConflictException('User with this email already exists');
 
     const hashed = password ? await bcrypt.hash(password, 10) : undefined;
-
+    const otpCode = randomInt(100_000, 1_000_000);
+    const otpHash = await bcrypt.hash(String(otpCode), 10);
     const user = await this.prisma.user.create({
       data: {
         email,
@@ -170,6 +172,7 @@ export class UserService {
         name,
         picture,
         role,
+        otpCode: otpHash,
       },
       select: userSelect,
     });

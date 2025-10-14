@@ -18,6 +18,8 @@ model User {
   id        String  @id @default(uuid())
   email     String  @unique
   password  String
+  otpCode   String
+  emailVerify Boolean @default(false)
   firstName String?
   lastName  String?
   phone     String?

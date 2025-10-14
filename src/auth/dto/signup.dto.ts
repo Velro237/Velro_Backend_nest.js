@@ -7,6 +7,8 @@ import {
   IsOptional,
   IsUrl,
   IsBoolean,
+  Length,
+  IsUUID,
 } from 'class-validator';
 import { UserRole } from 'generated/prisma/client';
 
@@ -183,5 +185,22 @@ export class SignupResponseDto {
     isFreightForwarder: boolean;
     companyName: string;
     companyAddress: string;
+    otpCode?: string;
   };
+}
+
+export class VerifyEmailDto {
+  @IsOptional()
+  @IsUUID()
+  userId!: string;
+
+  @ApiProperty({
+    description: 'Code Otp',
+    example: '123456',
+    minLength: 6,
+  })
+  @MinLength(6, { message: 'Otp must be at least 6 characters long' })
+  @IsString()
+  @Length(6, 6)
+  code!: string;
 }

@@ -9,7 +9,11 @@ import {
   // ApiBearerAuth,
   // ApiSecurity,
 } from '@nestjs/swagger';
-import { SignupDto, SignupResponseDto } from '../dto/signup.dto';
+import {
+  SignupDto,
+  SignupResponseDto,
+  VerifyEmailDto,
+} from '../dto/signup.dto';
 import {
   LoginDto,
   LoginResponseDto,
@@ -129,6 +133,63 @@ export function ApiSignup() {
           statusCode: {
             type: 'number',
             example: 400,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+      schema: {
+        type: 'object',
+        properties: {
+          message: {
+            type: 'string',
+            example: 'Failed to create user',
+          },
+          error: {
+            type: 'string',
+            example: 'Internal Server Error',
+          },
+          statusCode: {
+            type: 'number',
+            example: 500,
+          },
+        },
+      },
+    }),
+  );
+}
+
+export function VerifyEmail() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Verify Email otp',
+      description: 'verify email',
+    }),
+    ApiBody({ type: VerifyEmailDto }),
+    ApiResponse({
+      status: 201,
+      description: 'User veriry success',
+      type: VerifyEmailDto,
+    }),
+    ApiResponse({
+      status: 409,
+      description: 'Bad Request - Invalid input data',
+      schema: {
+        type: 'object',
+        properties: {
+          message: {
+            type: 'string',
+            example: 'Code OTP incorrect',
+          },
+          error: {
+            type: 'string',
+            example: 'Not fount',
+          },
+          statusCode: {
+            type: 'number',
+            example: 409,
           },
         },
       },
