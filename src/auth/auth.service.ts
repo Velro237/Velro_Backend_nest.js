@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
-import { SignupDto, SignupResponseDto } from './dto/signup.dto';
+import { SignupDto, SignupResponseDto, VerifyEmailDto } from './dto/signup.dto';
 import { LoginDto, LoginResponseDto } from './dto/login.dto';
 import { I18nService, I18nContext } from 'nestjs-i18n';
 import * as bcrypt from 'bcryptjs';
@@ -16,6 +16,13 @@ import jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
 import * as dayjs from 'dayjs';
 import jwksClient from 'jwks-rsa';
+import {
+  SendEmailDto,
+  SendEmailResponseDto,
+} from 'src/notification/dto/send-email.dto';
+import { ConfigService } from '@nestjs/config';
+import Mailgun from 'mailgun.js';
+import { randomInt } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -23,7 +30,79 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
+
+  async sendEmail(
+    emailDto: SendEmailDto,
+    lang: string = 'en',
+  ): Promise<SendEmailResponseDto> {
+    try {
+      // Get Mailgun credentials from environment variables
+      const mailgunApiKey = this.configService.get<string>('MAILGUN_API_KEY');
+      const mailgunDomain = this.configService.get<string>('MAILGUN_DOMAIN');
+      const mailgunFromEmail = this.configService.get<string>(
+        'MAILGUN_FROM_EMAIL',
+        'noreply@velro.app',
+      );
+      const mailgunURL = this.configService.get<string>('MAILGUN_URL');
+
+      if (!mailgunApiKey || !mailgunDomain) {
+        throw new BadRequestException(
+          'Mailgun credentials are not configured. Please set MAILGUN_API_KEY and MAILGUN_DOMAIN environment variables.',
+        );
+      }
+
+      // Validate that either text or html is provided
+      if (!emailDto.text && !emailDto.html) {
+        throw new BadRequestException(
+          'Either text or html content must be provided',
+        );
+      }
+      const mailgun = new Mailgun(FormData);
+      const mg = mailgun.client({
+        username: 'api',
+        key: mailgunApiKey,
+        // When you have an EU-domain, you must specify the endpoint:
+        url: mailgunURL,
+      });
+
+      await mg.messages.create(mailgunDomain, {
+        from: mailgunFromEmail,
+        to: emailDto.to,
+        subject: emailDto.subject,
+        text: emailDto.text,
+        html: emailDto.html,
+      });
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.sent',
+        {
+          lang,
+          defaultValue: 'Email sent successfully',
+        },
+      );
+
+      return {
+        message,
+      };
+    } catch (error) {
+      console.error('Email sending error:', error.response?.data || error);
+
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.failed',
+        {
+          lang,
+          defaultValue: 'Failed to send email',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
 
   async signup(
     signupDto: SignupDto,
@@ -65,12 +144,17 @@ export class AuthService {
       const saltRounds = 10;
       const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+      const otpCode = randomInt(100_000, 1_000_000);
+      console.log('otp', otpCode);
+      const otpHash = await bcrypt.hash(String(otpCode), saltRounds);
+
       // Create the user
       const user = await this.prisma.user.create({
         data: {
           email,
           password: hashedPassword,
           role,
+          otpCode: otpHash,
           firstName,
           name: `${firstName} ${lastName}`,
           lastName,
@@ -98,6 +182,7 @@ export class AuthService {
           createdAt: true,
           isFreightForwarder: true,
           companyAddress: true,
+          otpCode: true,
         },
       });
 
@@ -109,6 +194,15 @@ export class AuthService {
           provider: 'DIDIT',
         },
       });
+
+      const emailDto: SendEmailDto = {
+        to: user.email,
+        subject: 'Welcome to Velro',
+        text: 'Thank you for joining Velro! We are excited to have you on board.',
+        html: `<h1> Your verification code is: <strong>${otpCode}</strong></h1>`,
+      };
+
+      await this.sendEmail(emailDto, 'en');
 
       const message = await this.i18n.translate(
         'translation.auth.signup.success',
@@ -131,6 +225,7 @@ export class AuthService {
           picture: '',
           isFreightForwarder: false,
           companyName: '',
+          otpCode: user.otpCode,
           companyAddress: '',
         },
       };
@@ -143,6 +238,41 @@ export class AuthService {
         },
       );
       throw new InternalServerErrorException(message);
+    }
+  }
+
+  private fail() {
+    // Message unique pour ne rien révéler
+    throw new BadRequestException('Code OTP incorrect');
+  }
+
+  async verifyEmail(emailDto: VerifyEmailDto, lang: string) {
+    const { userId, code } = emailDto;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          emailVerify: true,
+          otpCode: true,
+        },
+      });
+      if (!user) this.fail();
+      if (user.emailVerify) {
+        return { success: true, message: 'Email déjà vérifié' };
+      }
+      const codeVerify = await bcrypt.compare(code, user.otpCode);
+      if (!codeVerify) this.fail();
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          emailVerify: true,
+          otpCode: '0',
+        },
+      });
+      return { success: true, message: 'Email vérifié' };
+    } catch (error) {
+      console.log(error);
     }
   }
 
@@ -173,7 +303,9 @@ export class AuthService {
       );
       throw new UnauthorizedException(message);
     }
-
+    if (!user.emailVerify) {
+      throw new BadRequestException('Email not verify');
+    }
     // Generate JWT token
     const payload = { email: user.email, sub: user.id };
     const access_token = this.jwtService.sign(payload);
@@ -241,14 +373,27 @@ export class AuthService {
     }
 
     if (!user) {
+      const saltRounds = 10;
+      const otpCode = randomInt(100_000, 1_000_000);
+      const otpHash = await bcrypt.hash(String(otpCode), saltRounds);
       user = await this.prisma.user.create({
         data: {
           email: oauth.email,
           password: '',
           name: oauth.name,
           picture: oauth.picture,
+          otpCode: otpHash,
         },
       });
+
+      const emailDto: SendEmailDto = {
+        to: user.email,
+        subject: 'Welcome to Velro',
+        text: 'Thank you for joining Velro! We are excited to have you on board.',
+        html: `<h1> Your verification code is: <strong>${otpCode}</strong></h1>`,
+      };
+
+      await this.sendEmail(emailDto, 'en');
 
       // Create initial UserKYC record with NOT_STARTED status for OAuth users
       await this.prisma.userKYC.create({

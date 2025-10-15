@@ -9,10 +9,13 @@ import {
   Get,
   Req,
   Res,
+  Param,
+  ParseUUIDPipe,
+  Patch,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { SignupDto, SignupResponseDto } from './dto/signup.dto';
+import { SignupDto, SignupResponseDto, VerifyEmailDto } from './dto/signup.dto';
 import { LoginDto, LoginResponseDto, TokenLoginDto } from './dto/login.dto';
 import { I18nLang } from 'nestjs-i18n';
 import {
@@ -24,6 +27,7 @@ import {
   ApiAppleOAuthCallback,
   ApiGoogleTokenLogin,
   ApiAppleTokenLogin,
+  VerifyEmail,
 } from './decorators/api-docs.decorator';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
@@ -41,6 +45,17 @@ export class AuthController {
     @I18nLang() lang: string,
   ): Promise<SignupResponseDto> {
     return this.authService.signup(signupDto, lang);
+  }
+
+  @Patch('verify-otp/:id')
+  @HttpCode(HttpStatus.OK)
+  @VerifyEmail()
+  async verify(
+    @Body() emailDto: VerifyEmailDto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    const data: VerifyEmailDto = { userId: id, code: emailDto.code };
+    return this.authService.verifyEmail(data, 'en');
   }
 
   @Post('login')
