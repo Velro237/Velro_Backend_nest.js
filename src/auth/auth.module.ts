@@ -5,14 +5,17 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { PrismaModule } from '../prisma/prisma.module';
+import { NotificationModule } from '../notification/notification.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { AppleStrategy } from './strategies/apple.strategy';
+import { OtpService } from './otp/otp.service';
 
 @Module({
   imports: [
     PrismaModule,
+    NotificationModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -30,8 +33,8 @@ import { AppleStrategy } from './strategies/apple.strategy';
     LocalStrategy,
     GoogleStrategy,
     AppleStrategy,
+    OtpService,
   ],
-  exports: [AuthService, JwtStrategy, JwtModule],
-
+  exports: [AuthService, JwtStrategy, JwtModule, OtpService],
 })
 export class AuthModule {}

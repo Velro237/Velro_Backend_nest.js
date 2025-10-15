@@ -41,7 +41,10 @@ import {
   GetWalletRequestDto,
   GetWalletResponseDto,
 } from './dto/get-wallet-request.dto';
-import { CalculatePaymentDto, PaymentBreakdownDto } from './dto/calculate-payment.dto';
+import {
+  CalculatePaymentDto,
+  PaymentBreakdownDto,
+} from './dto/calculate-payment.dto';
 import {
   MobilemoneyCashoutDto,
   MobilemoneyCashoutResponseDto,
@@ -116,21 +119,23 @@ export class PaymentController {
   // Mobile Money Endpoints
   // ============================================
 
-  @Post('mobilemoney/cashout/init')
+  @Post('mobilemoney/pay')
   @HttpCode(HttpStatus.OK)
   @ApiMobileMoneyCashout()
   async initiateMobileMoneyCashout(
+    @CurrentUser() user: User,
     @Body() cashoutDto: MobilemoneyCashoutDto,
     @I18nLang() lang: string,
   ): Promise<MobilemoneyCashoutResponseDto> {
     return this.mobilemoneyService.makeWithdrawal(
-      cashoutDto.amount,
+      user.id,
+      cashoutDto.requestId,
       cashoutDto.phoneNumber,
       lang,
     );
   }
 
-  @Post('mobilemoney/deposit/init')
+  @Post('mobilemoney/deposit')
   @HttpCode(HttpStatus.OK)
   @ApiMobilemoneyDeposit()
   async initiateMobilemoneyDeposit(
@@ -161,7 +166,8 @@ export class PaymentController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Calculate payment breakdown',
-    description: 'Calculate how much sender will pay based on traveler price. Shows platform fee breakdown.',
+    description:
+      'Calculate how much sender will pay based on traveler price. Shows platform fee breakdown.',
   })
   @ApiResponse({
     status: 200,

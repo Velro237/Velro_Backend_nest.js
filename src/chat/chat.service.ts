@@ -94,7 +94,7 @@ export class ChatService {
         },
       });
 
-      // If chat exists and both users are members, prevent creation
+       // If chat exists and both users are members, prevent creation
       if (existingChat) {
         const memberUserIds = existingChat.members.map((m) => m.user_id);
         const bothUsersAreMembersOfChat =

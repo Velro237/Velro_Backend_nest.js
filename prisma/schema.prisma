@@ -15,19 +15,19 @@ enum Provider {
 }
 
 model User {
-  id        String  @id @default(uuid())
-  email     String  @unique
-  password  String
-  otpCode   String
+  id          String  @id @default(uuid())
+  email       String  @unique
+  password    String
+  otpCode     String?
   emailVerify Boolean @default(false)
-  firstName String?
-  lastName  String?
-  phone     String?
-  address   String?
-  city      String?
-  state     String?
-  zip       String?
-  picture   String?
+  firstName   String?
+  lastName    String?
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  zip         String?
+  picture     String?
 
   name               String
   isFreightForwarder Boolean       @default(false)
@@ -491,7 +491,6 @@ enum TransactionType {
 enum TransactionSource {
   ORDER // From completed order
   WITHDRAW // Withdrawal request
-  WITHDRAWAL // Withdrawal request
   ADJUSTMENT // Manual adjustment by admin
   REFUND // Refund to sender
   COMMISSION // Platform commission deduction
@@ -569,6 +568,8 @@ model Transaction {
   stripe_transfer_id String? @unique
   stripe_account_id  String?
 
+  phone_number String?
+
   wallet  Wallet       @relation(fields: [wallet_id], references: [id])
   trip    Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
   request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
@@ -576,4 +577,25 @@ model Transaction {
   @@index([userId, createdAt])
   @@index([reference])
   @@index([stripe_transfer_id])
+}
+
+model Otp {
+  id         String   @id @default(uuid())
+  code       String
+  email      String?
+  phone      String?
+  type       OtpType
+  expiresAt  DateTime
+  verified   Boolean  @default(false)
+  access_key String?  @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum OtpType {
+  LOGIN
+  SIGNUP
+  FORGOT_PASSWORD
+  VERIFY_EMAIL
 }

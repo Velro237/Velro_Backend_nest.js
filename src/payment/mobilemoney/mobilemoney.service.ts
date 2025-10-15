@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentAction, PaymentCarrier } from '../entitiy/mobilemoney.entity';
 import { I18nService } from 'nestjs-i18n';
 import { MobilemoneyCashoutResponseDto } from '../dto/mobilemoney-cashout.dto';
@@ -32,6 +33,7 @@ export class MobilemoneyService {
   constructor(
     private readonly configService: ConfigService,
     private readonly i18n: I18nService,
+    private readonly prisma: PrismaService,
   ) {
     this.baseUri = this.configService.get<string>('MOALA_URL');
     this.appKey = this.configService.get<string>('MOALA_API_KEY');
@@ -318,12 +320,59 @@ export class MobilemoneyService {
    * Make withdrawal - High-level method with validation
    */
   async makeWithdrawal(
-    amount: number,
+    userId: string,
+    requestId: string,
     phoneNumber: string,
     lang: string = 'en',
   ): Promise<MobilemoneyCashoutResponseDto> {
     try {
       this.validateConfiguration(lang);
+
+      // Get trip request with cost
+      const request = await this.prisma.tripRequest.findUnique({
+        where: { id: requestId },
+        include: {
+          trip: true,
+          user: true,
+        },
+      });
+
+      if (!request) {
+        throw new BadRequestException('Trip request not found');
+      }
+
+      if (!request.cost) {
+        throw new BadRequestException('Request cost not found');
+      }
+
+      // Use request cost as amount
+      const amount = Number(request.cost);
+
+      // Get user and wallet
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { wallet: true },
+      });
+
+      if (!user) {
+        throw new BadRequestException('User not found');
+      }
+
+      if (!user.wallet) {
+        throw new BadRequestException('User wallet not found');
+      }
+
+      // Check wallet state
+      if (user.wallet.state === 'BLOCKED') {
+        throw new BadRequestException(
+          'Wallet is blocked. Cannot process withdrawal.',
+        );
+      }
+
+      // Check if user has sufficient balance
+      if (Number(user.wallet.available_balance) < amount) {
+        throw new BadRequestException('Insufficient balance for withdrawal');
+      }
 
       // Validate phone number carrier
       const carrier = this.getCarrier(phoneNumber);
@@ -356,8 +405,40 @@ export class MobilemoneyService {
         throw new BadRequestException(message);
       }
 
+      // Calculate fee using VELRO_FEE_PERCENT from environment
+      const feePercent = this.configService.get<number>('VELRO_FEE_PERCENT', 0);
+      const feeApplied = (amount * feePercent) / 100;
+      const amountPaid = amount + feeApplied;
+
       // Execute cashout (generates unique partnerId internally)
-      const result = await this.cashout(phoneNumber, serviceCode, amount, lang);
+      const result = await this.cashout(
+        phoneNumber,
+        serviceCode,
+        amountPaid,
+        lang,
+      );
+
+      // Create transaction record
+      const transaction = await this.prisma.transaction.create({
+        data: {
+          userId: userId,
+          wallet_id: user.wallet.id,
+          trip_id: request.trip_id,
+          request_id: requestId,
+          type: 'DEBIT',
+          source: 'WITHDRAW',
+          amount_requested: amount,
+          fee_applied: feeApplied,
+          amount_paid: amountPaid,
+          currency: user.wallet.currency,
+          provider: carrier === PaymentCarrier.MTN_CM ? 'MTN' : 'ORANGE',
+          reference: result.partnerId,
+          phone_number: phoneNumber,
+          description: `Mobile Money withdrawal for request ${requestId} to ${phoneNumber}`,
+          status: 'PENDING',
+          metadata: result,
+        },
+      });
 
       const message = await this.i18n.translate(
         'translation.payment.mobilemoney.withdrawalInitiated',
@@ -370,11 +451,11 @@ export class MobilemoneyService {
       return {
         message,
         transaction: {
-          transactionId: result.partnerId, // Use partnerId as transaction ID
-          amount,
+          transactionId: transaction.id,
+          amount: Number(transaction.amount_requested),
           phoneNumber,
           carrier: String(carrier),
-          status: result.status || 'PENDING',
+          status: transaction.status,
         },
       };
     } catch (error) {

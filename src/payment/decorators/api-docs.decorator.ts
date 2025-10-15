@@ -255,23 +255,23 @@ export const ApiMobileMoneyCashout = () =>
     ApiOperation({
       summary: 'Initiate mobile money withdrawal',
       description:
-        'Initiate a cashout/withdrawal to a Cameroonian mobile money account (MTN or Orange). Validates phone number format and carrier support. Minimum withdrawal amount is 100 XAF.',
+        'Initiate a cashout/withdrawal to a Cameroonian mobile money account (MTN or Orange) using a trip request. The withdrawal amount is taken from the request cost. Validates phone number format and carrier support.',
     }),
     ApiBody({
       type: MobilemoneyCashoutDto,
-      description: 'Withdrawal details including amount and phone number',
+      description: 'Withdrawal details including request ID and phone number',
       examples: {
         'MTN Cameroon': {
           summary: 'Withdraw to MTN Cameroon number',
           value: {
-            amount: 5000,
+            requestId: '123e4567-e89b-12d3-a456-426614174000',
             phoneNumber: '677123456',
           },
         },
         'Orange Cameroon': {
           summary: 'Withdraw to Orange Cameroon number',
           value: {
-            amount: 10000,
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
             phoneNumber: '691234567',
           },
         },

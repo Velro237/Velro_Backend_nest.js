@@ -222,5 +222,44 @@
     },
     "userNotFound": "Utilisateur non trouvé",
     "notFound": "Notification non trouvée"
+  },
+  "otp": {
+    "sent": "Code OTP envoyé avec succès",
+    "verified": "Code OTP vérifié avec succès",
+    "invalid": "Code OTP invalide ou expiré",
+    "expired": "Le code OTP a expiré",
+    "sendFailed": "Échec de l'envoi de l'e-mail de vérification",
+    "accessKey": {
+      "valid": "Clé d'accès valide",
+      "invalid": "Clé d'accès invalide",
+      "emailMismatch": "La clé d'accès n'appartient pas à cet e-mail",
+      "invalidType": "Clé d'accès invalide pour cette opération",
+      "notVerified": "Clé d'accès non vérifiée",
+      "expired": "La clé d'accès a expiré",
+      "invalidated": "Clé d'accès invalidée avec succès"
+    },
+    "email": {
+      "verifyEmail": {
+        "subject": "Vérifiez votre e-mail - Velro",
+        "welcome": "Bienvenue sur Velro !",
+        "codeLabel": "Votre code de vérification est :",
+        "expiry": "Ce code expirera dans 10 minutes.",
+        "ignore": "Si vous n'avez pas demandé ce code, veuillez ignorer cet e-mail."
+      },
+      "login": {
+        "subject": "Votre code de connexion - Velro",
+        "title": "Connexion à Velro",
+        "codeLabel": "Votre code de vérification de connexion est :",
+        "expiry": "Ce code expirera dans 10 minutes.",
+        "warning": "Si vous n'avez pas demandé ce code, veuillez sécuriser votre compte immédiatement."
+      },
+      "forgotPassword": {
+        "subject": "Réinitialisez votre mot de passe - Velro",
+        "title": "Réinitialisez votre mot de passe",
+        "codeLabel": "Votre code de réinitialisation de mot de passe est :",
+        "expiry": "Ce code expirera dans 10 minutes.",
+        "ignore": "Si vous n'avez pas demandé de réinitialisation de mot de passe, veuillez ignorer cet e-mail."
+      }
+    }
   }
 }

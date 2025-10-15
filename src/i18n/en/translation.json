@@ -221,5 +221,44 @@
     },
     "userNotFound": "User not found",
     "notFound": "Notification not found"
+  },
+  "otp": {
+    "sent": "OTP sent successfully",
+    "verified": "OTP verified successfully",
+    "invalid": "Invalid or expired OTP code",
+    "expired": "OTP code has expired",
+    "sendFailed": "Failed to send verification email",
+    "accessKey": {
+      "valid": "Access key is valid",
+      "invalid": "Invalid access key",
+      "emailMismatch": "Access key does not belong to this email",
+      "invalidType": "Invalid access key for this operation",
+      "notVerified": "Access key not verified",
+      "expired": "Access key has expired",
+      "invalidated": "Access key invalidated successfully"
+    },
+    "email": {
+      "verifyEmail": {
+        "subject": "Verify Your Email - Velro",
+        "welcome": "Welcome to Velro!",
+        "codeLabel": "Your verification code is:",
+        "expiry": "This code will expire in 10 minutes.",
+        "ignore": "If you didn't request this code, please ignore this email."
+      },
+      "login": {
+        "subject": "Your Login Code - Velro",
+        "title": "Login to Velro",
+        "codeLabel": "Your login verification code is:",
+        "expiry": "This code will expire in 10 minutes.",
+        "warning": "If you didn't request this code, please secure your account immediately."
+      },
+      "forgotPassword": {
+        "subject": "Reset Your Password - Velro",
+        "title": "Reset Your Password",
+        "codeLabel": "Your password reset code is:",
+        "expiry": "This code will expire in 10 minutes.",
+        "ignore": "If you didn't request a password reset, please ignore this email."
+      }
+    }
   }
 }

@@ -303,9 +303,9 @@ export class AuthService {
       );
       throw new UnauthorizedException(message);
     }
-    if (!user.emailVerify) {
-      throw new BadRequestException('Email not verify');
-    }
+    // if (!user.emailVerify) {
+    //   throw new BadRequestException('Email not verify');
+    // }
     // Generate JWT token
     const payload = { email: user.email, sub: user.id };
     const access_token = this.jwtService.sign(payload);
