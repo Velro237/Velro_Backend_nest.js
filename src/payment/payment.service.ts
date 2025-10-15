@@ -281,15 +281,43 @@ export class PaymentService {
         };
       }
 
-      // Create new PaymentIntent
+      // SECURITY: Calculate amount from order (backend is source of truth)
+      // Get traveler price from order
+      const travelerPrice = Number(order.cost || 0);
+      if (travelerPrice <= 0) {
+        throw new BadRequestException('Invalid order price');
+      }
+
+      // Calculate platform fee (client spec: 7% + €1, min €1.99)
+      const platformFee = this.calculatePlatformCommission(travelerPrice);
+      
+      // Calculate total sender pays
+      const senderTotal = travelerPrice + platformFee;
+
+      // Get traveler ID from order
+      const travelerId = order.trip.user_id;
+
+      // Get currency from order
+      const currency = order.currency || 'EUR';
+
+      this.logger.log(
+        `Payment breakdown - Traveler gets: €${travelerPrice.toFixed(2)}, ` +
+        `Platform fee: €${platformFee.toFixed(2)}, ` +
+        `Sender pays: €${senderTotal.toFixed(2)}`
+      );
+
+      // Create new PaymentIntent with CALCULATED amount (secure)
       const paymentIntent = await this.stripeService.createPaymentIntent({
-        amount: dto.amount,
-        currency: dto.currency || 'EUR',
+        amount: senderTotal,
+        currency: currency,
         orderId: dto.orderId,
-        travelerId: dto.travelerId,
+        travelerId: travelerId,
         metadata: {
           senderId,
-          travelerId: dto.travelerId,
+          travelerId: travelerId,
+          travelerPrice: travelerPrice.toFixed(2),
+          platformFee: platformFee.toFixed(2),
+          senderTotal: senderTotal.toFixed(2),
         },
       });
 
@@ -298,7 +326,7 @@ export class PaymentService {
         where: { id: dto.orderId },
         data: {
           payment_intent_id: paymentIntent.id,
-          currency: dto.currency || 'EUR',
+          currency: currency,
           payment_status: PaymentStatus.PROCESSING,
         },
       });
@@ -310,8 +338,8 @@ export class PaymentService {
       return {
         clientSecret: paymentIntent.client_secret,
         paymentIntentId: paymentIntent.id,
-        amount: dto.amount,
-        currency: dto.currency || 'EUR',
+        amount: senderTotal,
+        currency: currency,
       };
     } catch (error) {
       this.logger.error('Failed to create payment intent:', error);
@@ -345,12 +373,10 @@ export class PaymentService {
         return;
       }
 
-      // ✅ IDEMPOTENCY CHECK: Prevent duplicate webhook processing
+      // IDEMPOTENCY: Check if payment already processed
       if (order.payment_status === PaymentStatus.SUCCEEDED) {
-        this.logger.warn(
-          `Payment already processed for order ${order.id}. Skipping duplicate webhook.`,
-        );
-        return; // Already processed, skip
+        this.logger.log(`Payment already processed for order ${order.id}`);
+        return;
       }
 
       // Update order status
@@ -576,15 +602,13 @@ export class PaymentService {
    * Calculate platform commission
    */
   private calculatePlatformCommission(grossAmount: number): number {
-    // Client spec: 7% + €1.00 (minimum €1.99)
+    // Client spec: 7% + €1.00 (minimum €1.99, no maximum)
     const feePercent = Number(this.configService.get<number>('VELRO_FEE_PERCENT'));
     const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
     const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN'));
-    const feeMax = Number(this.configService.get<number>('VELRO_FEE_MAX'));
 
     let commission = (grossAmount * feePercent) / 100 + feeFixed;
     commission = Math.max(commission, feeMin);
-    commission = Math.min(commission, feeMax);
 
     return Math.round(commission * 100) / 100; // Round to 2 decimals
   }

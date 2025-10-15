@@ -270,7 +270,7 @@ export class WalletService {
           userId: travelerId,
           wallet_id: wallet.id,
           type: 'CREDIT',
-          source: 'ORDER',
+          source: 'TRIP_EARNING',
           amount_requested: amount,
           fee_applied: 0,
           amount_paid: amount,
@@ -383,10 +383,9 @@ export class WalletService {
   private calculateWithdrawalFee(amount: number): number {
     // Client spec: 2% (minimum €1.00, no fixed fee)
     const feePercent = Number(this.configService.get<number>('WITHDRAWAL_FEE_PERCENT'));
-    const feeFixed = Number(this.configService.get<number>('WITHDRAWAL_FEE_FIXED'));
     const feeMin = Number(this.configService.get<number>('WITHDRAWAL_FEE_MIN'));
 
-    let fee = (amount * feePercent / 100) + feeFixed;
+    let fee = (amount * feePercent / 100);
     fee = Math.max(fee, feeMin);
 
     return Math.round(fee * 100) / 100; // Round to 2 decimals
