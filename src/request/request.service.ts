@@ -12,6 +12,7 @@ import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { RedisService } from '../redis/redis.service';
 import { WalletService } from '../wallet/wallet.service';
+import { NotificationService } from '../notification/notification.service';
 import { MessageType as PrismaMessageType, UserRole } from 'generated/prisma';
 import { MessageType } from '../chat/dto/send-message.dto';
 import {
@@ -38,6 +39,7 @@ export class RequestService {
     private readonly chatGateway: ChatGateway,
     private readonly redis: RedisService,
     private readonly walletService: WalletService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // Trip Request methods
@@ -69,6 +71,19 @@ export class RequestService {
         },
       );
       throw new NotFoundException(message);
+    }
+
+    // Check if trip is fully booked
+    if (trip.fully_booked) {
+      const message = await this.i18n.translate(
+        'translation.trip.request.tripFullyBooked',
+        {
+          lang,
+          defaultValue:
+            'This trip is fully booked and not accepting new requests',
+        },
+      );
+      throw new ConflictException(message);
     }
 
     // Check if user exists
@@ -439,6 +454,91 @@ export class RequestService {
           },
         },
       });
+
+      // Create notification for trip owner with full request data
+      try {
+        const departureLocation =
+          (fullRequest.trip.departure as any)?.city ||
+          (fullRequest.trip.departure as any)?.country ||
+          'Unknown';
+        const destinationLocation =
+          (fullRequest.trip.destination as any)?.city ||
+          (fullRequest.trip.destination as any)?.country ||
+          'Unknown';
+
+        const title = await this.i18n.translate(
+          'translation.notification.newTripRequest.title',
+          {
+            lang,
+            defaultValue: 'New Trip Request',
+          },
+        );
+
+        const notificationMessage = await this.i18n.translate(
+          'translation.notification.newTripRequest.message',
+          {
+            lang,
+            defaultValue:
+              '{requesterName} has requested to join your trip from {departure} to {destination}',
+            args: {
+              requesterName: fullRequest.user.name || 'A user',
+              departure: departureLocation,
+              destination: destinationLocation,
+            },
+          },
+        );
+
+        // Prepare full request data for notification
+        const requestData = {
+          id: fullRequest.id,
+          trip_id: fullRequest.trip_id,
+          user_id: fullRequest.user_id,
+          status: fullRequest.status,
+          message: fullRequest.message,
+          cost: fullRequest.cost ? Number(fullRequest.cost) : null,
+          created_at: fullRequest.created_at,
+          user: {
+            id: fullRequest.user.id,
+            email: fullRequest.user.email,
+            name: fullRequest.user.name,
+            picture: fullRequest.user.picture,
+            role: fullRequest.user.role,
+            kycRecord: fullRequest.user.kycRecords?.[0] || null,
+          },
+          request_items: fullRequest.request_items.map((item) => ({
+            trip_item_id: item.trip_item_id,
+            quantity: item.quantity,
+            special_notes: item.special_notes,
+            trip_item: item.trip_item,
+          })),
+          trip: {
+            id: fullRequest.trip.id,
+            departure: fullRequest.trip.departure,
+            destination: fullRequest.trip.destination,
+            departure_date: fullRequest.trip.departure_date,
+            departure_time: fullRequest.trip.departure_time,
+          },
+        };
+
+        // Get trip owner's device_id
+        const tripOwner = await this.prisma.user.findUnique({
+          where: { id: fullRequest.trip.user_id },
+          select: { device_id: true },
+        });
+
+        await this.createRequestNotification(
+          fullRequest.trip.user_id,
+          title,
+          notificationMessage,
+          requestData,
+          tripOwner?.device_id,
+        );
+      } catch (notificationError) {
+        console.error(
+          'Failed to create notification for trip owner:',
+          notificationError,
+        );
+      }
 
       const message = await this.i18n.translate(
         'translation.trip.request.createSuccess',
@@ -937,7 +1037,6 @@ export class RequestService {
 
   async changeRequestStatus(
     requestId: string,
-    chatId: string,
     status: any,
     userId: string,
     lang?: string,
@@ -980,13 +1079,85 @@ export class RequestService {
         throw new ConflictException(message);
       }
 
-      // Check if request is currently pending
-      if (request.status !== 'PENDING') {
-        const message = await this.i18n.translate(
-          'translation.trip.request.notPending',
-          { lang },
-        );
-        throw new ConflictException(message);
+      // Find the chat between trip owner and requester for this trip
+      const chat = await this.prisma.chat.findFirst({
+        where: {
+          trip_id: request.trip_id,
+          members: {
+            every: {
+              user_id: {
+                in: [request.trip.user_id, request.user_id],
+              },
+            },
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!chat) {
+        throw new NotFoundException('Chat not found for this request');
+      }
+
+      const chatId = chat.id;
+
+      // Validate status transitions using switch statement
+      const currentStatus = request.status;
+      switch (status) {
+        case 'ACCEPTED':
+        case 'DECLINED':
+          // Can only accept or decline if current status is PENDING
+          if (currentStatus !== 'PENDING') {
+            const message = await this.i18n.translate(
+              'translation.trip.request.invalidTransition.mustBePending',
+              {
+                lang,
+                defaultValue:
+                  'Request must be in PENDING status to be accepted or declined',
+              },
+            );
+            throw new BadRequestException(message);
+          }
+          break;
+
+        case 'CONFIRMED':
+          // Can only confirm if current status is ACCEPTED
+          if (currentStatus !== 'ACCEPTED') {
+            const message = await this.i18n.translate(
+              'translation.trip.request.invalidTransition.mustBeAccepted',
+              {
+                lang,
+                defaultValue:
+                  'Request must be in ACCEPTED status to be confirmed',
+              },
+            );
+            throw new BadRequestException(message);
+          }
+          break;
+
+        case 'DELIVERED':
+          // Can only mark as delivered if current status is CONFIRMED
+          if (currentStatus !== 'CONFIRMED') {
+            const message = await this.i18n.translate(
+              'translation.trip.request.invalidTransition.mustBeConfirmed',
+              {
+                lang,
+                defaultValue:
+                  'Request must be in CONFIRMED status to be marked as delivered',
+              },
+            );
+            throw new BadRequestException(message);
+          }
+          break;
+
+        case 'CANCELLED':
+        case 'REFUNDED':
+          // These can be set from any status (no restriction)
+          break;
+
+        default:
+          throw new BadRequestException(`Invalid status: ${status}`);
       }
 
       // Update the request status
@@ -1029,6 +1200,98 @@ export class RequestService {
         await this.redis.invalidateUserCache(request.user.id); // Requester
       } catch (cacheError) {
         console.error('Failed to invalidate cache:', cacheError);
+      }
+
+      // Create notification for requester about status change
+      try {
+        const requester = await this.prisma.user.findUnique({
+          where: { id: request.user_id },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            device_id: true,
+          },
+        });
+
+        const departureLocation =
+          (request.trip.departure as any)?.city ||
+          (request.trip.departure as any)?.country ||
+          'Unknown';
+        const destinationLocation =
+          (request.trip.destination as any)?.city ||
+          (request.trip.destination as any)?.country ||
+          'Unknown';
+
+        const notificationTitle = await this.i18n.translate(
+          'translation.notification.requestStatusChanged.title',
+          {
+            lang,
+            defaultValue: 'Request Status Updated',
+          },
+        );
+
+        const notificationMessage = await this.i18n.translate(
+          `translation.notification.requestStatusChanged.${status.toLowerCase()}`,
+          {
+            lang,
+            defaultValue:
+              'Your trip request status has been changed to {status}',
+            args: {
+              status: status.toLowerCase(),
+              departure: departureLocation,
+              destination: destinationLocation,
+            },
+          },
+        );
+
+        // Prepare full request data for notification
+        const requestData = {
+          id: request.id,
+          trip_id: request.trip_id,
+          user_id: request.user_id,
+          status: status,
+          message: request.message,
+          cost: request.cost ? Number(request.cost) : null,
+          created_at: request.created_at,
+          updated_at: request.updated_at,
+          user: {
+            id: request.user.id,
+            email: request.user.email,
+          },
+          request_items: request.request_items.map((item) => ({
+            trip_item_id: item.trip_item_id,
+            quantity: item.quantity,
+            special_notes: item.special_notes,
+          })),
+          trip: {
+            id: request.trip.id,
+            user_id: request.trip.user_id,
+            departure: request.trip.departure,
+            destination: request.trip.destination,
+            departure_date: request.trip.departure_date,
+            departure_time: request.trip.departure_time,
+            user: {
+              id: request.trip.user.id,
+              email: request.trip.user.email,
+              name: request.trip.user.name,
+            },
+          },
+        };
+
+        await this.createRequestNotification(
+          request.user_id,
+          notificationTitle,
+          notificationMessage,
+          requestData,
+          requester?.device_id,
+        );
+      } catch (notificationError) {
+        console.error(
+          'Failed to send notification to requester:',
+          notificationError,
+        );
+        // Don't fail the status change if notification fails
       }
 
       const message = await this.i18n.translate(
@@ -1094,9 +1357,9 @@ export class RequestService {
         throw new NotFoundException('Order not found');
       }
 
-      // Check if order is approved and paid
-      if (order.status !== 'APPROVED') {
-        throw new BadRequestException('Order must be approved first');
+      // Check if order is accepted and paid
+      if (order.status !== 'ACCEPTED') {
+        throw new BadRequestException('Order must be accepted first');
       }
 
       if (order.payment_status !== 'SUCCEEDED') {
@@ -1178,6 +1441,44 @@ export class RequestService {
         throw error;
       }
       throw new InternalServerErrorException('Failed to confirm delivery');
+    }
+  }
+
+  /**
+   * Private helper method to create notification and send push notification for request events
+   */
+  private async createRequestNotification(
+    recipientUserId: string,
+    title: string,
+    message: string,
+    requestData: any,
+    deviceId?: string,
+  ): Promise<void> {
+    try {
+      // Create notification in database
+      await this.notificationService.createNotification(
+        {
+          user_id: recipientUserId,
+          title,
+          message,
+          type: 'REQUEST',
+          data: requestData,
+        },
+        'en',
+      );
+
+      // Send push notification if user has device_id
+      if (deviceId) {
+        await this.notificationService.sendPushNotification({
+          deviceId,
+          title,
+          body: message,
+          data: requestData,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to create/send notification:', error);
+      // Don't throw - notification failure shouldn't stop the main operation
     }
   }
 }

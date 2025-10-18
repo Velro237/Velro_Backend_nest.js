@@ -1106,7 +1106,7 @@ export class UserService {
       // Calculate success rate
       const totalRequests = requestsData.length;
       const acceptedRequests = requestsData.filter(
-        (request) => request.status === 'APPROVED',
+        (request) => request.status === 'ACCEPTED',
       ).length;
 
       const successRate =

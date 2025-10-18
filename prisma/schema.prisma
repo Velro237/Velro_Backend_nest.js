@@ -28,6 +28,7 @@ model User {
   state       String?
   zip         String?
   picture     String?
+  currency    String? @default("XAF")
 
   name               String
   isFreightForwarder Boolean       @default(false)
@@ -166,9 +167,10 @@ model Trip {
   airline_id           String
   maximum_weight_in_kg Decimal?  @db.Decimal(5, 2)
   notes                String?
+  fully_booked         Boolean   @default(false)
 
   meetup_flexible Boolean    @default(false)
-  status          TripStatus @default(PUBLISHED)
+  status          TripStatus @default(SCHEDULED)
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -317,16 +319,22 @@ enum UserStatus {
 
 enum TripStatus {
   PUBLISHED
+  SCHEDULED
+  RESCHEDULED
+  INPROGRESS
   CANCELLED
   COMPLETED
-  FULLY_BOOKED
+  DRAFT
 }
 
 enum RequestStatus {
   PENDING
-  APPROVED
-  REJECTED
+  ACCEPTED
+  DELIVERED
+  DECLINED
   CANCELLED
+  REFUNDED
+  CONFIRMED
 }
 
 enum ReportType {

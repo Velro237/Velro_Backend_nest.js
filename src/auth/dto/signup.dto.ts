@@ -140,6 +140,17 @@ export class SignupDto {
   @IsString()
   @IsOptional()
   companyAddress?: string;
+
+  @ApiProperty({
+    description: 'Preferred currency (ISO 4217 code)',
+    example: 'EUR',
+    enum: ['USD', 'EUR', 'GBP', 'XAF'],
+    default: 'EUR',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  currency?: string = 'EUR';
 }
 
 export class SignupResponseDto {
@@ -167,6 +178,7 @@ export class SignupResponseDto {
       isFreightForwarder: true,
       companyName: 'Freight Forwarder',
       companyAddress: '123 Main St',
+      currency: 'EUR',
     },
   })
   user: {
@@ -185,6 +197,7 @@ export class SignupResponseDto {
     isFreightForwarder: boolean;
     companyName: string;
     companyAddress: string;
+    currency: string;
     otpCode?: string;
   };
 }

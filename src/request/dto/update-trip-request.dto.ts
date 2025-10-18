@@ -6,7 +6,7 @@ export class UpdateTripRequestDto {
   @ApiProperty({
     description: 'Request status',
     enum: RequestStatus,
-    example: RequestStatus.APPROVED,
+    example: RequestStatus.ACCEPTED,
     required: false,
   })
   @IsEnum(RequestStatus)
@@ -36,7 +36,7 @@ export class UpdateTripRequestResponseDto {
       id: '123e4567-e89b-12d3-a456-426614174002',
       trip_id: '123e4567-e89b-12d3-a456-426614174000',
       user_id: '123e4567-e89b-12d3-a456-426614174001',
-      status: 'APPROVED',
+      status: 'ACCEPTED',
       message: 'I would like to request these items for my upcoming trip',
       updated_at: '2024-01-15T10:30:00.000Z',
     },

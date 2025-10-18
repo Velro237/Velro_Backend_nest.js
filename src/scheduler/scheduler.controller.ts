@@ -5,7 +5,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { AlertSchedulerService } from './alert-scheduler.service';
+import { SchedulerService } from './scheduler.service';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -14,7 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('scheduler')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class SchedulerController {
-  constructor(private readonly alertSchedulerService: AlertSchedulerService) {}
+  constructor(private readonly schedulerService: SchedulerService) {}
 
   @Post('trigger-alert-check')
   @ApiOperation({
@@ -44,9 +44,43 @@ export class SchedulerController {
     description: 'Forbidden - Admin access required',
   })
   async triggerAlertCheck() {
-    await this.alertSchedulerService.triggerAlertCheck();
+    await this.schedulerService.triggerAlertCheck();
     return {
       message: 'Alert check triggered successfully',
+    };
+  }
+
+  @Post('trigger-trip-status-update')
+  @ApiOperation({
+    summary: 'Manually trigger trip status update (Admin only)',
+    description:
+      'Manually trigger the trip status update process. This will update all trips to INPROGRESS or COMPLETED based on their departure and arrival dates.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Trip status update triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Trip status update triggered successfully',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async triggerTripStatusUpdate() {
+    await this.schedulerService.triggerTripStatusUpdate();
+    return {
+      message: 'Trip status update triggered successfully',
     };
   }
 }

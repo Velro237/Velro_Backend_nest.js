@@ -46,10 +46,15 @@ import { CreateAlertDto, CreateAlertResponseDto } from './dto/create-alert.dto';
 import { UpdateAlertDto, UpdateAlertResponseDto } from './dto/update-alert.dto';
 import { DeleteAlertResponseDto } from './dto/delete-alert.dto';
 import { GetAlertsQueryDto, GetAlertsResponseDto } from './dto/get-alerts.dto';
+import {
+  GetUserTripsQueryDto,
+  GetUserTripsResponseDto,
+} from './dto/get-user-trips.dto';
+import { GetUserTripDetailResponseDto } from './dto/get-user-trip-detail.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
 import { NotificationService } from '../notification/notification.service';
-import { UserRole } from 'generated/prisma/client';
+import { UserRole, TripStatus } from 'generated/prisma/client';
 
 @Injectable()
 export class TripService {
@@ -268,9 +273,64 @@ export class TripService {
     try {
       const updateData: any = { ...updateTripDto };
 
+      // Remove status from updateData - users cannot update status directly
+      delete updateData.status;
+
       // Convert departure_date string to Date if provided
       if (updateData.departure_date) {
         updateData.departure_date = new Date(updateData.departure_date);
+      }
+
+      // Convert arrival_date string to Date if provided
+      if (updateData.arrival_date) {
+        updateData.arrival_date = new Date(updateData.arrival_date);
+      }
+
+      // Store departure and arrival dates in variables
+      // Use new values if provided, otherwise use existing values
+      let departureDate = updateData.departure_date
+        ? new Date(updateData.departure_date)
+        : new Date(existingTrip.departure_date);
+
+      let arrivalDate =
+        updateData.arrival_date !== undefined
+          ? updateData.arrival_date
+            ? new Date(updateData.arrival_date)
+            : null
+          : existingTrip.arrival_date
+            ? new Date(existingTrip.arrival_date)
+            : null;
+
+      // Normalize dates to midnight for comparison
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      departureDate.setHours(0, 0, 0, 0);
+      if (arrivalDate) {
+        arrivalDate.setHours(0, 0, 0, 0);
+      }
+
+      // Validate departure_date is greater than today
+      if (departureDate <= today) {
+        const message = await this.i18n.translate(
+          'translation.trip.update.departureDateMustBeInFuture',
+          {
+            lang,
+            defaultValue: 'Departure date must be greater than today',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Validate arrival_date is greater than departure_date (if arrival_date exists)
+      if (arrivalDate && arrivalDate <= departureDate) {
+        const message = await this.i18n.translate(
+          'translation.trip.update.arrivalDateMustBeAfterDeparture',
+          {
+            lang,
+            defaultValue: 'Arrival date must be greater than departure date',
+          },
+        );
+        throw new BadRequestException(message);
       }
 
       // Handle JSON fields properly
@@ -281,6 +341,53 @@ export class TripService {
         updateData.destination = updateData.destination || null;
       }
 
+      // Check if schedule-related fields have changed
+      let scheduleChanged = false;
+
+      // Check departure_date
+      if (updateData.departure_date) {
+        const existingDate = new Date(existingTrip.departure_date);
+        const newDate = new Date(updateData.departure_date);
+        if (existingDate.getTime() !== newDate.getTime()) {
+          scheduleChanged = true;
+        }
+      }
+
+      // Check departure_time
+      if (
+        updateData.departure_time !== undefined &&
+        updateData.departure_time !== existingTrip.departure_time
+      ) {
+        scheduleChanged = true;
+      }
+
+      // Check arrival_date
+      if (updateData.arrival_date !== undefined) {
+        const existingArrivalDate = existingTrip.arrival_date
+          ? new Date(existingTrip.arrival_date).getTime()
+          : null;
+        const newArrivalDate = updateData.arrival_date
+          ? new Date(updateData.arrival_date).getTime()
+          : null;
+
+        if (existingArrivalDate !== newArrivalDate) {
+          scheduleChanged = true;
+        }
+      }
+
+      // Check arrival_time
+      if (
+        updateData.arrival_time !== undefined &&
+        updateData.arrival_time !== existingTrip.arrival_time
+      ) {
+        scheduleChanged = true;
+      }
+
+      // If any schedule field changed, change status to RESCHEDULED
+      if (scheduleChanged) {
+        updateData.status = 'RESCHEDULED';
+      }
+
       const trip = await this.prisma.trip.update({
         where: { id: tripId },
         data: updateData,
@@ -289,7 +396,10 @@ export class TripService {
           user_id: true,
           departure_date: true,
           departure_time: true,
+          arrival_date: true,
+          arrival_time: true,
           status: true,
+          fully_booked: true,
           updatedAt: true,
         },
       });
@@ -310,6 +420,428 @@ export class TripService {
         'translation.trip.update.failed',
         {
           lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  // Update trip status based on departure and arrival dates
+  async updateTripStatusByDates(tripId: string): Promise<void> {
+    // Fetch the trip
+    const trip = await this.prisma.trip.findUnique({
+      where: { id: tripId },
+      select: {
+        id: true,
+        departure_date: true,
+        arrival_date: true,
+        status: true,
+      },
+    });
+
+    if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    // Get today's date at midnight for comparison
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const departureDate = new Date(trip.departure_date);
+    departureDate.setHours(0, 0, 0, 0);
+
+    const arrivalDate = trip.arrival_date ? new Date(trip.arrival_date) : null;
+    if (arrivalDate) {
+      arrivalDate.setHours(0, 0, 0, 0);
+    }
+
+    let newStatus: TripStatus | null = null;
+
+    // Check if trip should be COMPLETED (arrival date has passed)
+    if (arrivalDate && arrivalDate < today) {
+      newStatus = TripStatus.COMPLETED;
+    }
+    // Check if trip should be INPROGRESS (departed but not yet arrived)
+    else if (departureDate <= today && (!arrivalDate || arrivalDate >= today)) {
+      newStatus = TripStatus.INPROGRESS;
+    }
+
+    // Update status if it needs to change
+    if (newStatus && trip.status !== newStatus) {
+      await this.prisma.trip.update({
+        where: { id: tripId },
+        data: { status: newStatus },
+      });
+    }
+  }
+
+  // Get all trips created by user with status filter
+  async getUserTrips(
+    userId: string,
+    query: GetUserTripsQueryDto,
+    lang?: string,
+  ): Promise<GetUserTripsResponseDto> {
+    try {
+      const { status, page = 1, limit = 10 } = query;
+      const skip = (page - 1) * limit;
+
+      // Build where clause
+      const whereClause: any = {
+        user_id: userId,
+      };
+
+      // Only filter by status if provided and not "ALL"
+      if (status && status !== 'ALL') {
+        whereClause.status = status;
+      }
+
+      // Fetch trips with relations
+      // Note: Trip statuses are automatically updated by the scheduler every hour
+      const [trips, total] = await Promise.all([
+        this.prisma.trip.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            departure: true,
+            destination: true,
+            status: true,
+            departure_date: true,
+            departure_time: true,
+            arrival_date: true,
+            arrival_time: true,
+            createdAt: true,
+            airline: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+              },
+            },
+            ratings: {
+              select: {
+                id: true,
+                rating: true,
+                comment: true,
+                giver_id: true,
+              },
+            },
+            transactions: {
+              where: {
+                status: {
+                  in: ['ONHOLD', 'COMPLETED', 'SUCCESS'],
+                },
+              },
+              select: {
+                amount_paid: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.trip.count({ where: whereClause }),
+      ]);
+
+      // Process trips to calculate average rating and total payment
+      const processedTrips = trips.map((trip) => {
+        // Calculate average rating
+        const ratingsSum = trip.ratings.reduce(
+          (sum, rating) => sum + rating.rating,
+          0,
+        );
+        const average_rating =
+          trip.ratings.length > 0 ? ratingsSum / trip.ratings.length : 0;
+
+        // Calculate total payment
+        const total_payment = trip.transactions.reduce(
+          (sum, transaction) => sum + Number(transaction.amount_paid),
+          0,
+        );
+
+        return {
+          id: trip.id,
+          departure: trip.departure,
+          destination: trip.destination,
+          status: trip.status,
+          departure_date: trip.departure_date,
+          departure_time: trip.departure_time,
+          arrival_date: trip.arrival_date,
+          arrival_time: trip.arrival_time,
+          airline: trip.airline,
+          ratings: trip.ratings,
+          average_rating: Number(average_rating.toFixed(2)),
+          total_payment: Number(total_payment.toFixed(2)),
+          createdAt: trip.createdAt,
+        };
+      });
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.trip.getUserTrips.success',
+        {
+          lang,
+          defaultValue: 'User trips retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        trips: processedTrips,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting user trips:', error);
+      const message = await this.i18n.translate(
+        'translation.trip.getUserTrips.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve user trips',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  // Get user trip detail by ID
+  async getUserTripDetail(
+    userId: string,
+    tripId: string,
+    lang?: string,
+  ): Promise<GetUserTripDetailResponseDto> {
+    try {
+      // Fetch the trip with all relations
+      const trip: any = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+        select: {
+          id: true,
+          user_id: true,
+          pickup: true,
+          departure: true,
+          destination: true,
+          delivery: true,
+          departure_date: true,
+          departure_time: true,
+          arrival_date: true,
+          arrival_time: true,
+          currency: true,
+          maximum_weight_in_kg: true,
+          notes: true,
+          meetup_flexible: true,
+          status: true,
+          fully_booked: true,
+          createdAt: true,
+          updatedAt: true,
+          airline: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
+          mode_of_transport: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
+          trip_items: {
+            select: {
+              trip_item_id: true,
+              price: true,
+              avalailble_kg: true,
+              trip_item: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  image: {
+                    select: {
+                      id: true,
+                      url: true,
+                      alt_text: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          requests: {
+            select: {
+              id: true,
+              user_id: true,
+              status: true,
+              cost: true,
+              message: true,
+              created_at: true,
+              updated_at: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  picture: true,
+                },
+              },
+              request_items: {
+                select: {
+                  trip_item_id: true,
+                  quantity: true,
+                  special_notes: true,
+                  trip_item: {
+                    select: {
+                      id: true,
+                      name: true,
+                      description: true,
+                      image: {
+                        select: {
+                          id: true,
+                          url: true,
+                          alt_text: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          transactions: {
+            where: {
+              status: {
+                in: ['SUCCESS', 'COMPLETED', 'ONHOLD'],
+              },
+            },
+            select: {
+              amount_paid: true,
+              status: true,
+            },
+          },
+        },
+      });
+
+      if (!trip) {
+        const message = await this.i18n.translate(
+          'translation.trip.getUserTripDetail.notFound',
+          {
+            lang,
+            defaultValue: 'Trip not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Check if the trip belongs to the user
+      if (trip.user_id !== userId) {
+        const message = await this.i18n.translate(
+          'translation.trip.getUserTripDetail.unauthorized',
+          {
+            lang,
+            defaultValue: 'You are not authorized to view this trip',
+          },
+        );
+        throw new ForbiddenException(message);
+      }
+
+      // Calculate available_earnings (SUCCESS + COMPLETED)
+      const available_earnings = trip.transactions
+        .filter((t) => t.status === 'SUCCESS' || t.status === 'COMPLETED')
+        .reduce((sum, t) => sum + Number(t.amount_paid), 0);
+
+      // Calculate hold_earnings (ONHOLD)
+      const hold_earnings = trip.transactions
+        .filter((t) => t.status === 'ONHOLD')
+        .reduce((sum, t) => sum + Number(t.amount_paid), 0);
+
+      // Transform trip items
+      const tripItems = trip.trip_items.map((item) => ({
+        trip_item_id: item.trip_item_id,
+        price: Number(item.price),
+        available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
+        trip_item: item.trip_item,
+      }));
+
+      // Transform requests
+      const requests = trip.requests.map((request) => ({
+        id: request.id,
+        user_id: request.user_id,
+        status: request.status,
+        cost: request.cost ? Number(request.cost) : null,
+        message: request.message,
+        created_at: request.created_at,
+        updated_at: request.updated_at,
+        user: request.user,
+        request_items: request.request_items.map((item) => ({
+          trip_item_id: item.trip_item_id,
+          quantity: item.quantity,
+          special_notes: item.special_notes,
+          trip_item: item.trip_item,
+        })),
+      }));
+
+      const message = await this.i18n.translate(
+        'translation.trip.getUserTripDetail.success',
+        {
+          lang,
+          defaultValue: 'Trip details retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        trip: {
+          id: trip.id,
+          user_id: trip.user_id,
+          pickup: trip.pickup,
+          departure: trip.departure,
+          destination: trip.destination,
+          delivery: trip.delivery,
+          departure_date: trip.departure_date,
+          departure_time: trip.departure_time,
+          arrival_date: trip.arrival_date,
+          arrival_time: trip.arrival_time,
+          currency: trip.currency,
+          maximum_weight_in_kg: trip.maximum_weight_in_kg
+            ? Number(trip.maximum_weight_in_kg)
+            : null,
+          notes: trip.notes,
+          meetup_flexible: trip.meetup_flexible,
+          status: trip.status,
+          fully_booked: trip.fully_booked,
+          createdAt: trip.createdAt,
+          updatedAt: trip.updatedAt,
+          airline: trip.airline,
+          mode_of_transport: trip.mode_of_transport,
+          trip_items: tripItems,
+          requests,
+          available_earnings: Number(available_earnings.toFixed(2)),
+          hold_earnings: Number(hold_earnings.toFixed(2)),
+        },
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException
+      ) {
+        throw error;
+      }
+      console.error('Error getting user trip detail:', error);
+      const message = await this.i18n.translate(
+        'translation.trip.getUserTripDetail.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve trip details',
         },
       );
       throw new InternalServerErrorException(message);
@@ -830,9 +1362,11 @@ export class TripService {
       } = query;
       const skip = (page - 1) * limit;
 
-      // Base where clause for published trips
+      // Base where clause - exclude DRAFT, COMPLETED, and CANCELLED trips
       const baseWhereClause: any = {
-        status: 'PUBLISHED' as const, // Only show published trips
+        status: {
+          notIn: [TripStatus.DRAFT, TripStatus.COMPLETED, TripStatus.CANCELLED],
+        },
       };
 
       // Add departure date filter based on filter parameter

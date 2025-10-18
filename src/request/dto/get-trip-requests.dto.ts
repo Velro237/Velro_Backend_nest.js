@@ -39,7 +39,7 @@ export class GetTripRequestsQueryDto {
   @ApiProperty({
     description: 'Request status filter',
     example: 'PENDING',
-    enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
+    enum: ['PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED'],
     required: false,
   })
   @IsOptional()
@@ -123,7 +123,7 @@ export class TripRequestSummaryDto {
   @ApiProperty({
     description: 'Request status',
     example: 'PENDING',
-    enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
+    enum: ['PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED'],
   })
   status: string;
 

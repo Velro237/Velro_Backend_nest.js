@@ -3,10 +3,11 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { I18nService } from 'nestjs-i18n';
+import { TripStatus } from 'generated/prisma/client';
 
 @Injectable()
-export class AlertSchedulerService {
-  private readonly logger = new Logger(AlertSchedulerService.name);
+export class SchedulerService {
+  private readonly logger = new Logger(SchedulerService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -20,7 +21,10 @@ export class AlertSchedulerService {
    */
   @Cron(CronExpression.EVERY_HOUR)
   async checkAlertsForNewTrips(): Promise<void> {
-    this.logger.log('Starting hourly alert check for new trips');
+    const startTime = new Date();
+    this.logger.log(
+      `[CRON START] Alert Check - Running at ${startTime.toISOString()}`,
+    );
 
     try {
       // Get trips created in the last hour
@@ -28,7 +32,7 @@ export class AlertSchedulerService {
 
       const recentTrips = await this.prisma.trip.findMany({
         where: {
-          status: 'PUBLISHED',
+          // status: 'PUBLISHED',
           createdAt: {
             gte: oneHourAgo,
           },
@@ -53,9 +57,13 @@ export class AlertSchedulerService {
         await this.checkAlertsForTrip(trip);
       }
 
-      this.logger.log('Completed hourly alert check');
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      this.logger.log(
+        `[CRON END] Alert Check - Completed in ${duration}ms at ${endTime.toISOString()}`,
+      );
     } catch (error) {
-      this.logger.error('Error during hourly alert check:', error);
+      this.logger.error('[CRON ERROR] Alert Check failed:', error);
     }
   }
 
@@ -75,50 +83,53 @@ export class AlertSchedulerService {
         return;
       }
 
-      // Create location search strings for database query
-      const tripDepartureStr = JSON.stringify(tripDeparture).toLowerCase();
-      const tripDestinationStr = JSON.stringify(tripDestination).toLowerCase();
+      // Extract country from trip locations
+      const tripDepartureCountry = tripDeparture.country || '';
+      const tripDestinationCountry = tripDestination.country || '';
 
-      // Extract city and country from trip locations for more precise matching
-      const tripDepartureCity = tripDeparture.city?.toLowerCase() || '';
-      const tripDepartureCountry = tripDeparture.country?.toLowerCase() || '';
-      const tripDepartureAddress = tripDeparture.address?.toLowerCase() || '';
-      const tripDestinationCity = tripDestination.city?.toLowerCase() || '';
-      const tripDestinationCountry =
-        tripDestination.country?.toLowerCase() || '';
-      const tripDestinationAddress =
-        tripDestination.address?.toLowerCase() || '';
+      console.log('tripDepartureCountry', tripDepartureCountry);
+      console.log('tripDestinationCountry', tripDestinationCountry);
+
+      if (!tripDepartureCountry && !tripDestinationCountry) {
+        this.logger.debug(
+          `Trip ${trip.id} missing country data in departure or destination`,
+        );
+        return;
+      }
 
       // Build the where clause for matching alerts
+      // Match if alert destination matches trip destination country OR alert departure matches trip departure country
       const alertWhereClause = {
         notificaction: true, // Only alerts with notification enabled
         user_id: { not: trip.user_id }, // Exclude trip creator's own alerts
+
         OR: [
-          // Departure matches
           {
             depature: {
               mode: 'insensitive' as const,
-              in: [
-                tripDepartureStr,
-                tripDepartureCity,
-                tripDepartureCountry,
-                tripDepartureAddress,
-              ].filter(Boolean),
+              equals: tripDestinationCountry,
             },
           },
-          // Destination matches
           {
             destination: {
               mode: 'insensitive' as const,
-              in: [
-                tripDestinationStr,
-                tripDestinationCity,
-                tripDestinationCountry,
-                tripDestinationAddress,
-              ].filter(Boolean),
+              equals: tripDestinationCountry,
+            },
+          },
+          {
+            depature: {
+              mode: 'insensitive' as const,
+              equals: tripDepartureCountry,
+            },
+          },
+          {
+            destination: {
+              mode: 'insensitive' as const,
+              equals: tripDepartureCountry,
             },
           },
         ],
+
         // Date range filter - if alert has date range, trip departure must be within it
         AND: [
           {
@@ -206,6 +217,7 @@ export class AlertSchedulerService {
         {
           lang: 'en', // Default to English for now
           args: {
+            tripCreator: trip.user.name || 'Unknown',
             departure:
               trip.departure?.city || trip.departure?.country || 'Unknown',
             destination:
@@ -253,6 +265,52 @@ export class AlertSchedulerService {
         });
       }
 
+      // Send email notification
+      if (alert.user.email) {
+        try {
+          const departureLocation =
+            trip.departure?.city || trip.departure?.country || 'Unknown';
+          const destinationLocation =
+            trip.destination?.city || trip.destination?.country || 'Unknown';
+
+          await this.notificationService.sendEmail(
+            {
+              to: alert.user.email,
+              subject: title,
+              text: message,
+              html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
+                  <h2 style="color: #333;">${title}</h2>
+                  <p style="color: #555; line-height: 1.6;">${message}</p>
+                  <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <h3 style="color: #333; margin-top: 0;">Trip Details:</h3>
+                    <p style="margin: 5px 0;"><strong>From:</strong> ${departureLocation}</p>
+                    <p style="margin: 5px 0;"><strong>To:</strong> ${destinationLocation}</p>
+                    <p style="margin: 5px 0;"><strong>Departure Date:</strong> ${trip.departure_date.toLocaleDateString()}</p>
+                    <p style="margin: 5px 0;"><strong>Departure Time:</strong> ${trip.departure_time}</p>
+                    <p style="margin: 5px 0;"><strong>Created by:</strong> ${trip.user.name}</p>
+                  </div>
+                  <p style="color: #777; font-size: 12px; margin-top: 30px;">
+                    This is an automated notification from Velro. You received this because you set up an alert for trips matching this route.
+                  </p>
+                </div>
+              `,
+            },
+            'en',
+          );
+
+          this.logger.log(
+            `Sent email notification to ${alert.user.email} for trip ${trip.id}`,
+          );
+        } catch (emailError) {
+          this.logger.error(
+            `Failed to send email to ${alert.user.email}:`,
+            emailError,
+          );
+          // Don't throw error - email failure shouldn't stop the notification process
+        }
+      }
+
       this.logger.log(
         `Created alert notification for user ${alert.user_id} about trip ${trip.id}`,
       );
@@ -265,10 +323,90 @@ export class AlertSchedulerService {
   }
 
   /**
+   * Update trip statuses based on departure and arrival dates
+   * Runs every day at the top of the hour
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async updateTripStatuses(): Promise<void> {
+    const startTime = new Date();
+    this.logger.log(
+      `[CRON START] Trip Status Update - Running at ${startTime.toISOString()}`,
+    );
+
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Update trips to COMPLETED (arrival_date < today)
+      const completedResult = await this.prisma.trip.updateMany({
+        where: {
+          arrival_date: {
+            not: null,
+            lt: today,
+          },
+          status: {
+            notIn: [TripStatus.COMPLETED, TripStatus.CANCELLED],
+          },
+        },
+        data: {
+          status: TripStatus.COMPLETED,
+        },
+      });
+
+      this.logger.log(
+        `Updated ${completedResult.count} trips to COMPLETED status`,
+      );
+
+      // Update trips to INPROGRESS (departure_date <= today AND (no arrival_date OR arrival_date >= today))
+      const inProgressResult = await this.prisma.trip.updateMany({
+        where: {
+          departure_date: {
+            lte: today,
+          },
+          OR: [{ arrival_date: null }, { arrival_date: { gte: today } }],
+          status: {
+            notIn: [
+              TripStatus.INPROGRESS,
+              TripStatus.COMPLETED,
+              TripStatus.CANCELLED,
+            ],
+          },
+        },
+        data: {
+          status: TripStatus.INPROGRESS,
+        },
+      });
+
+      this.logger.log(
+        `Updated ${inProgressResult.count} trips to INPROGRESS status`,
+      );
+
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      const totalUpdated = completedResult.count + inProgressResult.count;
+      this.logger.log(
+        `[CRON END] Trip Status Update - Updated ${totalUpdated} trips in ${duration}ms at ${endTime.toISOString()}`,
+      );
+    } catch (error) {
+      this.logger.error('[CRON ERROR] Trip Status Update failed:', error);
+    }
+  }
+
+  /**
    * Manual trigger for testing purposes
    */
   async triggerAlertCheck(): Promise<void> {
-    this.logger.log('Manually triggering alert check');
+    this.logger.log('[MANUAL TRIGGER] Alert Check - Initiated manually');
     await this.checkAlertsForNewTrips();
+    this.logger.log('[MANUAL TRIGGER] Alert Check - Completed');
+  }
+
+  /**
+   * Manual trigger for trip status update (testing purposes)
+   */
+  async triggerTripStatusUpdate(): Promise<void> {
+    this.logger.log('[MANUAL TRIGGER] Trip Status Update - Initiated manually');
+    await this.updateTripStatuses();
+    this.logger.log('[MANUAL TRIGGER] Trip Status Update - Completed');
   }
 }

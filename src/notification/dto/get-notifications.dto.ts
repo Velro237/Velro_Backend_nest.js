@@ -90,6 +90,22 @@ export class NotificationSummaryDto {
     nullable: true,
   })
   read_at: Date | null;
+
+  @ApiProperty({
+    description: 'User who owns this notification',
+    example: {
+      id: '123e4567-e89b-12d3-a456-426614174001',
+      email: 'user@example.com',
+      name: 'John Doe',
+      picture: 'https://example.com/avatar.jpg',
+    },
+  })
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    picture: string | null;
+  };
 }
 
 export class GetNotificationsResponseDto {

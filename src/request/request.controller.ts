@@ -184,7 +184,6 @@ export class RequestController {
   ): Promise<ChangeRequestStatusResponseDto> {
     return this.requestService.changeRequestStatus(
       changeRequestStatusDto.requestId,
-      changeRequestStatusDto.chatId,
       changeRequestStatusDto.status,
       user.id,
       lang,

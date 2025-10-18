@@ -84,6 +84,11 @@ import { CreateAlertDto, CreateAlertResponseDto } from './dto/create-alert.dto';
 import { UpdateAlertDto, UpdateAlertResponseDto } from './dto/update-alert.dto';
 import { DeleteAlertResponseDto } from './dto/delete-alert.dto';
 import { GetAlertsQueryDto, GetAlertsResponseDto } from './dto/get-alerts.dto';
+import {
+  GetUserTripsQueryDto,
+  GetUserTripsResponseDto,
+} from './dto/get-user-trips.dto';
+import { GetUserTripDetailResponseDto } from './dto/get-user-trip-detail.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 import { TripItemImageDto, TripItemDetailsDto } from '../shared/dto/common.dto';
@@ -107,6 +112,9 @@ import { TripItemImageDto, TripItemDetailsDto } from '../shared/dto/common.dto';
   DeleteAlertResponseDto,
   GetAlertsQueryDto,
   GetAlertsResponseDto,
+  GetUserTripsQueryDto,
+  GetUserTripsResponseDto,
+  GetUserTripDetailResponseDto,
   TripItemImageDto,
   TripItemDetailsDto,
   TripItemListItemDto,
@@ -288,6 +296,296 @@ export class TripController {
     @I18nLang() lang: string,
   ): Promise<GetTripByIdResponseDto> {
     return this.tripService.getTripById(tripId, lang);
+  }
+
+  // Get user's trips
+  @Get('user-trips')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get all trips created by the authenticated user',
+    description:
+      'Retrieve all trips created by the authenticated user with optional status filtering and pagination. Use status="ALL" to get trips with all statuses, or specify a specific TripStatus to filter. Returns departure, destination, status, dates, airline info, ratings with average rating calculation, and total payments from transactions with ONHOLD, COMPLETED, or SUCCESS status.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'User trips retrieved successfully (message will be translated)',
+    type: GetUserTripsResponseDto,
+    examples: {
+      success: {
+        summary: 'User trips retrieved successfully',
+        value: {
+          message: 'User trips retrieved successfully',
+          trips: [
+            {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              departure: {
+                country: 'France',
+                city: 'Paris',
+                address: 'Charles de Gaulle Airport',
+              },
+              destination: {
+                country: 'USA',
+                city: 'New York',
+                address: 'JFK Airport',
+              },
+              status: 'PUBLISHED',
+              departure_date: '2024-02-15T10:00:00.000Z',
+              departure_time: '10:00 AM',
+              arrival_date: '2024-02-16T14:00:00.000Z',
+              arrival_time: '02:00 PM',
+              airline: {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                name: 'Air France',
+                description: 'French international airline',
+              },
+              ratings: [
+                {
+                  id: '123e4567-e89b-12d3-a456-426614174001',
+                  rating: 5,
+                  comment: 'Great service and delivery!',
+                  giver_id: '123e4567-e89b-12d3-a456-426614174002',
+                },
+                {
+                  id: '123e4567-e89b-12d3-a456-426614174003',
+                  rating: 4,
+                  comment: 'Good experience',
+                  giver_id: '123e4567-e89b-12d3-a456-426614174004',
+                },
+              ],
+              average_rating: 4.5,
+              total_payment: 250.0,
+              createdAt: '2024-01-15T10:00:00.000Z',
+            },
+          ],
+          pagination: {
+            page: 1,
+            limit: 10,
+            total: 25,
+            totalPages: 3,
+            hasNext: true,
+            hasPrev: false,
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: 'Unauthorized' },
+        error: { type: 'string', example: 'Unauthorized' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'string', example: 'Failed to retrieve user trips' },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async getUserTrips(
+    @Query() query: GetUserTripsQueryDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<GetUserTripsResponseDto> {
+    return this.tripService.getUserTrips(user.id, query, lang);
+  }
+
+  // Get user trip detail by ID
+  @Get('user-trips/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary:
+      'Get detailed information about a specific trip created by the user',
+    description:
+      'Retrieve complete trip details including trip items with all data, all trip requests (with requesting user info, items requested with full details, status, and cost), fully_booked status, available_earnings (sum of SUCCESS and COMPLETED transactions), and hold_earnings (sum of ONHOLD transactions). Only the trip owner can access this endpoint.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Trip details retrieved successfully (message will be translated)',
+    type: GetUserTripDetailResponseDto,
+    examples: {
+      success: {
+        summary: 'Trip details retrieved successfully',
+        value: {
+          message: 'Trip details retrieved successfully',
+          trip: {
+            id: '123e4567-e89b-12d3-a456-426614174000',
+            user_id: '123e4567-e89b-12d3-a456-426614174000',
+            pickup: {
+              country: 'France',
+              city: 'Paris',
+              address: 'Charles de Gaulle Airport',
+            },
+            departure: {
+              country: 'France',
+              city: 'Paris',
+            },
+            destination: {
+              country: 'USA',
+              city: 'New York',
+            },
+            delivery: {
+              country: 'USA',
+              city: 'New York',
+              address: 'JFK Airport',
+            },
+            departure_date: '2024-02-15T10:00:00.000Z',
+            departure_time: '10:00 AM',
+            arrival_date: '2024-02-16T14:00:00.000Z',
+            arrival_time: '02:00 PM',
+            currency: 'USD',
+            maximum_weight_in_kg: 20.0,
+            notes: 'Please contact before delivery',
+            meetup_flexible: true,
+            status: 'PUBLISHED',
+            fully_booked: false,
+            createdAt: '2024-01-15T10:00:00.000Z',
+            updatedAt: '2024-01-15T10:00:00.000Z',
+            airline: {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              name: 'Air France',
+              description: 'French international airline',
+            },
+            mode_of_transport: {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              name: 'Airplane',
+              description: 'Air travel',
+            },
+            trip_items: [
+              {
+                trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
+                price: 50.0,
+                available_kg: 5.0,
+                trip_item: {
+                  id: '123e4567-e89b-12d3-a456-426614174000',
+                  name: 'Documents',
+                  description: 'Letters and documents',
+                  image: {
+                    id: '123e4567-e89b-12d3-a456-426614174000',
+                    url: 'https://example.com/image.jpg',
+                    alt_text: 'Documents icon',
+                  },
+                },
+              },
+            ],
+            requests: [
+              {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                user_id: '123e4567-e89b-12d3-a456-426614174001',
+                status: 'APPROVED',
+                cost: 150.0,
+                message: 'Please handle with care',
+                created_at: '2024-01-20T10:00:00.000Z',
+                updated_at: '2024-01-20T10:00:00.000Z',
+                user: {
+                  id: '123e4567-e89b-12d3-a456-426614174001',
+                  name: 'John Doe',
+                  email: 'john@example.com',
+                  picture: 'https://example.com/avatar.jpg',
+                },
+                request_items: [
+                  {
+                    trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
+                    quantity: 2,
+                    special_notes: 'Handle with care',
+                    trip_item: {
+                      id: '123e4567-e89b-12d3-a456-426614174000',
+                      name: 'Documents',
+                      description: 'Letters and documents',
+                      image: {
+                        id: '123e4567-e89b-12d3-a456-426614174000',
+                        url: 'https://example.com/image.jpg',
+                        alt_text: 'Documents icon',
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+            available_earnings: 300.0,
+            hold_earnings: 100.0,
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: 'Unauthorized' },
+        error: { type: 'string', example: 'Unauthorized' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Trip does not belong to the user',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 403 },
+        message: {
+          type: 'string',
+          example: 'You are not authorized to view this trip',
+        },
+        error: { type: 'string', example: 'Forbidden' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip not found',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 404 },
+        message: { type: 'string', example: 'Trip not found' },
+        error: { type: 'string', example: 'Not Found' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error (message will be translated)',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'string', example: 'Failed to retrieve trip details' },
+        error: { type: 'string', example: 'Internal Server Error' },
+      },
+    },
+  })
+  async getUserTripDetail(
+    @Param('id') tripId: string,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<GetUserTripDetailResponseDto> {
+    return this.tripService.getUserTripDetail(user.id, tripId, lang);
   }
 
   // Airline endpoints

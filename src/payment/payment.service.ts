@@ -290,7 +290,7 @@ export class PaymentService {
 
       // Calculate platform fee (client spec: 7% + €1, min €1.99)
       const platformFee = this.calculatePlatformCommission(travelerPrice);
-      
+
       // Calculate total sender pays
       const senderTotal = travelerPrice + platformFee;
 
@@ -302,8 +302,8 @@ export class PaymentService {
 
       this.logger.log(
         `Payment breakdown - Traveler gets: €${travelerPrice.toFixed(2)}, ` +
-        `Platform fee: €${platformFee.toFixed(2)}, ` +
-        `Sender pays: €${senderTotal.toFixed(2)}`
+          `Platform fee: €${platformFee.toFixed(2)}, ` +
+          `Sender pays: €${senderTotal.toFixed(2)}`,
       );
 
       // Create new PaymentIntent with CALCULATED amount (secure)
@@ -385,7 +385,7 @@ export class PaymentService {
         data: {
           payment_status: PaymentStatus.SUCCEEDED,
           paid_at: new Date(),
-          status: 'APPROVED', // Automatically approve paid orders
+          status: 'ACCEPTED', // Automatically accept paid orders
         },
       });
 
@@ -403,13 +403,18 @@ export class PaymentService {
       try {
         stripeFee = await this.stripeService.getStripeFee(paymentIntentId);
       } catch (error) {
-        this.logger.warn(`Could not retrieve Stripe fee for ${paymentIntentId}: ${error.message}`);
+        this.logger.warn(
+          `Could not retrieve Stripe fee for ${paymentIntentId}: ${error.message}`,
+        );
         // Continue without Stripe fee in logs - payment still succeeds
       }
-      
-      const platformCommission = this.calculatePlatformCommission(travelerPrice);
-      
-      this.logger.log(`Payment breakdown - Traveler gets: €${travelerPrice}, Platform fee: €${platformCommission}, Stripe fee: €${stripeFee}`);
+
+      const platformCommission =
+        this.calculatePlatformCommission(travelerPrice);
+
+      this.logger.log(
+        `Payment breakdown - Traveler gets: €${travelerPrice}, Platform fee: €${platformCommission}, Stripe fee: €${stripeFee}`,
+      );
 
       // Validate earnings
       if (isNaN(pendingEarnings) || pendingEarnings <= 0) {
@@ -577,11 +582,16 @@ export class PaymentService {
    * Calculate payment breakdown for frontend
    * Client spec: Sender pays traveler price + platform fee
    */
-  async calculatePaymentBreakdown(travelerPrice: number, currency: string = 'EUR'): Promise<any> {
+  async calculatePaymentBreakdown(
+    travelerPrice: number,
+    currency: string = 'EUR',
+  ): Promise<any> {
     const platformFee = this.calculatePlatformCommission(travelerPrice);
     const senderTotal = travelerPrice + platformFee;
 
-    const feePercent = Number(this.configService.get<number>('VELRO_FEE_PERCENT'));
+    const feePercent = Number(
+      this.configService.get<number>('VELRO_FEE_PERCENT'),
+    );
     const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
     const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN'));
 
@@ -603,7 +613,9 @@ export class PaymentService {
    */
   private calculatePlatformCommission(grossAmount: number): number {
     // Client spec: 7% + €1.00 (minimum €1.99, no maximum)
-    const feePercent = Number(this.configService.get<number>('VELRO_FEE_PERCENT'));
+    const feePercent = Number(
+      this.configService.get<number>('VELRO_FEE_PERCENT'),
+    );
     const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
     const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN'));
 

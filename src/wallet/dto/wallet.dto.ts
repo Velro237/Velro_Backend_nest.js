@@ -1,14 +1,22 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsUUID, IsOptional, Min } from 'class-validator';
+import {
+  IsNumber,
+  IsUUID,
+  IsOptional,
+  Min,
+  IsEnum,
+  IsString,
+} from 'class-validator';
+import { WalletState } from 'generated/prisma/client';
 
 export class WithdrawalRequestDto {
   @ApiProperty({
     description: 'Amount to withdraw (in currency units)',
-    example: 100.00,
-    minimum: 1.00,
+    example: 100.0,
+    minimum: 1.0,
   })
   @IsNumber()
-  @Min(1.00)
+  @Min(1.0)
   amount: number;
 }
 
@@ -21,19 +29,19 @@ export class WithdrawalResponseDto {
 
   @ApiProperty({
     description: 'Amount requested',
-    example: 100.00,
+    example: 100.0,
   })
   amountRequested: number;
 
   @ApiProperty({
     description: 'Withdrawal fee applied',
-    example: 2.50,
+    example: 2.5,
   })
   feeApplied: number;
 
   @ApiProperty({
     description: 'Net amount transferred to your account',
-    example: 97.50,
+    example: 97.5,
   })
   amountNet: number;
 
@@ -67,19 +75,19 @@ export class WithdrawalResponseDto {
 export class WalletBalanceDto {
   @ApiProperty({
     description: 'Available balance (withdrawable now)',
-    example: 150.50,
+    example: 150.5,
   })
   availableBalance: number;
 
   @ApiProperty({
     description: 'Pending balance (awaiting delivery confirmation)',
-    example: 50.00,
+    example: 50.0,
   })
   pendingBalance: number;
 
   @ApiProperty({
     description: 'Total withdrawn amount',
-    example: 300.00,
+    example: 300.0,
   })
   withdrawnTotal: number;
 
@@ -113,7 +121,7 @@ export class WalletTransactionDto {
 
   @ApiProperty({
     description: 'Amount',
-    example: 50.00,
+    example: 50.0,
   })
   amount: number;
 
@@ -131,7 +139,7 @@ export class WalletTransactionDto {
 
   @ApiProperty({
     description: 'Balance after transaction',
-    example: 200.50,
+    example: 200.5,
   })
   balanceAfter: number;
 
@@ -162,3 +170,47 @@ export class WalletResponseDto {
   withdrawals: WithdrawalResponseDto[];
 }
 
+export class ChangeWalletStateDto {
+  @ApiProperty({
+    description: 'Wallet state to set',
+    enum: WalletState,
+    example: WalletState.ACTIVE,
+  })
+  @IsEnum(WalletState)
+  state: WalletState;
+
+  @ApiProperty({
+    description: 'Optional message explaining the state change',
+    example: 'Wallet activated after verification',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  status_message?: string;
+}
+
+export class ChangeWalletStateResponseDto {
+  @ApiProperty({
+    description: 'Success message',
+    example: 'Wallet state updated successfully',
+  })
+  message: string;
+
+  @ApiProperty({
+    description: 'Updated wallet information',
+    example: {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      state: 'ACTIVE',
+      status_message: 'Wallet activated after verification',
+      updatedAt: '2024-01-15T10:30:00.000Z',
+    },
+  })
+  wallet: {
+    id: string;
+    userId: string;
+    state: WalletState;
+    status_message: string | null;
+    updatedAt: Date;
+  };
+}

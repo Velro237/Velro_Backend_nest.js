@@ -152,6 +152,29 @@ export class TripDateValidationConstraint
   }
 }
 
+@ValidatorConstraint({ name: 'LocationWithCountry', async: false })
+export class LocationWithCountryConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(location: any, args: ValidationArguments) {
+    if (!location || typeof location !== 'object') {
+      return false;
+    }
+
+    // Must have country field and it must be a non-empty string
+    return (
+      location.country !== undefined &&
+      location.country !== null &&
+      typeof location.country === 'string' &&
+      location.country.trim().length > 0
+    );
+  }
+
+  defaultMessage(args: ValidationArguments) {
+    return `${args.property} must be an object with at least a 'country' field`;
+  }
+}
+
 export class CreateTripDto {
   @ApiProperty({
     description: 'Pickup location details (required)',
@@ -172,8 +195,10 @@ export class CreateTripDto {
   pickup: LocationType;
 
   @ApiProperty({
-    description: 'Destination location details (required)',
+    description:
+      'Destination location details (required - must include country)',
     type: 'object',
+    required: ['country'],
     properties: {
       country: { type: 'string', example: 'France' },
       country_code: { type: 'string', example: 'FR' },
@@ -184,11 +209,13 @@ export class CreateTripDto {
     },
   })
   @IsObject()
+  @Validate(LocationWithCountryConstraint)
   destination: LocationType;
 
   @ApiProperty({
-    description: 'Departure location details (required)',
+    description: 'Departure location details (required - must include country)',
     type: 'object',
+    required: ['country'],
     properties: {
       country: { type: 'string', example: 'United States' },
       country_code: { type: 'string', example: 'US' },
@@ -203,6 +230,7 @@ export class CreateTripDto {
     },
   })
   @IsObject()
+  @Validate(LocationWithCountryConstraint)
   departure: LocationType;
 
   @ApiProperty({

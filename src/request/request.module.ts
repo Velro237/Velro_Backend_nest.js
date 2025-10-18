@@ -6,9 +6,17 @@ import { ChatModule } from '../chat/chat.module';
 import { AuthModule } from '../auth/auth.module';
 import { RedisModule } from '../redis/redis.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, ChatModule, AuthModule, RedisModule, WalletModule],
+  imports: [
+    PrismaModule,
+    ChatModule,
+    AuthModule,
+    RedisModule,
+    WalletModule,
+    NotificationModule,
+  ],
   controllers: [RequestController],
   providers: [RequestService],
 })

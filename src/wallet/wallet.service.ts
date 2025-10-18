@@ -1,13 +1,20 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from '../payment/stripe.service';
-import { 
-  WithdrawalRequestDto, 
-  WithdrawalResponseDto, 
+import {
+  WithdrawalRequestDto,
+  WithdrawalResponseDto,
   WalletResponseDto,
   WalletBalanceDto,
   WalletTransactionDto,
+  ChangeWalletStateDto,
+  ChangeWalletStateResponseDto,
 } from './dto/wallet.dto';
 
 @Injectable()
@@ -38,7 +45,7 @@ export class WalletService {
       });
 
       // Filter withdrawals from transactions
-      const withdrawals = transactions.filter(t => t.source === 'WITHDRAW');
+      const withdrawals = transactions.filter((t) => t.source === 'WITHDRAW');
 
       return {
         balance: {
@@ -47,8 +54,8 @@ export class WalletService {
           withdrawnTotal: Number(wallet.withdrawn_total_stripe),
           currency: wallet.currency,
         },
-        transactions: transactions.map(t => this.mapTransaction(t)),
-        withdrawals: withdrawals.map(w => this.mapWithdrawal(w)),
+        transactions: transactions.map((t) => this.mapTransaction(t)),
+        withdrawals: withdrawals.map((w) => this.mapWithdrawal(w)),
       };
     } catch (error) {
       this.logger.error('Failed to get wallet:', error);
@@ -64,7 +71,9 @@ export class WalletService {
     dto: WithdrawalRequestDto,
   ): Promise<WithdrawalResponseDto> {
     try {
-      this.logger.log(`Processing withdrawal request for user ${userId}: ${dto.amount}`);
+      this.logger.log(
+        `Processing withdrawal request for user ${userId}: ${dto.amount}`,
+      );
 
       // Get user and check Stripe account
       const user = await this.prisma.user.findUnique({
@@ -81,7 +90,9 @@ export class WalletService {
       }
 
       if (user.transfers_capability !== 'active') {
-        throw new BadRequestException('Your payout account is not yet active. Please complete verification.');
+        throw new BadRequestException(
+          'Your payout account is not yet active. Please complete verification.',
+        );
       }
 
       // Get wallet
@@ -95,7 +106,7 @@ export class WalletService {
       // Check if sufficient balance
       if (availableBalance < dto.amount) {
         throw new BadRequestException(
-          `Insufficient balance. Available: ${availableBalance} ${wallet.currency}`
+          `Insufficient balance. Available: ${availableBalance} ${wallet.currency}`,
         );
       }
 
@@ -104,9 +115,14 @@ export class WalletService {
       const netAmount = dto.amount - fee;
 
       // Minimum withdrawal check
-      const minWithdrawal = this.configService.get<number>('MIN_WITHDRAWAL_AMOUNT', 10.0);
+      const minWithdrawal = this.configService.get<number>(
+        'MIN_WITHDRAWAL_AMOUNT',
+        10.0,
+      );
       if (netAmount < minWithdrawal) {
-        throw new BadRequestException(`Minimum withdrawal amount is ${minWithdrawal} ${wallet.currency}`);
+        throw new BadRequestException(
+          `Minimum withdrawal amount is ${minWithdrawal} ${wallet.currency}`,
+        );
       }
 
       // Create withdrawal transaction record
@@ -164,7 +180,9 @@ export class WalletService {
           },
         });
 
-        this.logger.log(`Withdrawal created successfully: ${withdrawal.id}, Transfer: ${transfer.id}`);
+        this.logger.log(
+          `Withdrawal created successfully: ${withdrawal.id}, Transfer: ${transfer.id}`,
+        );
 
         return this.mapWithdrawal({
           ...withdrawal,
@@ -191,7 +209,9 @@ export class WalletService {
           },
         });
 
-        throw new BadRequestException(`Withdrawal failed: ${transferError.message}`);
+        throw new BadRequestException(
+          `Withdrawal failed: ${transferError.message}`,
+        );
       }
     } catch (error) {
       this.logger.error('Failed to process withdrawal:', error);
@@ -243,9 +263,13 @@ export class WalletService {
       // Apply hold policy if configured
       const holdHours = this.configService.get<number>('HOLD_POLICY_HOURS', 0);
       if (holdHours > 0 && order.delivered_at) {
-        const releaseTime = new Date(order.delivered_at.getTime() + holdHours * 60 * 60 * 1000);
+        const releaseTime = new Date(
+          order.delivered_at.getTime() + holdHours * 60 * 60 * 1000,
+        );
         if (new Date() < releaseTime) {
-          this.logger.log(`Order ${orderId} is in hold period until ${releaseTime}`);
+          this.logger.log(
+            `Order ${orderId} is in hold period until ${releaseTime}`,
+          );
           // Schedule this to run later or use a cron job
           return;
         }
@@ -287,7 +311,9 @@ export class WalletService {
         },
       });
 
-      this.logger.log(`Moved ${amount} to available balance for user ${travelerId}`);
+      this.logger.log(
+        `Moved ${amount} to available balance for user ${travelerId}`,
+      );
     } catch (error) {
       this.logger.error('Failed to move to available:', error);
       throw error;
@@ -338,7 +364,10 @@ export class WalletService {
   /**
    * Handle transfer failed webhook
    */
-  async handleTransferFailed(transferId: string, reason: string): Promise<void> {
+  async handleTransferFailed(
+    transferId: string,
+    reason: string,
+  ): Promise<void> {
     try {
       this.logger.log(`Handling transfer failed: ${transferId}`);
 
@@ -370,7 +399,9 @@ export class WalletService {
         },
       });
 
-      this.logger.log(`Withdrawal ${withdrawal.id} marked as failed, balance restored`);
+      this.logger.log(
+        `Withdrawal ${withdrawal.id} marked as failed, balance restored`,
+      );
     } catch (error) {
       this.logger.error('Failed to handle transfer failed:', error);
       throw error;
@@ -382,10 +413,12 @@ export class WalletService {
    */
   private calculateWithdrawalFee(amount: number): number {
     // Client spec: 2% (minimum €1.00, no fixed fee)
-    const feePercent = Number(this.configService.get<number>('WITHDRAWAL_FEE_PERCENT'));
+    const feePercent = Number(
+      this.configService.get<number>('WITHDRAWAL_FEE_PERCENT'),
+    );
     const feeMin = Number(this.configService.get<number>('WITHDRAWAL_FEE_MIN'));
 
-    let fee = (amount * feePercent / 100);
+    let fee = (amount * feePercent) / 100;
     fee = Math.max(fee, feeMin);
 
     return Math.round(fee * 100) / 100; // Round to 2 decimals
@@ -406,7 +439,7 @@ export class WalletService {
           available_balance_stripe: 0,
           pending_balance_stripe: 0,
           withdrawn_total_stripe: 0,
-          currency: 'EUR',
+          currency: 'XAF',
         },
       });
     }
@@ -445,5 +478,58 @@ export class WalletService {
       createdAt: withdrawal.createdAt,
     };
   }
-}
 
+  /**
+   * Change wallet state (Admin only)
+   */
+  async changeWalletState(
+    userId: string,
+    dto: ChangeWalletStateDto,
+  ): Promise<ChangeWalletStateResponseDto> {
+    try {
+      this.logger.log(
+        `Changing wallet state for user ${userId} to ${dto.state}`,
+      );
+
+      // Check if user exists
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Ensure wallet exists
+      await this.ensureWallet(userId);
+
+      // Update wallet state
+      const wallet = await this.prisma.wallet.update({
+        where: { userId },
+        data: {
+          state: dto.state,
+          status_message: dto.status_message || null,
+        },
+        select: {
+          id: true,
+          userId: true,
+          state: true,
+          status_message: true,
+          updatedAt: true,
+        },
+      });
+
+      this.logger.log(
+        `Wallet state updated to ${dto.state} for user ${userId}`,
+      );
+
+      return {
+        message: 'Wallet state updated successfully',
+        wallet,
+      };
+    } catch (error) {
+      this.logger.error('Failed to change wallet state:', error);
+      throw error;
+    }
+  }
+}

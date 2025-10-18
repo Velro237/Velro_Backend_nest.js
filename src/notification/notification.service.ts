@@ -137,6 +137,14 @@ export class NotificationService {
             read: true,
             createdAt: true,
             read_at: true,
+            user: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                picture: true,
+              },
+            },
           },
           orderBy: {
             createdAt: 'desc',

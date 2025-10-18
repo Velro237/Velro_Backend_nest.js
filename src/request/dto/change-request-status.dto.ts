@@ -11,16 +11,9 @@ export class ChangeRequestStatusDto {
   requestId: string;
 
   @ApiProperty({
-    description: 'Chat ID where the status change message will be sent',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @IsUUID('4')
-  chatId: string;
-
-  @ApiProperty({
     description: 'New status for the request',
     enum: RequestStatus,
-    example: RequestStatus.APPROVED,
+    example: RequestStatus.ACCEPTED,
   })
   @IsEnum(RequestStatus)
   status: RequestStatus;

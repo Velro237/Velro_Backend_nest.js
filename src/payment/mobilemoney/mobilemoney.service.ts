@@ -65,8 +65,6 @@ export class MobilemoneyService {
       );
 
       console.log(this.appKey);
-      console.log(this.secretKey);
-      console.log(sign);
       const response = await this.httpClient.get('/v1/api/balance', {
         headers: {
           'LP-ACCESS-SIGN': sign,
@@ -341,6 +339,31 @@ export class MobilemoneyService {
         throw new BadRequestException('Trip request not found');
       }
 
+      // Check if request status is ACCEPTED
+      if (request.status !== 'ACCEPTED') {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.requestNotAccepted',
+          {
+            lang,
+            defaultValue:
+              'Request must be accepted before withdrawal can be processed',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Check if the user making withdrawal is the request owner
+      if (request.user_id !== userId) {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.unauthorizedWithdrawal',
+          {
+            lang,
+            defaultValue: 'You are not authorized to make pay for this request',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
       if (!request.cost) {
         throw new BadRequestException('Request cost not found');
       }
@@ -363,16 +386,11 @@ export class MobilemoneyService {
       }
 
       // Check wallet state
-      if (user.wallet.state === 'BLOCKED') {
-        throw new BadRequestException(
-          'Wallet is blocked. Cannot process withdrawal.',
-        );
-      }
-
-      // Check if user has sufficient balance
-      if (Number(user.wallet.available_balance) < amount) {
-        throw new BadRequestException('Insufficient balance for withdrawal');
-      }
+      // if (user.wallet.state === 'BLOCKED') {
+      //   throw new BadRequestException(
+      //     'Wallet is blocked. Cannot process withdrawal.',
+      //   );
+      // }
 
       // Validate phone number carrier
       const carrier = this.getCarrier(phoneNumber);

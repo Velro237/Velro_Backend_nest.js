@@ -122,6 +122,7 @@ export class AuthService {
       isFreightForwarder,
       companyAddress,
       companyName,
+      currency = 'XAF',
     } = signupDto;
 
     // Check if user already exists
@@ -195,6 +196,17 @@ export class AuthService {
         },
       });
 
+      // Create wallet with specified currency
+      await this.prisma.wallet.create({
+        data: {
+          userId: user.id,
+          currency: currency,
+          available_balance_stripe: 0,
+          pending_balance_stripe: 0,
+          withdrawn_total_stripe: 0,
+        },
+      });
+
       const emailDto: SendEmailDto = {
         to: user.email,
         subject: 'Welcome to Velro',
@@ -224,6 +236,7 @@ export class AuthService {
           zip: user.zip ?? null,
           picture: '',
           isFreightForwarder: false,
+          currency,
           companyName: '',
           otpCode: user.otpCode,
           companyAddress: '',

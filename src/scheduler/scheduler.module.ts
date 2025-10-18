@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
-import { AlertSchedulerService } from './alert-scheduler.service';
+import { SchedulerService } from './scheduler.service';
 import { SchedulerController } from './scheduler.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationModule } from '../notification/notification.module';
@@ -14,7 +14,7 @@ import { AuthModule } from '../auth/auth.module';
     AuthModule,
   ],
   controllers: [SchedulerController],
-  providers: [AlertSchedulerService],
-  exports: [AlertSchedulerService],
+  providers: [SchedulerService],
+  exports: [SchedulerService],
 })
 export class SchedulerModule {}
