@@ -47,6 +47,10 @@ import {
 import { GetRequestByIdResponseDto } from './dto/get-request-by-id.dto';
 import { ConfirmDeliveryResponseDto } from './dto/confirm-delivery.dto';
 import {
+  CancelRequestDto,
+  CancelRequestResponseDto,
+} from './dto/cancel-request.dto';
+import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
   ApiUpdateTripRequest,
@@ -207,5 +211,38 @@ export class RequestController {
     @I18nLang() lang: string,
   ): Promise<ConfirmDeliveryResponseDto> {
     return this.requestService.confirmDelivery(orderId, user.id, lang);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancel trip request',
+    description: 'Cancel a trip request with proper fee distribution according to Velro policy',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip request ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request cancelled successfully',
+    type: CancelRequestResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid cancellation request',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip request not found',
+  })
+  async cancelRequest(
+    @Param('id') requestId: string,
+    @Body() cancelRequestDto: CancelRequestDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<CancelRequestResponseDto> {
+    return this.requestService.cancelRequest(requestId, cancelRequestDto, user.id, lang);
   }
 }

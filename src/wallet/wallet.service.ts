@@ -427,7 +427,7 @@ export class WalletService {
   /**
    * Ensure wallet exists for user
    */
-  private async ensureWallet(userId: string) {
+  async ensureWallet(userId: string) {
     let wallet = await this.prisma.wallet.findUnique({
       where: { userId },
     });

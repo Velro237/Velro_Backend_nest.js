@@ -250,6 +250,11 @@ export class PaymentController {
           // TODO: Update order payment status to FAILED
           break;
 
+        case 'payment_intent.canceled':
+          console.log('PaymentIntent canceled:', event.data.object.id);
+          await this.paymentService.handlePaymentCancellation(event.data.object.id);
+          break;
+
         case 'account.updated':
           console.log('Account updated:', event.data.object.id);
           // TODO: Update user's transfer capability status
@@ -273,7 +278,7 @@ export class PaymentController {
 
         case 'charge.refunded':
           console.log('Charge refunded:', event.data.object.id);
-          // TODO: Handle refund logic
+          await this.paymentService.handleRefund(event.data.object);
           break;
 
         case 'charge.dispute.created':

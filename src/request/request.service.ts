@@ -29,6 +29,11 @@ import {
 } from './dto/update-trip-request.dto';
 import { GetRequestByIdResponseDto } from './dto/get-request-by-id.dto';
 import { ConfirmDeliveryResponseDto } from './dto/confirm-delivery.dto';
+import {
+  CancelRequestDto,
+  CancelRequestResponseDto,
+} from './dto/cancel-request.dto';
+import { CancellationService } from './cancellation.service';
 
 @Injectable()
 export class RequestService {
@@ -40,6 +45,7 @@ export class RequestService {
     private readonly redis: RedisService,
     private readonly walletService: WalletService,
     private readonly notificationService: NotificationService,
+    private readonly cancellationService: CancellationService,
   ) {}
 
   // Trip Request methods
@@ -1479,6 +1485,46 @@ export class RequestService {
     } catch (error) {
       console.error('Failed to create/send notification:', error);
       // Don't throw - notification failure shouldn't stop the main operation
+    }
+  }
+
+  /**
+   * Cancel a trip request with proper fee distribution
+   */
+  async cancelRequest(
+    requestId: string,
+    cancelRequestDto: CancelRequestDto,
+    userId: string,
+    lang?: string,
+  ): Promise<CancelRequestResponseDto> {
+    try {
+      const cancellationResult = await this.cancellationService.cancelRequest(
+        requestId,
+        cancelRequestDto,
+        userId,
+      );
+
+      const message = await this.i18n.translate(
+        'translation.trip.request.cancelled',
+        {
+          lang,
+          defaultValue: 'Trip request cancelled successfully',
+        },
+      );
+
+      return {
+        message,
+        cancellation: cancellationResult,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to cancel request');
     }
   }
 }

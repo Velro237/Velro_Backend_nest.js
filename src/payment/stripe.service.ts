@@ -213,6 +213,83 @@ export class StripeService {
   }
 
   /**
+   * Cancel a PaymentIntent (for authorized but not captured payments)
+   */
+  async cancelPaymentIntent(paymentIntentId: string): Promise<Stripe.PaymentIntent> {
+    try {
+      this.logger.log(`Canceling PaymentIntent ${paymentIntentId}`);
+
+      const paymentIntent = await this.stripe.paymentIntents.cancel(paymentIntentId, {
+        cancellation_reason: 'requested_by_customer',
+      });
+
+      this.logger.log(`PaymentIntent canceled: ${paymentIntent.id}`);
+      return paymentIntent;
+    } catch (error) {
+      this.logger.error('Failed to cancel PaymentIntent:', error);
+      throw new BadRequestException(`Failed to cancel payment: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create a refund for a charge (for captured payments)
+   */
+  async createRefund(chargeId: string, amount: number): Promise<Stripe.Refund> {
+    try {
+      this.logger.log(`Creating refund for charge ${chargeId}: €${amount}`);
+
+      const refund = await this.stripe.refunds.create({
+        charge: chargeId,
+        amount: Math.round(amount * 100), // Convert to cents
+        metadata: {
+          reason: 'cancellation',
+        },
+      });
+
+      this.logger.log(`Refund created: ${refund.id}`);
+      return refund;
+    } catch (error) {
+      this.logger.error('Failed to create refund:', error);
+      throw new BadRequestException(`Failed to create refund: ${error.message}`);
+    }
+  }
+
+  /**
+   * Smart cancellation/refund based on payment status
+   */
+  async processCancellationOrRefund(paymentIntentId: string, amount: number): Promise<{
+    type: 'cancellation' | 'refund';
+    result: Stripe.PaymentIntent | Stripe.Refund;
+  }> {
+    try {
+      // First, get the PaymentIntent to check its status
+      const paymentIntent = await this.getPaymentIntent(paymentIntentId);
+      
+      // Check if payment is captured or not
+      if (paymentIntent.status === 'requires_capture' || paymentIntent.status === 'requires_confirmation') {
+        // Payment is authorized but not captured - CANCEL it
+        this.logger.log(`Payment not captured, canceling PaymentIntent: ${paymentIntentId}`);
+        const canceledPayment = await this.cancelPaymentIntent(paymentIntentId);
+        return { type: 'cancellation', result: canceledPayment };
+      } else if (paymentIntent.status === 'succeeded') {
+        // Payment is captured - REFUND it
+        this.logger.log(`Payment captured, creating refund for: ${paymentIntentId}`);
+        const chargeId = paymentIntent.latest_charge as string;
+        if (!chargeId) {
+          throw new Error('No charge found for captured payment');
+        }
+        const refund = await this.createRefund(chargeId, amount);
+        return { type: 'refund', result: refund };
+      } else {
+        throw new Error(`Cannot process cancellation for payment in status: ${paymentIntent.status}`);
+      }
+    } catch (error) {
+      this.logger.error('Failed to process cancellation/refund:', error);
+      throw new BadRequestException(`Failed to process cancellation: ${error.message}`);
+    }
+  }
+
+  /**
    * Get Stripe instance (for advanced operations)
    */
   getStripeInstance(): Stripe {
