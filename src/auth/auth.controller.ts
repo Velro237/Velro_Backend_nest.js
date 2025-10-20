@@ -18,6 +18,16 @@ import { AuthService } from './auth.service';
 import { SignupDto, SignupResponseDto, VerifyEmailDto } from './dto/signup.dto';
 import { LoginDto, LoginResponseDto, TokenLoginDto } from './dto/login.dto';
 import {
+  PendingSignupDto,
+  PendingSignupResponseDto,
+  CheckOtpDto,
+  CheckOtpResponseDto,
+  CompleteSignupDto,
+  CompleteSignupResponseDto,
+  ResendOtpDto,
+  ResendOtpResponseDto,
+} from './dto/pending-signup.dto';
+import {
   SendOtpDto,
   VerifyOtpDto,
   SendOtpResponseDto,
@@ -219,5 +229,110 @@ export class AuthController {
       email: otp.email,
       type: otp.type,
     };
+  }
+
+  // ======== New Pending Signup Flow ========
+
+  @Post('pending-signup')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create pending user and send OTP',
+    description:
+      'Creates a pending user account and sends OTP for verification. Required fields: firstName, lastName, username, phone, email, city. For freight forwarders: companyName, companyAddress, at least one city and one service are required.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Pending user created successfully',
+    type: PendingSignupResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Missing required fields or validation errors',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflict - Email already exists',
+  })
+  async createPendingUser(
+    @Body() pendingSignupDto: PendingSignupDto,
+    @I18nLang() lang: string,
+  ): Promise<PendingSignupResponseDto> {
+    return this.authService.createPendingUser(pendingSignupDto, lang);
+  }
+
+  @Post('check-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check OTP and get access key',
+    description:
+      'Verifies the OTP code for a pending user and returns an access key for completing signup.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'OTP verified successfully',
+    type: CheckOtpResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid pending user ID',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired OTP',
+  })
+  async checkOtp(
+    @Body() checkOtpDto: CheckOtpDto,
+    @I18nLang() lang: string,
+  ): Promise<CheckOtpResponseDto> {
+    return this.authService.checkOtp(checkOtpDto, lang);
+  }
+
+  @Post('complete-signup')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Complete signup with access key and password',
+    description:
+      'Completes the signup process by creating the actual user account using the access key from OTP verification and a password.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'User account created successfully',
+    type: CompleteSignupResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid pending user ID or missing password',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid access key',
+  })
+  async completeSignup(
+    @Body() completeSignupDto: CompleteSignupDto,
+    @I18nLang() lang: string,
+  ): Promise<CompleteSignupResponseDto> {
+    return this.authService.completeSignup(completeSignupDto, lang);
+  }
+
+  @Post('resend-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resend OTP for pending user',
+    description: "Sends a new OTP to the pending user's email address.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'OTP resent successfully',
+    type: ResendOtpResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid pending user ID',
+  })
+  async resendOtp(
+    @Body() resendOtpDto: ResendOtpDto,
+    @I18nLang() lang: string,
+  ): Promise<ResendOtpResponseDto> {
+    return this.authService.resendOtp(resendOtpDto, lang);
   }
 }

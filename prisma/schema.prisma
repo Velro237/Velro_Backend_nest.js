@@ -14,21 +14,68 @@ enum Provider {
   APPLE
 }
 
+model PendingUser {
+  id                 String  @id @default(uuid())
+  firstName          String?
+  lastName           String?
+  email              String
+  username           String?
+  phone              String?
+  city               String?
+  companyName        String?
+  companyAddress     String?
+  additionalInfo     String
+  isFreightForwarder Boolean @default(false)
+  otp_id             String
+
+  // Relation
+  services CompanyService[] @relation("PendingUserServices")
+  cities   CompanyCity[]    @relation("PendingUserCities")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
+}
+
+model CompanyCity {
+  id           String @id @default(uuid())
+  name         String
+  address      String
+  contactName  String
+  contactPhone String
+
+  pendingUsers PendingUser[] @relation("PendingUserCities")
+  users        User[]        @relation("UserCities")
+  userId       String?
+}
+
+model CompanyService {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]   @relation("UserServices")
+
+  // Relation
+  pendingUsers PendingUser[] @relation("PendingUserServices")
+}
+
 model User {
-  id          String  @id @default(uuid())
-  email       String  @unique
-  password    String
-  otpCode     String?
-  emailVerify Boolean @default(false)
-  firstName   String?
-  lastName    String?
-  phone       String?
-  address     String?
-  city        String?
-  state       String?
-  zip         String?
-  picture     String?
-  currency    String? @default("XAF")
+  id        String  @id @default(uuid())
+  email     String  @unique
+  username  String?
+  password  String
+  otpCode   String?
+  firstName String?
+  lastName  String?
+  phone     String?
+  address   String?
+  city      String?
+  state     String?
+  zip       String?
+  picture   String?
+  currency  String? @default("XAF")
 
   name               String
   isFreightForwarder Boolean       @default(false)
@@ -49,6 +96,9 @@ model User {
   payout_currency            String? @default("EUR")
   transfers_capability       String? @default("inactive")
   stripe_onboarding_complete Boolean @default(false)
+
+  services CompanyService[] @relation("UserServices")
+  cities   CompanyCity[]    @relation("UserCities")
 
   reportsSubmitted Report[]       @relation("ReportReporter")
   reportsReceived  Report[]       @relation("ReportReported")

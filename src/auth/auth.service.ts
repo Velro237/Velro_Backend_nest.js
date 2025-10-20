@@ -10,6 +10,16 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { SignupDto, SignupResponseDto, VerifyEmailDto } from './dto/signup.dto';
 import { LoginDto, LoginResponseDto } from './dto/login.dto';
+import {
+  PendingSignupDto,
+  PendingSignupResponseDto,
+  CheckOtpDto,
+  CheckOtpResponseDto,
+  CompleteSignupDto,
+  CompleteSignupResponseDto,
+  ResendOtpDto,
+  ResendOtpResponseDto,
+} from './dto/pending-signup.dto';
 import { I18nService, I18nContext } from 'nestjs-i18n';
 import * as bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -23,6 +33,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import Mailgun from 'mailgun.js';
 import { randomInt } from 'crypto';
+import { OtpService } from './otp/otp.service';
 
 @Injectable()
 export class AuthService {
@@ -31,6 +42,7 @@ export class AuthService {
     private readonly i18n: I18nService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly otpService: OtpService,
   ) {}
 
   async sendEmail(
@@ -266,21 +278,16 @@ export class AuthService {
         where: { id: userId },
         select: {
           id: true,
-          emailVerify: true,
           otpCode: true,
         },
       });
       if (!user) this.fail();
-      if (user.emailVerify) {
-        return { success: true, message: 'Email déjà vérifié' };
-      }
       const codeVerify = await bcrypt.compare(code, user.otpCode);
       if (!codeVerify) this.fail();
       await this.prisma.user.update({
         where: { id: user.id },
         data: {
-          emailVerify: true,
-          otpCode: '0',
+          otpCode: null, // Clear OTP after verification
         },
       });
       return { success: true, message: 'Email vérifié' };
@@ -548,5 +555,475 @@ export class AuthService {
     });
 
     return this.issueTokens(user.user.id);
+  }
+
+  /**
+   * Create a pending user and send OTP
+   */
+  async createPendingUser(
+    pendingSignupDto: PendingSignupDto,
+    lang: string = 'en',
+  ): Promise<PendingSignupResponseDto> {
+    const {
+      firstName,
+      lastName,
+      username,
+      phone,
+      email,
+      city,
+      isFreightForwarder = false,
+      companyName,
+      companyAddress,
+      cities = [],
+      services = [],
+    } = pendingSignupDto;
+
+    // Check if email already exists in User table
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      const message = await this.i18n.translate(
+        'translation.auth.signup.emailExists',
+        {
+          lang,
+          defaultValue: 'Email already exists',
+        },
+      );
+      throw new ConflictException(message);
+    }
+
+    // Validate freight forwarder requirements
+    if (isFreightForwarder) {
+      if (!companyName || !companyAddress) {
+        const message = await this.i18n.translate(
+          'translation.auth.signup.companyRequired',
+          {
+            lang,
+            defaultValue:
+              'Company name and address are required for freight forwarders',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      if (!cities || cities.length === 0) {
+        const message = await this.i18n.translate(
+          'translation.auth.signup.citiesRequired',
+          {
+            lang,
+            defaultValue:
+              'At least one city is required for freight forwarders',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      if (!services || services.length === 0) {
+        const message = await this.i18n.translate(
+          'translation.auth.signup.servicesRequired',
+          {
+            lang,
+            defaultValue:
+              'At least one service is required for freight forwarders',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+    }
+
+    try {
+      // Create OTP first
+      const otpResult = await this.otpService.createAndSendOtp(
+        email,
+        'SIGNUP',
+        phone,
+        lang,
+      );
+
+      // Create pending user
+      const pendingUser = await this.prisma.pendingUser.create({
+        data: {
+          firstName,
+          lastName,
+          email,
+          username,
+          phone,
+          city,
+          companyName,
+          companyAddress,
+          additionalInfo: '',
+          isFreightForwarder,
+          otp_id: otpResult.email, // We'll store the OTP ID here
+          expiresAt: otpResult.expiresAt,
+        },
+      });
+
+      // Create company cities if freight forwarder
+      if (isFreightForwarder && cities.length > 0) {
+        for (const cityData of cities) {
+          await this.prisma.companyCity.create({
+            data: {
+              name: cityData.name,
+              address: cityData.address,
+              contactName: cityData.contactName,
+              contactPhone: cityData.contactPhone,
+              pendingUsers: {
+                connect: { id: pendingUser.id },
+              },
+            },
+          });
+        }
+      }
+
+      // Create company services if freight forwarder
+      if (isFreightForwarder && services.length > 0) {
+        for (const serviceData of services) {
+          await this.prisma.companyService.create({
+            data: {
+              name: serviceData.name,
+              description: serviceData.description,
+              pendingUsers: {
+                connect: { id: pendingUser.id },
+              },
+            },
+          });
+        }
+      }
+
+      const message = await this.i18n.translate(
+        'translation.auth.pendingSignup.success',
+        {
+          lang,
+          defaultValue:
+            'Pending user created successfully. Please check your email for OTP.',
+        },
+      );
+
+      return {
+        message,
+        pendingUserId: pendingUser.id,
+        email,
+        expiresAt: otpResult.expiresAt,
+      };
+    } catch (error: any) {
+      console.error('Error creating pending user:', error);
+      const message = await this.i18n.translate(
+        'translation.auth.pendingSignup.failed',
+        {
+          lang,
+          defaultValue: 'Failed to create pending user',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Check OTP and return access key
+   */
+  async checkOtp(
+    checkOtpDto: CheckOtpDto,
+    lang: string = 'en',
+  ): Promise<CheckOtpResponseDto> {
+    const { pendingUserId, code } = checkOtpDto;
+
+    // Find pending user
+    const pendingUser = await this.prisma.pendingUser.findUnique({
+      where: { id: pendingUserId },
+    });
+
+    if (!pendingUser) {
+      const message = await this.i18n.translate(
+        'translation.auth.pendingUser.notFound',
+        {
+          lang,
+          defaultValue: 'Pending user not found',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    // Verify OTP using OtpService
+    const verifiedOtp = await this.otpService.verifyOtp(
+      pendingUser.email,
+      code,
+      'SIGNUP',
+      lang,
+    );
+
+    // Update pending user with OTP ID
+    await this.prisma.pendingUser.update({
+      where: { id: pendingUserId },
+      data: {
+        otp_id: verifiedOtp.access_key,
+        expiresAt: verifiedOtp.expiresAt,
+      },
+    });
+
+    const message = await this.i18n.translate('translation.auth.otp.verified', {
+      lang,
+      defaultValue: 'OTP verified successfully',
+    });
+
+    return {
+      message,
+      accessKey: verifiedOtp.access_key,
+      pendingUserId,
+    };
+  }
+
+  /**
+   * Complete signup using access key and password
+   */
+  async completeSignup(
+    completeSignupDto: CompleteSignupDto,
+    lang: string = 'en',
+  ): Promise<CompleteSignupResponseDto> {
+    const { pendingUserId, accessKey, password } = completeSignupDto;
+
+    // Verify access key
+    const pendingUser = await this.prisma.pendingUser.findUnique({
+      where: { id: pendingUserId },
+    });
+
+    if (!pendingUser) {
+      const message = await this.i18n.translate(
+        'translation.auth.pendingUser.notFound',
+        {
+          lang,
+          defaultValue: 'Pending user not found',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    // Verify access key matches
+    if (pendingUser.otp_id !== accessKey) {
+      const message = await this.i18n.translate(
+        'translation.auth.accessKey.invalid',
+        {
+          lang,
+          defaultValue: 'Invalid access key',
+        },
+      );
+      throw new UnauthorizedException(message);
+    }
+
+    // Verify access key with OtpService
+    await this.otpService.verifyAccessKey(
+      accessKey,
+      pendingUser.email,
+      'SIGNUP',
+      lang,
+    );
+
+    try {
+      // Hash the password
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+      // Create the user
+      const user = await this.prisma.user.create({
+        data: {
+          email: pendingUser.email,
+          password: hashedPassword,
+          role: 'USER',
+          firstName: pendingUser.firstName,
+          lastName: pendingUser.lastName,
+          name: `${pendingUser.firstName} ${pendingUser.lastName}`,
+          username: pendingUser.username,
+          phone: pendingUser.phone,
+          city: pendingUser.city,
+          isFreightForwarder: pendingUser.isFreightForwarder,
+          companyName: pendingUser.companyName,
+          companyAddress: pendingUser.companyAddress,
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          username: true,
+          phone: true,
+          city: true,
+          isFreightForwarder: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+
+      // Create initial UserKYC record
+      await this.prisma.userKYC.create({
+        data: {
+          userId: user.id,
+          status: 'NOT_STARTED',
+          provider: 'DIDIT',
+        },
+      });
+
+      // Create wallet
+      await this.prisma.wallet.create({
+        data: {
+          userId: user.id,
+          currency: 'XAF',
+          available_balance_stripe: 0,
+          pending_balance_stripe: 0,
+          withdrawn_total_stripe: 0,
+        },
+      });
+
+      // Transfer company cities if freight forwarder
+      if (pendingUser.isFreightForwarder) {
+        const companyCities = await this.prisma.companyCity.findMany({
+          where: {
+            pendingUsers: {
+              some: { id: pendingUserId },
+            },
+          },
+        });
+
+        for (const city of companyCities) {
+          await this.prisma.companyCity.update({
+            where: { id: city.id },
+            data: {
+              userId: user.id,
+              pendingUsers: {
+                disconnect: { id: pendingUserId },
+              },
+              users: {
+                connect: { id: user.id },
+              },
+            },
+          });
+        }
+      }
+
+      // Transfer company services if freight forwarder
+      if (pendingUser.isFreightForwarder) {
+        const companyServices = await this.prisma.companyService.findMany({
+          where: {
+            pendingUsers: {
+              some: { id: pendingUserId },
+            },
+          },
+        });
+
+        for (const service of companyServices) {
+          await this.prisma.companyService.update({
+            where: { id: service.id },
+            data: {
+              pendingUsers: {
+                disconnect: { id: pendingUserId },
+              },
+              users: {
+                connect: { id: user.id },
+              },
+            },
+          });
+        }
+      }
+
+      // Delete pending user
+      await this.prisma.pendingUser.delete({
+        where: { id: pendingUserId },
+      });
+
+      // Invalidate access key
+      await this.otpService.invalidateAccessKey(accessKey, lang);
+
+      const message = await this.i18n.translate(
+        'translation.auth.completeSignup.success',
+        {
+          lang,
+          defaultValue: 'User account created successfully',
+        },
+      );
+
+      return {
+        message,
+        user,
+      };
+    } catch (error: any) {
+      console.error('Error completing signup:', error);
+      const message = await this.i18n.translate(
+        'translation.auth.completeSignup.failed',
+        {
+          lang,
+          defaultValue: 'Failed to complete signup',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Resend OTP for pending user
+   */
+  async resendOtp(
+    resendOtpDto: ResendOtpDto,
+    lang: string = 'en',
+  ): Promise<ResendOtpResponseDto> {
+    const { pendingUserId } = resendOtpDto;
+
+    // Find pending user
+    const pendingUser = await this.prisma.pendingUser.findUnique({
+      where: { id: pendingUserId },
+    });
+
+    if (!pendingUser) {
+      const message = await this.i18n.translate(
+        'translation.auth.pendingUser.notFound',
+        {
+          lang,
+          defaultValue: 'Pending user not found',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    try {
+      // Create and send new OTP
+      const otpResult = await this.otpService.createAndSendOtp(
+        pendingUser.email,
+        'SIGNUP',
+        pendingUser.phone,
+        lang,
+      );
+
+      // Update pending user with new OTP ID and expiry
+      await this.prisma.pendingUser.update({
+        where: { id: pendingUserId },
+        data: {
+          otp_id: otpResult.email, // Store OTP reference
+          expiresAt: otpResult.expiresAt,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.auth.resendOtp.success',
+        {
+          lang,
+          defaultValue: 'OTP resent successfully',
+        },
+      );
+
+      return {
+        message,
+        email: pendingUser.email,
+        expiresAt: otpResult.expiresAt,
+      };
+    } catch (error: any) {
+      console.error('Error resending OTP:', error);
+      const message = await this.i18n.translate(
+        'translation.auth.resendOtp.failed',
+        {
+          lang,
+          defaultValue: 'Failed to resend OTP',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
   }
 }
