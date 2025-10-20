@@ -92,6 +92,9 @@ export class GetUserTripDetailResponseDto {
       ],
       available_earnings: 300.0,
       hold_earnings: 100.0,
+      booked_kg: 12.5,
+      available_kg: 37.5,
+      total_kg: 50.0,
     },
   })
   trip: {
@@ -170,5 +173,8 @@ export class GetUserTripDetailResponseDto {
     }>;
     available_earnings: number;
     hold_earnings: number;
+    booked_kg: number;
+    available_kg: number;
+    total_kg: number;
   };
 }

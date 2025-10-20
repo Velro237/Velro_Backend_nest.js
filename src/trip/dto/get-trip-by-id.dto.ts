@@ -250,6 +250,25 @@ export class TripDetailsDto {
     type: [TripItemDto],
   })
   trip_items: TripItemDto[];
+
+  @ApiProperty({
+    description:
+      'Total kg booked by all active requests (excludes cancelled, declined, and refunded)',
+    example: 12.5,
+  })
+  booked_kg: number;
+
+  @ApiProperty({
+    description: 'Available kg remaining (total_kg - booked_kg)',
+    example: 37.5,
+  })
+  available_kg: number;
+
+  @ApiProperty({
+    description: 'Total kg capacity from all trip items',
+    example: 50.0,
+  })
+  total_kg: number;
 }
 
 export class GetTripByIdResponseDto {

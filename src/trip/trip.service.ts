@@ -790,6 +790,33 @@ export class TripService {
         })),
       }));
 
+      // Calculate total_kg from trip items
+      const total_kg = trip.trip_items.reduce((sum, item) => {
+        return sum + (item.avalailble_kg ? Number(item.avalailble_kg) : 0);
+      }, 0);
+
+      // Calculate booked_kg from all active request items
+      const booked_kg = trip.requests
+        .filter(
+          (request) =>
+            ![
+              'CANCELLED',
+              'DECLINED',
+              'REFUNDED',
+              'PENDING',
+              'ACCEPTED',
+            ].includes(request.status),
+        )
+        .reduce((sum, request) => {
+          const requestKg = request.request_items.reduce((reqSum, item) => {
+            return reqSum + item.quantity;
+          }, 0);
+          return sum + requestKg;
+        }, 0);
+
+      // Calculate available_kg
+      const available_kg = total_kg - booked_kg;
+
       const message = await this.i18n.translate(
         'translation.trip.getUserTripDetail.success',
         {
@@ -827,6 +854,9 @@ export class TripService {
           requests,
           available_earnings: Number(available_earnings.toFixed(2)),
           hold_earnings: Number(hold_earnings.toFixed(2)),
+          booked_kg: Number(booked_kg.toFixed(2)),
+          available_kg: Number(available_kg.toFixed(2)),
+          total_kg: Number(total_kg.toFixed(2)),
         },
       };
     } catch (error) {
@@ -1716,6 +1746,39 @@ export class TripService {
         trip_item: item.trip_item,
       }));
 
+      // Calculate total_kg from trip items
+      const total_kg = trip.trip_items.reduce((sum, item) => {
+        return sum + (item.avalailble_kg ? Number(item.avalailble_kg) : 0);
+      }, 0);
+
+      // Get all requests for this trip and calculate booked_kg
+      const requests = await this.prisma.tripRequest.findMany({
+        where: {
+          trip_id: tripId,
+          status: {
+            notIn: ['CANCELLED', 'DECLINED', 'REFUNDED', 'PENDING'],
+          },
+        },
+        include: {
+          request_items: {
+            select: {
+              quantity: true,
+            },
+          },
+        },
+      });
+
+      // Calculate booked_kg from all request items
+      const booked_kg = requests.reduce((sum, request) => {
+        const requestKg = request.request_items.reduce((reqSum, item) => {
+          return reqSum + item.quantity;
+        }, 0);
+        return sum + requestKg;
+      }, 0);
+
+      // Calculate available_kg
+      const available_kg = total_kg - booked_kg;
+
       const message = await this.i18n.translate(
         'translation.trip.getById.success',
         { lang },
@@ -1748,6 +1811,9 @@ export class TripService {
           mode_of_transport: trip.mode_of_transport,
           airline: trip.airline,
           trip_items: tripItems,
+          booked_kg: Number(booked_kg.toFixed(2)),
+          available_kg: Number(available_kg.toFixed(2)),
+          total_kg: Number(total_kg.toFixed(2)),
         },
       };
     } catch (error) {

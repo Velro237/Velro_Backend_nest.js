@@ -60,7 +60,13 @@ export class RequestService {
     // Check if trip exists
     const trip = await this.prisma.trip.findUnique({
       where: { id: trip_id },
-      include: {
+      select: {
+        id: true,
+        user_id: true,
+        fully_booked: true,
+        currency: true,
+        pickup: true,
+        destination: true,
         trip_items: {
           include: {
             trip_item: true,
@@ -199,7 +205,7 @@ export class RequestService {
 
       // Create trip request with request items in a transaction
       const result = await this.prisma.$transaction(async (prisma) => {
-        // Create the trip request with calculated cost
+        // Create the trip request with calculated cost and currency from trip
         const request = await prisma.tripRequest.create({
           data: {
             trip_id,
@@ -207,6 +213,7 @@ export class RequestService {
             message: requestData.message,
             status: 'PENDING',
             cost: totalCost,
+            currency: trip.currency,
           },
           select: {
             id: true,
@@ -215,6 +222,7 @@ export class RequestService {
             status: true,
             message: true,
             cost: true,
+            currency: true,
             created_at: true,
           },
         });
@@ -272,15 +280,12 @@ export class RequestService {
         );
         const chatName = `${departureCountry} ${toWord} ${destinationCountry}`;
 
-        // Check if there's already a chat between these users for this trip
-        let existingChat = await this.prisma.chat.findFirst({
+        // Check if there's already a chat between these users
+        const allChats = await this.prisma.chat.findMany({
           where: {
-            trip_id: trip.id,
             members: {
-              every: {
-                user_id: {
-                  in: [userId, trip.user_id],
-                },
+              some: {
+                user_id: userId,
               },
             },
           },
@@ -299,8 +304,37 @@ export class RequestService {
           },
         });
 
+        // Find a chat where both users are members
+        let existingChat = allChats.find((chat) => {
+          const memberIds = chat.members.map((m) => m.user_id);
+          return memberIds.includes(userId) && memberIds.includes(trip.user_id);
+        });
+
         let chatResult;
         if (existingChat) {
+          // If chat exists, update trip_id if missing
+          if (!existingChat.trip_id) {
+            existingChat = await this.prisma.chat.update({
+              where: { id: existingChat.id },
+              data: {
+                trip_id: trip.id,
+              },
+              include: {
+                members: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        email: true,
+                        role: true,
+                      },
+                    },
+                  },
+                },
+              },
+            });
+          }
+
           // Use existing chat
           chatResult = {
             message: await this.i18n.translate(
@@ -344,29 +378,36 @@ export class RequestService {
           );
         }
 
-        // Send a message in the chat with the new request data
+        // Update the request with chat_id
+        await this.prisma.tripRequest.update({
+          where: { id: result.request.id },
+          data: {
+            chat_id: chatResult.chat.id,
+          },
+        });
+
+        // Send a message in the chat for existing chats
+        // (for new chats, the message was already created in createChat)
         try {
           if (existingChat) {
-            console.log('Existing chat');
             console.log('Existing chat - sending message programmatically');
-            // If existing chat: use ChatGateway sendMessageProgrammatically
-            const requestMessage =
-              await this.chatGateway.sendMessageProgrammatically({
-                chatId: chatResult.chat.id,
-                senderId: userId,
-                content: await this.i18n.translate(
-                  'translation.chat.messages.newTripRequest',
-                  { lang },
-                ),
-                type: PrismaMessageType.REQUEST,
-                replyToId: undefined,
-                imageUrl: undefined,
-                requestId: result.request.id,
-              });
+            // Send message to notify about the new request
+            await this.chatGateway.sendMessageProgrammatically({
+              chatId: chatResult.chat.id,
+              senderId: userId,
+              content: await this.i18n.translate(
+                'translation.chat.messages.newTripRequest',
+                { lang },
+              ),
+              type: PrismaMessageType.REQUEST,
+              replyToId: undefined,
+              imageUrl: undefined,
+              requestId: result.request.id,
+            });
           }
         } catch (messageError) {
           console.error(
-            'Failed to create message or notify chat creation:',
+            'Failed to send message in existing chat:',
             messageError,
           );
         }
@@ -562,6 +603,7 @@ export class RequestService {
           status: fullRequest.status,
           message: fullRequest.message,
           cost: fullRequest.cost ? Number(fullRequest.cost) : null,
+          currency: fullRequest.currency,
           created_at: fullRequest.created_at,
           user: {
             id: fullRequest.user.id,
@@ -1085,28 +1127,12 @@ export class RequestService {
         throw new ConflictException(message);
       }
 
-      // Find the chat between trip owner and requester for this trip
-      const chat = await this.prisma.chat.findFirst({
-        where: {
-          trip_id: request.trip_id,
-          members: {
-            every: {
-              user_id: {
-                in: [request.trip.user_id, request.user_id],
-              },
-            },
-          },
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      if (!chat) {
+      // Get chat_id from request
+      if (!request.chat_id) {
         throw new NotFoundException('Chat not found for this request');
       }
 
-      const chatId = chat.id;
+      const chatId = request.chat_id;
 
       // Validate status transitions using switch statement
       const currentStatus = request.status;
@@ -1525,6 +1551,163 @@ export class RequestService {
         throw error;
       }
       throw new InternalServerErrorException('Failed to cancel request');
+    }
+  }
+
+  async getUserRequests(
+    userId: string,
+    query: {
+      direction: string;
+      status?: string;
+      page?: number;
+      limit?: number;
+    },
+    lang?: string,
+  ) {
+    try {
+      const { direction, status, page = 1, limit = 10 } = query;
+      const skip = (page - 1) * limit;
+
+      let whereClause: any = {};
+
+      if (direction === 'INCOMING') {
+        // Requests on trips created by the user
+        whereClause = {
+          trip: {
+            user_id: userId,
+          },
+        };
+      } else if (direction === 'OUTGOING') {
+        // Requests made by the user to other people's trips
+        whereClause = {
+          user_id: userId,
+        };
+      }
+
+      // Add status filter if provided and not 'ALL'
+      if (status && status !== 'ALL') {
+        whereClause.status = status;
+      }
+
+      // Get total count
+      const total = await this.prisma.tripRequest.count({
+        where: whereClause,
+      });
+
+      // Fetch requests
+      const requests = await this.prisma.tripRequest.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        orderBy: {
+          created_at: 'desc',
+        },
+        select: {
+          id: true,
+          trip_id: true,
+          user_id: true,
+          status: true,
+          cost: true,
+          currency: true,
+          message: true,
+          created_at: true,
+          updated_at: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              picture: true,
+            },
+          },
+          trip: {
+            select: {
+              id: true,
+              departure: true,
+              destination: true,
+              departure_date: true,
+              status: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  picture: true,
+                },
+              },
+            },
+          },
+          request_items: {
+            select: {
+              trip_item_id: true,
+              quantity: true,
+              special_notes: true,
+              trip_item: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  image: {
+                    select: {
+                      id: true,
+                      url: true,
+                      alt_text: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // Transform requests
+      const transformedRequests = requests.map((request) => ({
+        id: request.id,
+        trip_id: request.trip_id,
+        user_id: request.user_id,
+        status: request.status,
+        cost: request.cost ? Number(request.cost) : null,
+        currency: request.currency,
+        message: request.message,
+        created_at: request.created_at,
+        updated_at: request.updated_at,
+        user: request.user,
+        trip: request.trip,
+        request_items: request.request_items.map((item) => ({
+          trip_item_id: item.trip_item_id,
+          quantity: item.quantity,
+          special_notes: item.special_notes,
+          trip_item: item.trip_item,
+        })),
+      }));
+
+      const message = await this.i18n.translate(
+        'translation.request.getUserRequests.success',
+        {
+          lang,
+          defaultValue: 'Requests retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        requests: transformedRequests,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    } catch (error) {
+      console.error('Error getting user requests:', error);
+      const message = await this.i18n.translate(
+        'translation.request.getUserRequests.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve requests',
+        },
+      );
+      throw new InternalServerErrorException(message);
     }
   }
 }

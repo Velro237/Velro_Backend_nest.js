@@ -114,6 +114,37 @@ export class ChatSummaryDto {
       email: string;
     };
   };
+
+  @ApiProperty({
+    description: 'Request information if chat is linked to a request',
+    required: false,
+    example: {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      status: 'PENDING',
+      cost: 150.0,
+      currency: 'USD',
+      created_at: '2024-01-15T10:00:00.000Z',
+      user: {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        email: 'user@example.com',
+        name: 'John Doe',
+        picture: 'https://example.com/avatar.jpg',
+      },
+    },
+  })
+  request?: {
+    id: string;
+    status: string;
+    cost: number | null;
+    currency: string;
+    created_at: Date;
+    user?: {
+      id: string;
+      email: string;
+      name: string;
+      picture: string;
+    };
+  };
 }
 
 export class GetChatsResponseDto {

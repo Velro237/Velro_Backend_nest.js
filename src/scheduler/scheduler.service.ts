@@ -393,6 +393,59 @@ export class SchedulerService {
   }
 
   /**
+   * Clean up expired pending users and OTPs
+   * Runs every day at midnight
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async cleanupExpiredData(): Promise<void> {
+    const startTime = new Date();
+    this.logger.log(
+      `[CRON START] Cleanup Expired Data - Running at ${startTime.toISOString()}`,
+    );
+
+    try {
+      const now = new Date();
+
+      // Delete expired pending users
+      const deletedPendingUsers = await this.prisma.pendingUser.deleteMany({
+        where: {
+          expiresAt: {
+            lt: now,
+          },
+        },
+      });
+
+      this.logger.log(
+        `[CRON] Deleted ${deletedPendingUsers.count} expired pending users`,
+      );
+
+      // Delete expired OTPs
+      const deletedOTPs = await this.prisma.otp.deleteMany({
+        where: {
+          expiresAt: {
+            lt: now,
+          },
+        },
+      });
+
+      this.logger.log(`[CRON] Deleted ${deletedOTPs.count} expired OTPs`);
+
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      this.logger.log(
+        `[CRON END] Cleanup Expired Data - Completed in ${duration}ms`,
+      );
+    } catch (error) {
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      this.logger.error(
+        `[CRON ERROR] Cleanup Expired Data - Failed after ${duration}ms`,
+        error,
+      );
+    }
+  }
+
+  /**
    * Manual trigger for testing purposes
    */
   async triggerAlertCheck(): Promise<void> {
@@ -408,5 +461,14 @@ export class SchedulerService {
     this.logger.log('[MANUAL TRIGGER] Trip Status Update - Initiated manually');
     await this.updateTripStatuses();
     this.logger.log('[MANUAL TRIGGER] Trip Status Update - Completed');
+  }
+
+  /**
+   * Manual trigger for cleanup (testing purposes)
+   */
+  async triggerCleanup(): Promise<void> {
+    this.logger.log('[MANUAL TRIGGER] Cleanup - Initiated manually');
+    await this.cleanupExpiredData();
+    this.logger.log('[MANUAL TRIGGER] Cleanup - Completed');
   }
 }

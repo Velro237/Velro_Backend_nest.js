@@ -83,4 +83,38 @@ export class SchedulerController {
       message: 'Trip status update triggered successfully',
     };
   }
+
+  @Post('trigger-cleanup')
+  @ApiOperation({
+    summary: 'Manually trigger expired data cleanup (Admin only)',
+    description:
+      'Manually trigger the cleanup process for expired pending users and OTPs. This will delete all pending users and OTPs that have passed their expiration date.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Cleanup triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Cleanup triggered successfully',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async triggerCleanup() {
+    await this.schedulerService.triggerCleanup();
+    return {
+      message: 'Cleanup triggered successfully',
+    };
+  }
 }

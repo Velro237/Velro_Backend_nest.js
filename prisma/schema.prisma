@@ -150,6 +150,7 @@ model Chat {
   members  ChatMember[]
   messages Message[]
   trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request  TripRequest? // One-to-one reverse relation
 }
 
 model ChatMember {
@@ -304,20 +305,24 @@ model TripRequest {
   payment_intent_id String?        @unique
   payment_status    PaymentStatus? @default(PENDING)
   paid_at           DateTime?
-  
+
   // Delivery confirmation
   sender_confirmed_delivery   Boolean   @default(false)
   traveler_confirmed_delivery Boolean   @default(false)
   delivered_at                DateTime?
 
   // Cancellation fields
-  cancelled_at     DateTime?
-  cancellation_type String?
+  cancelled_at        DateTime?
+  cancellation_type   String?
   cancellation_reason String?
+
+  // Chat relation (one-to-one)
+  chat_id String? @unique
 
   // Relations
   trip          Trip               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
   user          User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  chat          Chat?              @relation(fields: [chat_id], references: [id], onDelete: SetNull)
   request_items TripRequestItem[]
   images        TripRequestImage[]
   messages      Message[] // messages that reference this request via request_id

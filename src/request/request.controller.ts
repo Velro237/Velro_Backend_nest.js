@@ -51,6 +51,10 @@ import {
   CancelRequestResponseDto,
 } from './dto/cancel-request.dto';
 import {
+  GetUserRequestsQueryDto,
+  GetUserRequestsResponseDto,
+} from './dto/get-user-requests.dto';
+import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
   ApiUpdateTripRequest,
@@ -217,7 +221,8 @@ export class RequestController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Cancel trip request',
-    description: 'Cancel a trip request with proper fee distribution according to Velro policy',
+    description:
+      'Cancel a trip request with proper fee distribution according to Velro policy',
   })
   @ApiParam({
     name: 'id',
@@ -243,6 +248,37 @@ export class RequestController {
     @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<CancelRequestResponseDto> {
-    return this.requestService.cancelRequest(requestId, cancelRequestDto, user.id, lang);
+    return this.requestService.cancelRequest(
+      requestId,
+      cancelRequestDto,
+      user.id,
+      lang,
+    );
+  }
+
+  @Get('user-requests')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get user requests with direction filter',
+    description:
+      "Retrieve requests based on direction: INCOMING (requests on trips the user created) or OUTGOING (requests the user made to others' trips). Optional status filter and pagination are supported.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Requests retrieved successfully',
+    type: GetUserRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid query parameters',
+  })
+  async getUserRequests(
+    @Query() query: GetUserRequestsQueryDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<GetUserRequestsResponseDto> {
+    return this.requestService.getUserRequests(user.id, query, lang);
   }
 }

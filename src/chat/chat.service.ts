@@ -94,7 +94,7 @@ export class ChatService {
         },
       });
 
-       // If chat exists and both users are members, prevent creation
+      // If chat exists and both users are members, prevent creation
       if (existingChat) {
         const memberUserIds = existingChat.members.map((m) => m.user_id);
         const bothUsersAreMembersOfChat =
@@ -294,6 +294,23 @@ export class ChatService {
                 },
               },
             },
+            request: {
+              select: {
+                id: true,
+                status: true,
+                cost: true,
+                currency: true,
+                created_at: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    picture: true,
+                  },
+                },
+              },
+            },
             _count: {
               select: {
                 messages: {
@@ -337,6 +354,23 @@ export class ChatService {
                 ? {
                     id: chat.trip.user.id,
                     email: chat.trip.user.email,
+                  }
+                : undefined,
+            }
+          : undefined,
+        request: chat.request
+          ? {
+              id: chat.request.id,
+              status: chat.request.status,
+              cost: chat.request.cost ? Number(chat.request.cost) : null,
+              currency: chat.request.currency,
+              created_at: chat.request.created_at,
+              user: chat.request.user
+                ? {
+                    id: chat.request.user.id,
+                    email: chat.request.user.email,
+                    name: chat.request.user.name,
+                    picture: chat.request.user.picture,
                   }
                 : undefined,
             }
@@ -559,50 +593,63 @@ export class ChatService {
     }
 
     try {
-      const message = await this.prisma.message.create({
-        data: {
-          chat_id: chatId,
-          sender_id: senderId,
-          content,
-          type,
-          image_url: imageUrl,
-          request_id: requestId,
-        },
-        include: {
-          sender: {
-            select: {
-              id: true,
-              email: true,
-            },
+      const message = await this.prisma.$transaction(async (prisma) => {
+        // Create the message
+        const newMessage = await prisma.message.create({
+          data: {
+            chat_id: chatId,
+            sender_id: senderId,
+            content,
+            type,
+            image_url: imageUrl,
+            request_id: requestId,
           },
-          request: {
-            include: {
-              trip: {
-                select: {
-                  id: true,
-                  pickup: true,
-                  destination: true,
-                  departure_date: true,
-                  departure_time: true,
-                  currency: true,
-                  airline_id: true,
-                  user: {
-                    select: {
-                      id: true,
-                      email: true,
+          include: {
+            sender: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+            request: {
+              include: {
+                trip: {
+                  select: {
+                    id: true,
+                    pickup: true,
+                    destination: true,
+                    departure_date: true,
+                    departure_time: true,
+                    currency: true,
+                    airline_id: true,
+                    user: {
+                      select: {
+                        id: true,
+                        email: true,
+                      },
                     },
                   },
                 },
-              },
-              user: {
-                select: {
-                  id: true,
-                  email: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                  },
                 },
               },
             },
           },
-        },
+        });
+
+        // Update chat's updatedAt timestamp to bring it to the top of the list
+        await prisma.chat.update({
+          where: { id: chatId },
+          data: {
+            updatedAt: new Date(),
+          },
+        });
+
+        return newMessage;
       });
 
       const result = {

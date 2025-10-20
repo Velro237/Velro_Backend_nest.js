@@ -139,6 +139,7 @@ export class CreateTripRequestResponseDto {
       status: 'PENDING',
       message: 'I would like to request these items for my upcoming trip',
       cost: 31.98,
+      currency: 'USD',
       created_at: '2024-01-15T10:30:00.000Z',
       user: {
         id: '123e4567-e89b-12d3-a456-426614174001',
@@ -242,6 +243,7 @@ export class CreateTripRequestResponseDto {
     status: string;
     message?: string;
     cost?: number;
+    currency: string;
     created_at: Date;
     user: {
       id: string;
