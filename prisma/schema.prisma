@@ -304,11 +304,16 @@ model TripRequest {
   payment_intent_id String?        @unique
   payment_status    PaymentStatus? @default(PENDING)
   paid_at           DateTime?
-
+  
   // Delivery confirmation
   sender_confirmed_delivery   Boolean   @default(false)
   traveler_confirmed_delivery Boolean   @default(false)
   delivered_at                DateTime?
+
+  // Cancellation fields
+  cancelled_at     DateTime?
+  cancellation_type String?
+  cancellation_reason String?
 
   // Relations
   trip          Trip               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
@@ -554,6 +559,9 @@ enum TransactionSource {
   COMMISSION // Platform commission deduction
   TRIP_EARNING // Trip earning
   FEE // Fee deduction
+  CANCELLATION_COMPENSATION // Traveler compensation for cancellation
+  VELRO_FEE // Velro platform fee
+  PAYMENT_CANCELLATION // PaymentIntent cancellation (not captured)
 }
 
 enum TransactionStatus {

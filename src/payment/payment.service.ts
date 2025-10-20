@@ -651,4 +651,134 @@ export class PaymentService {
 
     return wallet;
   }
+
+  /**
+   * Handle refund webhook from Stripe
+   */
+  async handleRefund(refund: any): Promise<void> {
+    try {
+      this.logger.log(`Handling refund: ${refund.id}`);
+
+      // Find the related order by payment intent
+      const order = await this.prisma.tripRequest.findFirst({
+        where: { payment_intent_id: refund.payment_intent },
+        include: {
+          trip: {
+            include: {
+              user: true, // Traveler
+            },
+          },
+          user: true, // Sender
+        },
+      });
+
+      if (!order) {
+        this.logger.warn(`Order not found for refund ${refund.id}`);
+        return;
+      }
+
+      // Record refund transaction (for tracking purposes)
+      try {
+        const senderWallet = await this.prisma.wallet.findUnique({
+          where: { userId: order.user_id },
+        });
+
+        if (senderWallet) {
+          await this.prisma.transaction.create({
+            data: {
+              userId: order.user_id, // Sender
+              type: 'CREDIT',
+              amount_requested: refund.amount / 100, // Convert from cents
+              fee_applied: 0,
+              amount_paid: refund.amount / 100,
+              wallet_id: senderWallet.id,
+              currency: refund.currency.toUpperCase(),
+              description: `Refund for order ${order.id}`,
+              source: 'REFUND',
+              balance_after: Number(senderWallet.available_balance_stripe), // No change to wallet balance
+              provider: 'STRIPE',
+            },
+          });
+        }
+      } catch (error) {
+        this.logger.warn(`Could not record refund transaction: ${error.message}`);
+        // Continue without failing the refund
+      }
+
+      this.logger.log(`Refund processed for order ${order.id}`);
+    } catch (error) {
+      this.logger.error(`Failed to handle refund: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle PaymentIntent cancellation webhook
+   */
+  async handlePaymentCancellation(paymentIntentId: string): Promise<void> {
+    try {
+      this.logger.log(`Handling PaymentIntent cancellation: ${paymentIntentId}`);
+
+      // Find the related order
+      const order = await this.prisma.tripRequest.findFirst({
+        where: { payment_intent_id: paymentIntentId },
+        include: {
+          trip: {
+            include: {
+              user: true, // Traveler
+            },
+          },
+          user: true, // Sender
+        },
+      });
+
+      if (!order) {
+        this.logger.warn(`Order not found for canceled PaymentIntent ${paymentIntentId}`);
+        return;
+      }
+
+      // Update order status to cancelled
+      await this.prisma.tripRequest.update({
+        where: { id: order.id },
+        data: {
+          payment_status: PaymentStatus.FAILED,
+          status: 'CANCELLED',
+          cancelled_at: new Date(),
+        },
+      });
+
+      // Record cancellation transaction (for tracking purposes)
+      try {
+        const senderWallet = await this.prisma.wallet.findUnique({
+          where: { userId: order.user_id },
+        });
+
+        if (senderWallet) {
+          await this.prisma.transaction.create({
+            data: {
+              userId: order.user_id, // Sender
+              type: 'CREDIT',
+              amount_requested: Number(order.cost || 0),
+              fee_applied: 0,
+              amount_paid: Number(order.cost || 0),
+              wallet_id: senderWallet.id,
+              currency: order.currency || 'EUR',
+              description: `Payment cancelled for order ${order.id}`,
+              source: 'PAYMENT_CANCELLATION',
+              balance_after: Number(senderWallet.available_balance_stripe), // No change to wallet balance
+              provider: 'STRIPE',
+            },
+          });
+        }
+      } catch (error) {
+        this.logger.warn(`Could not record cancellation transaction: ${error.message}`);
+        // Continue without failing the cancellation
+      }
+
+      this.logger.log(`Payment cancellation processed for order ${order.id}`);
+    } catch (error) {
+      this.logger.error(`Failed to handle payment cancellation: ${error.message}`);
+      throw error;
+    }
+  }
 }
