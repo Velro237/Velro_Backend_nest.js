@@ -424,15 +424,29 @@ export class MobilemoneyService {
       }
 
       // Calculate fee using VELRO_FEE_PERCENT from environment
+      const amountInXAF = await this.convertToXAF(amount, request.currency);
+
+      // Check if currency conversion was successful
+      if (amountInXAF === null) {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.invalidCurrency',
+          {
+            lang,
+            defaultValue: `Invalid currency or exchange rate not configured for ${request.currency}`,
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
       const feePercent = this.configService.get<number>('VELRO_FEE_PERCENT', 0);
-      const feeApplied = (amount * feePercent) / 100;
-      const amountPaid = amount + feeApplied;
+      const feeApplied = (amountInXAF * feePercent) / 100;
+      const amountPaid = amountInXAF + feeApplied;
 
       // Execute cashout (generates unique partnerId internally)
       const result = await this.cashout(
         phoneNumber,
         serviceCode,
-        amountPaid,
+        amountInXAF,
         lang,
       );
 
@@ -445,10 +459,10 @@ export class MobilemoneyService {
           request_id: requestId,
           type: 'DEBIT',
           source: 'WITHDRAW',
-          amount_requested: amount,
+          amount_requested: amountInXAF,
           fee_applied: feeApplied,
           amount_paid: amountPaid,
-          currency: user.wallet.currency,
+          currency: request.currency,
           provider: carrier === PaymentCarrier.MTN_CM ? 'MTN' : 'ORANGE',
           reference: result.partnerId,
           phone_number: phoneNumber,
@@ -636,5 +650,44 @@ export class MobilemoneyService {
       return this.serviceCodes[`CASHIN_${carrier}_DIS`];
     }
     return this.serviceCodes[`${action}_${carrier}`];
+  }
+
+  /**
+   * Convert amount from any currency to XAF (Central African CFA Franc)
+   * @param amount - The amount to convert
+   * @param currency - The source currency code
+   * @returns The amount in XAF, or null if conversion fails
+   */
+  async convertToXAF(amount: number, currency: string): Promise<number | null> {
+    // If already in XAF, return as-is
+    if (currency === 'XAF') {
+      return amount;
+    }
+
+    // Get exchange rates from environment variables
+    const currencyUpper = currency.toUpperCase();
+    const envKey = `EXCHANGE_RATE_${currencyUpper}_TO_XAF`;
+    const rateString = this.configService.get<string>(envKey);
+
+    if (!rateString) {
+      this.logger.warn(
+        `Exchange rate not found for currency: ${currency}. Environment variable ${envKey} is not set.`,
+      );
+      return null;
+    }
+
+    const rate = parseFloat(rateString);
+
+    if (isNaN(rate) || rate <= 0) {
+      this.logger.warn(
+        `Invalid exchange rate for currency: ${currency}. Value: ${rateString}`,
+      );
+      return null;
+    }
+
+    // Convert to XAF
+    const amountInXAF = amount * rate;
+
+    return Number(amountInXAF.toFixed(2));
   }
 }

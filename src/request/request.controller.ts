@@ -61,7 +61,7 @@ import {
   ApiChangeRequestStatus,
 } from './decorators/api-docs.decorator';
 
-@ApiTags('Trip Requests')
+@ApiTags('Requests')
 @ApiExtraModels(
   CreateTripRequestDto,
   CreateTripRequestResponseDto,
@@ -76,7 +76,6 @@ import {
   TripRequestItemSummaryDto,
   TripRequestSummaryDto,
 )
-@ApiTags('Request')
 @ApiBearerAuth('JWT-auth')
 @Controller('request')
 @UseGuards(JwtAuthGuard)
