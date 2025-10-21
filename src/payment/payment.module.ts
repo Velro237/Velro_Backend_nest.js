@@ -6,9 +6,10 @@ import { StripeService } from './stripe.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { MobilemoneyService } from './mobilemoney/mobilemoney.service';
+import { RequestModule } from '../request/request.module';
 
 @Module({
-  imports: [PrismaModule, ConfigModule, forwardRef(() => WalletModule)],
+  imports: [PrismaModule, ConfigModule, forwardRef(() => WalletModule), forwardRef(() => RequestModule)],
   controllers: [PaymentController],
   providers: [PaymentService, StripeService, MobilemoneyService],
   exports: [PaymentService, StripeService],

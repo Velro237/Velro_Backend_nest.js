@@ -5,6 +5,8 @@ import {
   InternalServerErrorException,
   BadRequestException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
@@ -1118,8 +1120,12 @@ export class RequestService {
         throw new NotFoundException(message);
       }
 
-      // Check if the user is the trip owner
-      if (request.trip.user_id !== userId) {
+      // Check if the user is authorized to change the status
+      // Allow trip owner (traveler) or request sender to change status
+      const isTripOwner = request.trip.user_id === userId;
+      const isRequestSender = request.user_id === userId;
+      
+      if (!isTripOwner && !isRequestSender) {
         const message = await this.i18n.translate(
           'translation.trip.request.unauthorized',
           { lang },
@@ -1134,11 +1140,19 @@ export class RequestService {
 
       const chatId = request.chat_id;
 
+      // Determine if user is sender or traveler
+      const isSender = request.user_id === userId;
+      const isTraveler = request.trip.user_id === userId;
+
       // Validate status transitions using switch statement
       const currentStatus = request.status;
       switch (status) {
         case 'ACCEPTED':
         case 'DECLINED':
+          // Only traveler can accept/decline
+          if (!isTraveler) {
+            throw new BadRequestException('Only traveler can accept or decline requests');
+          }
           // Can only accept or decline if current status is PENDING
           if (currentStatus !== 'PENDING') {
             const message = await this.i18n.translate(
@@ -1154,6 +1168,10 @@ export class RequestService {
           break;
 
         case 'CONFIRMED':
+          // Only sender can confirm (after payment) or system can confirm
+          if (!isSender) {
+            throw new BadRequestException('Only sender can confirm requests');
+          }
           // Can only confirm if current status is ACCEPTED
           if (currentStatus !== 'ACCEPTED') {
             const message = await this.i18n.translate(
@@ -1169,6 +1187,10 @@ export class RequestService {
           break;
 
         case 'DELIVERED':
+          // Only sender can mark as delivered
+          if (!isSender) {
+            throw new BadRequestException('Only sender can mark as delivered');
+          }
           // Can only mark as delivered if current status is CONFIRMED
           if (currentStatus !== 'CONFIRMED') {
             const message = await this.i18n.translate(
@@ -1184,6 +1206,18 @@ export class RequestService {
           break;
 
         case 'CANCELLED':
+          // Sender can cancel at any time, traveler can only cancel if PENDING
+          if (isSender) {
+            // Sender can cancel at any time - no restriction
+          } else if (isTraveler) {
+            // Traveler can only cancel if PENDING
+            if (currentStatus !== 'PENDING') {
+              throw new BadRequestException('Traveler can only cancel PENDING requests');
+            }
+          } else {
+            throw new BadRequestException('Only sender or traveler can cancel requests');
+          }
+          break;
         case 'REFUNDED':
           // These can be set from any status (no restriction)
           break;
@@ -1390,7 +1424,7 @@ export class RequestService {
       }
 
       // Check if order is accepted and paid
-      if (order.status !== 'ACCEPTED') {
+      if (order.status !== 'ACCEPTED' && order.status !== 'CONFIRMED') {
         throw new BadRequestException('Order must be accepted first');
       }
 

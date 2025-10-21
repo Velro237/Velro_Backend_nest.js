@@ -5,6 +5,8 @@ import {
   InternalServerErrorException,
   BadRequestException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,6 +28,7 @@ import {
   GetWalletResponseDto,
 } from './dto/get-wallet-request.dto';
 import { PaymentStatus } from 'generated/prisma';
+import { RequestService } from '../request/request.service';
 
 @Injectable()
 export class PaymentService {
@@ -36,6 +39,8 @@ export class PaymentService {
     private readonly i18n: I18nService,
     private stripeService: StripeService,
     private configService: ConfigService,
+    @Inject(forwardRef(() => RequestService))
+    private readonly requestService: RequestService,
   ) {}
 
   async initializeWallet(
@@ -379,15 +384,23 @@ export class PaymentService {
         return;
       }
 
-      // Update order status
-      await this.prisma.tripRequest.update({
-        where: { id: order.id },
-        data: {
-          payment_status: PaymentStatus.SUCCEEDED,
-          paid_at: new Date(),
-          status: 'ACCEPTED', // Automatically accept paid orders
-        },
-      });
+        // Update payment status only
+        await this.prisma.tripRequest.update({
+          where: { id: order.id },
+          data: {
+            payment_status: PaymentStatus.SUCCEEDED,
+            paid_at: new Date(),
+          },
+        });
+
+        // Use the proper endpoint to change status to CONFIRMED
+        // For payment success, we use the sender ID since they initiated the payment
+        await this.requestService.changeRequestStatus(
+          order.id,
+          'CONFIRMED',
+          order.user_id, // sender ID (who made the payment)
+          'en'
+        );
 
       // Get or create wallet for traveler
       const wallet = await this.ensureWallet(order.trip.user_id);
