@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { RequestService } from './request.service';
 import { RequestController } from './request.controller';
 import { CancellationService } from './cancellation.service';
@@ -18,10 +18,10 @@ import { PaymentModule } from '../payment/payment.module';
     RedisModule,
     WalletModule,
     NotificationModule,
-    PaymentModule,
+    forwardRef(() => PaymentModule),
   ],
   controllers: [RequestController],
   providers: [RequestService, CancellationService],
-  exports: [CancellationService],
+  exports: [RequestService, CancellationService],
 })
 export class RequestModule {}
