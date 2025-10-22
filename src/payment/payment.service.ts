@@ -302,13 +302,16 @@ export class PaymentService {
       // Get traveler ID from order
       const travelerId = order.trip.user_id;
 
-      // Get currency from order
+      // Get currency from order (supports multiple currencies)
       const currency = order.currency || 'EUR';
+      
+      // Validate currency is supported by Stripe (let Stripe handle validation)
+      // Stripe will throw an error if currency is not supported
 
       this.logger.log(
-        `Payment breakdown - Traveler gets: €${travelerPrice.toFixed(2)}, ` +
-          `Platform fee: €${platformFee.toFixed(2)}, ` +
-          `Sender pays: €${senderTotal.toFixed(2)}`,
+        `Payment breakdown - Traveler gets: ${currency}${travelerPrice.toFixed(2)}, ` +
+          `Platform fee: ${currency}${platformFee.toFixed(2)}, ` +
+          `Sender pays: ${currency}${senderTotal.toFixed(2)}`,
       );
 
       // Create new PaymentIntent with CALCULATED amount (secure)
@@ -404,6 +407,17 @@ export class PaymentService {
 
       // Get or create wallet for traveler
       const wallet = await this.ensureWallet(order.trip.user_id);
+      
+      // Get currency from order
+      const paymentCurrency = order.currency || 'EUR';
+      
+      // Update wallet currency to match the payment currency if it's the first payment
+      if (wallet.currency !== paymentCurrency) {
+        await this.prisma.wallet.update({
+          where: { id: wallet.id },
+          data: { currency: paymentCurrency },
+        });
+      }
 
       // Client spec: Traveler receives EXACTLY their set price
       // Sender pays: travelerPrice + platformFee
@@ -647,6 +661,16 @@ export class PaymentService {
     });
 
     if (!wallet) {
+      // Get the user's first transaction currency to determine wallet currency
+      const firstTransaction = await this.prisma.transaction.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        select: { currency: true },
+      });
+
+      // Use the currency from user's first transaction, or null if no transactions yet
+      const walletCurrency = firstTransaction?.currency || null;
+
       wallet = await this.prisma.wallet.create({
         data: {
           userId,
@@ -657,7 +681,7 @@ export class PaymentService {
           hold_balance: 0,
           total_balance: 0,
           state: 'BLOCKED',
-          currency: 'EUR',
+          currency: walletCurrency, // User's actual selection
         },
       });
     }

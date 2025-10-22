@@ -21,6 +21,15 @@ export class WithdrawalRequestDto {
   @IsNumber()
   @Min(1.0)
   amount: number;
+
+  @ApiProperty({
+    description: 'Currency to withdraw in',
+    example: 'USD',
+    default: 'EUR',
+  })
+  @IsString()
+  @IsOptional()
+  currency?: string;
 }
 
 export class WithdrawalResponseDto {
@@ -100,6 +109,19 @@ export class WalletBalanceDto {
   })
   currency: string;
 
+  @ApiProperty({
+    description: 'Multi-currency balances (earnings in original currencies)',
+    example: [
+      { currency: 'EUR', amount: 100.0 },
+      { currency: 'USD', amount: 50.0 },
+      { currency: 'CAD', amount: 25.0 }
+    ],
+    required: false,
+  })
+  multiCurrencyBalances?: Array<{
+    currency: string;
+    amount: number;
+  }>;
   // XAF balances
   @ApiProperty({
     description: 'Available balance in XAF',
