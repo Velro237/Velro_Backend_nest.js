@@ -439,8 +439,10 @@ export class MobilemoneyService {
       }
 
       const feePercent = this.configService.get<number>('VELRO_FEE_PERCENT', 0);
+      const fixedFee = this.configService.get<number>('FIXED_FEE_XAF', 0);
       const feeApplied = (amountInXAF * feePercent) / 100;
-      const amountPaid = amountInXAF + feeApplied;
+      const totalFee = feeApplied + fixedFee;
+      const amountPaid = amountInXAF + totalFee;
 
       // Execute cashout (generates unique partnerId internally)
       const result = await this.cashout(
@@ -458,9 +460,9 @@ export class MobilemoneyService {
           trip_id: request.trip_id,
           request_id: requestId,
           type: 'DEBIT',
-          source: 'WITHDRAW',
+          source: 'TRIP_PAYMENT',
           amount_requested: amountInXAF,
-          fee_applied: feeApplied,
+          fee_applied: totalFee,
           amount_paid: amountPaid,
           currency: request.currency,
           provider: carrier === PaymentCarrier.MTN_CM ? 'MTN' : 'ORANGE',

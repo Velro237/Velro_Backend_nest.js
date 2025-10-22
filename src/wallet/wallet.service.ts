@@ -15,6 +15,10 @@ import {
   WalletTransactionDto,
   ChangeWalletStateDto,
   ChangeWalletStateResponseDto,
+  WalletTransactionsResponseDto,
+  DetailedTransactionDto,
+  GroupedTransactionsDto,
+  PaginationQueryDto,
 } from './dto/wallet.dto';
 
 @Injectable()
@@ -28,7 +32,7 @@ export class WalletService {
   ) {}
 
   /**
-   * Get wallet information with transactions
+   * Get wallet information
    */
   async getWallet(userId: string): Promise<WalletResponseDto> {
     try {
@@ -37,15 +41,15 @@ export class WalletService {
       // Ensure wallet exists
       const wallet = await this.ensureWallet(userId);
 
-      // Get recent transactions (last 50) - includes both transactions and withdrawals
-      const transactions = await this.prisma.transaction.findMany({
-        where: { userId },
+      // Get recent withdrawals (last 10)
+      const withdrawals = await this.prisma.transaction.findMany({
+        where: {
+          userId,
+          source: 'WITHDRAW',
+        },
         orderBy: { createdAt: 'desc' },
-        take: 50,
+        take: 10,
       });
-
-      // Filter withdrawals from transactions
-      const withdrawals = transactions.filter((t) => t.source === 'WITHDRAW');
 
       return {
         balance: {
@@ -55,12 +59,195 @@ export class WalletService {
           currency: wallet.currency,
           // Multi-currency support: show balances in original currencies
           multiCurrencyBalances: await this.getMultiCurrencyBalances(userId),
+          availableBalanceXaf: Number(wallet.available_balance_xaf),
+          holdBalanceXaf: Number(wallet.hold_balance_xaf),
+          availableBalanceUsd: Number(wallet.available_balance_usd),
+          holdBalanceUsd: Number(wallet.hold_balance_usd),
+          availableBalanceEur: Number(wallet.available_balance_eur),
+          holdBalanceEur: Number(wallet.hold_balance_eur),
+          availableBalanceCad: Number(wallet.available_balance_cad),
+          holdBalanceCad: Number(wallet.hold_balance_cad),
         },
-        transactions: transactions.map((t) => this.mapTransaction(t)),
         withdrawals: withdrawals.map((w) => this.mapWithdrawal(w)),
       };
     } catch (error) {
       this.logger.error('Failed to get wallet:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get wallet transactions with trip details, grouped by date (paginated)
+   */
+  async getWalletTransactions(
+    userId: string,
+    paginationDto: PaginationQueryDto,
+  ): Promise<WalletTransactionsResponseDto> {
+    try {
+      const page = paginationDto.page || 1;
+      const limit = paginationDto.limit || 20;
+      const skip = (page - 1) * limit;
+
+      this.logger.log(
+        `Getting wallet transactions for user ${userId} - Page: ${page}, Limit: ${limit}`,
+      );
+
+      // Get total count of transactions
+      const totalCount = await this.prisma.transaction.count({
+        where: { userId },
+      });
+
+      // Calculate total earnings (CREDIT transactions)
+      const earningsAggregation = await this.prisma.transaction.aggregate({
+        where: {
+          userId,
+          type: 'CREDIT',
+        },
+        _sum: {
+          amount_paid: true,
+        },
+      });
+
+      // Calculate total withdrawn (WITHDRAW transactions)
+      const withdrawnAggregation = await this.prisma.transaction.aggregate({
+        where: {
+          userId,
+          source: 'WITHDRAW',
+        },
+        _sum: {
+          amount_paid: true,
+        },
+      });
+
+      const totalEarnings = Number(earningsAggregation._sum.amount_paid || 0);
+      const totalWithdrawn = Number(withdrawnAggregation._sum.amount_paid || 0);
+
+      // Get paginated transactions with related data
+      const transactions = await this.prisma.transaction.findMany({
+        where: { userId },
+        include: {
+          trip: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  picture: true,
+                },
+              },
+            },
+          },
+          request: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  picture: true,
+                },
+              },
+              request_items: {
+                select: {
+                  quantity: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      });
+
+      // Map transactions to detailed DTOs
+      const detailedTransactions: DetailedTransactionDto[] = transactions.map(
+        (t) => {
+          const dto: DetailedTransactionDto = {
+            id: t.id,
+            type: t.type,
+            source: t.source,
+            status: t.status,
+            amountRequested: Number(t.amount_requested),
+            feeApplied: Number(t.fee_applied),
+            amountPaid: Number(t.amount_paid),
+            currency: t.currency,
+            provider: t.provider,
+            createdAt: t.createdAt,
+            processedAt: t.processedAt || undefined,
+          };
+
+          // Add trip information if available
+          if (t.trip) {
+            dto.tripDeparture = t.trip.departure;
+            dto.tripDestination = t.trip.destination;
+            dto.tripStatus = t.trip.status;
+            dto.tripCreator = {
+              id: t.trip.user.id,
+              name: t.trip.user.name,
+              picture: t.trip.user.picture || undefined,
+            };
+          }
+
+          // Add request user information if available
+          if (t.request) {
+            dto.requestUser = {
+              id: t.request.user.id,
+              name: t.request.user.name,
+              picture: t.request.user.picture || undefined,
+            };
+
+            // Calculate total booked kg from request items
+            if (t.request.request_items && t.request.request_items.length > 0) {
+              dto.bookedKg = t.request.request_items.reduce(
+                (sum, item) => sum + item.quantity,
+                0,
+              );
+            }
+          }
+
+          return dto;
+        },
+      );
+
+      // Group transactions by date
+      const groupedMap = new Map<string, DetailedTransactionDto[]>();
+
+      for (const transaction of detailedTransactions) {
+        const date = transaction.createdAt.toISOString().split('T')[0];
+        if (!groupedMap.has(date)) {
+          groupedMap.set(date, []);
+        }
+        groupedMap.get(date)!.push(transaction);
+      }
+
+      // Convert map to array and sort by date (most recent first)
+      const groupedTransactions: GroupedTransactionsDto[] = Array.from(
+        groupedMap.entries(),
+      )
+        .map(([date, transactions]) => ({
+          date,
+          transactions,
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      // Calculate pagination metadata
+      const totalPages = Math.ceil(totalCount / limit);
+      const hasNextPage = page < totalPages;
+      const hasPreviousPage = page > 1;
+
+      return {
+        groupedTransactions,
+        total: totalCount,
+        page,
+        limit,
+        totalPages,
+        hasNextPage,
+        hasPreviousPage,
+        totalEarnings,
+        totalWithdrawn,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get wallet transactions:', error);
       throw error;
     }
   }
