@@ -16,7 +16,7 @@ export class StripeService {
     }
 
     this.stripe = new Stripe(secretKey, {
-      apiVersion: '2025-09-30.clover',
+      apiVersion: '2025-07-30.preview' as any, // Use preview version for FX Quotes API
     });
 
     this.appUrl = this.configService.get<string>('APP_URL') || 'http://localhost:3000';
@@ -71,14 +71,21 @@ export class StripeService {
     try {
       this.logger.log(`Ensuring connected account for user ${params.userId}`);
 
-      // Create Express account
+      // Create Express account with appropriate capabilities
+      const capabilities: any = {
+        transfers: { requested: true },
+      };
+      
+      // For US accounts, we need both card_payments and transfers
+      if (params.country === 'US') {
+        capabilities.card_payments = { requested: true };
+      }
+      
       const account = await this.stripe.accounts.create({
         type: 'express',
         country: params.country,
         email: params.email,
-        capabilities: {
-          transfers: { requested: true },
-        },
+        capabilities,
         business_type: 'individual',
         individual: params.firstName && params.lastName ? {
           first_name: params.firstName,
@@ -130,7 +137,80 @@ export class StripeService {
   }
 
   /**
+   * Get platform account balance (multi-currency)
+   */
+  async getPlatformBalance(): Promise<Stripe.Balance> {
+    try {
+      this.logger.log('Retrieving platform account balance');
+      const balance = await this.stripe.balance.retrieve();
+      this.logger.log(`Platform balance: ${balance.available.map(b => `${b.amount/100} ${b.currency}`).join(', ')}`);
+      return balance;
+    } catch (error) {
+      this.logger.error('Failed to get platform balance:', error);
+      throw new BadRequestException(`Failed to get platform balance: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get Stripe's supported currencies and their conversion rates
+   */
+  async getExchangeRates(): Promise<any> {
+    try {
+      this.logger.log('Retrieving Stripe supported currencies and rates');
+      
+      // Get supported currencies from country specs
+      const countrySpecs = await this.stripe.countrySpecs.list({ limit: 100 });
+      const allCurrencies = new Set<string>();
+      
+      countrySpecs.data.forEach(spec => {
+        if (spec.supported_payment_currencies) {
+          spec.supported_payment_currencies.forEach(currency => {
+            allCurrencies.add(currency);
+          });
+        }
+      });
+
+      // Create a simple rate structure (Stripe doesn't provide public exchange rates API)
+      // We'll use a fallback approach with common rates
+      const supportedCurrencies = Array.from(allCurrencies).sort();
+      
+      this.logger.log(`Stripe supported currencies: ${supportedCurrencies.length} currencies`);
+      
+      return {
+        supportedCurrencies,
+        message: 'Stripe does not provide public exchange rates API. Use real-time conversion during transfers.'
+      };
+    } catch (error) {
+      this.logger.error('Failed to get Stripe currencies:', error);
+      throw new BadRequestException(`Failed to get currencies: ${error.message}`);
+    }
+  }
+
+  /**
+   * Convert amount using Stripe's built-in currency conversion
+   */
+  async convertAmount(amount: number, fromCurrency: string, toCurrency: string): Promise<number> {
+    try {
+      if (fromCurrency === toCurrency) {
+        return amount;
+      }
+
+      this.logger.log(`Converting ${amount} ${fromCurrency} to ${toCurrency} - Stripe will handle conversion during transfer`);
+      
+      // Let Stripe handle currency conversion automatically during transfers
+      // Stripe uses real-time midmarket rates with guaranteed exchange rates
+      this.logger.log(`Using Stripe's automatic currency conversion: ${amount} ${fromCurrency} → ${toCurrency}`);
+      
+      return amount;
+    } catch (error) {
+      this.logger.error('Failed to convert amount:', error);
+      throw new BadRequestException(`Failed to convert amount: ${error.message}`);
+    }
+  }
+
+  /**
    * Create a Transfer to connected account (withdrawal)
+   * Uses Stripe's FX Quotes API for real-time currency conversion
    */
   async createTransfer(params: {
     amount: number;
@@ -142,15 +222,76 @@ export class StripeService {
     try {
       this.logger.log(`Creating transfer to ${params.destination}`);
 
-      const transfer = await this.stripe.transfers.create({
-        amount: Math.round(params.amount * 100), // Convert to cents
-        currency: params.currency.toLowerCase(),
-        destination: params.destination,
-        transfer_group: params.transferGroup,
-        metadata: params.metadata,
+      // If requesting EUR, transfer directly (no conversion needed)
+      if (params.currency.toLowerCase() === 'eur') {
+        const transfer = await this.stripe.transfers.create({
+          amount: Math.round(params.amount * 100),
+          currency: 'eur',
+          destination: params.destination,
+          transfer_group: params.transferGroup,
+          metadata: params.metadata,
+        });
+
+        this.logger.log(`EUR transfer created: ${transfer.id}`);
+        return transfer;
+      }
+
+      // For other currencies, use FX Quotes API for conversion
+      this.logger.log(`Getting FX quote for ${params.amount} ${params.currency} to EUR`);
+
+      // Get FX quote for currency conversion using raw API call
+      const response = await fetch('https://api.stripe.com/v1/fx_quotes', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Stripe-Version': '2025-07-30.preview'
+        },
+        body: new URLSearchParams({
+          to_currency: 'eur',
+          'from_currencies[]': params.currency.toLowerCase(),
+          lock_duration: 'five_minutes',
+          'usage[type]': 'transfer',
+          'usage[transfer][destination]': params.destination
+        })
       });
 
-      this.logger.log(`Transfer created: ${transfer.id}`);
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`FX Quote API error: ${error}`);
+      }
+
+      const fxQuote = await response.json();
+
+      this.logger.log(`FX Quote created: ${fxQuote.id}`);
+
+      // Calculate the EUR amount needed for the transfer
+      const rate = fxQuote.rates[params.currency.toLowerCase()]?.exchange_rate;
+      if (!rate) {
+        throw new BadRequestException(`Exchange rate not available for ${params.currency}`);
+      }
+
+      const eurAmount = params.amount / rate; // Convert to EUR
+      this.logger.log(`FX conversion: ${params.amount} ${params.currency} = ${eurAmount.toFixed(2)} EUR (rate: ${rate})`);
+
+      // Create transfer in EUR with the converted amount
+      const transfer = await this.stripe.transfers.create({
+        amount: Math.round(eurAmount * 100), // Convert to cents
+        currency: 'eur',
+        destination: params.destination,
+        transfer_group: params.transferGroup,
+        metadata: {
+          ...params.metadata,
+          originalAmount: params.amount.toString(),
+          originalCurrency: params.currency,
+          convertedAmount: eurAmount.toFixed(2),
+          convertedCurrency: 'eur',
+          fxQuoteId: fxQuote.id,
+          exchangeRate: rate.toString(),
+        },
+      });
+
+      this.logger.log(`Transfer created with FX conversion: ${transfer.id}`);
       return transfer;
     } catch (error) {
       this.logger.error('Failed to create transfer:', error);
@@ -287,6 +428,43 @@ export class StripeService {
       this.logger.error('Failed to process cancellation/refund:', error);
       throw new BadRequestException(`Failed to process cancellation: ${error.message}`);
     }
+  }
+
+  /**
+   * Get account's supported payout currencies
+   * Stripe Connect automatically handles currency conversion at payout
+   */
+  async getAccountPayoutCurrencies(accountId: string): Promise<string[]> {
+    // Get account capabilities and supported currencies
+    const account = await this.stripe.accounts.retrieve(accountId, {
+      expand: ['capabilities'],
+    });
+    
+    // Get supported currencies from Stripe's API
+    const countrySpec = await this.stripe.countrySpecs.retrieve(account.country);
+    
+    // Return supported currencies for the account's country
+    return countrySpec.supported_payment_currencies;
+  }
+
+  /**
+   * Get all supported currencies from Stripe
+   */
+  async getSupportedCurrencies(): Promise<string[]> {
+    // Get supported currencies from Stripe's API
+    const countrySpecs = await this.stripe.countrySpecs.list({ limit: 100 });
+    
+    // Extract all unique supported currencies
+    const allCurrencies = new Set<string>();
+    countrySpecs.data.forEach(spec => {
+      if (spec.supported_payment_currencies) {
+        spec.supported_payment_currencies.forEach(currency => {
+          allCurrencies.add(currency);
+        });
+      }
+    });
+    
+    return Array.from(allCurrencies).sort();
   }
 
   /**

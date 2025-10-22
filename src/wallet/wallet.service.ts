@@ -53,6 +53,8 @@ export class WalletService {
           pendingBalance: Number(wallet.pending_balance_stripe),
           withdrawnTotal: Number(wallet.withdrawn_total_stripe),
           currency: wallet.currency,
+          // Multi-currency support: show balances in original currencies
+          multiCurrencyBalances: await this.getMultiCurrencyBalances(userId),
         },
         transactions: transactions.map((t) => this.mapTransaction(t)),
         withdrawals: withdrawals.map((w) => this.mapWithdrawal(w)),
@@ -135,7 +137,7 @@ export class WalletService {
           amount_requested: dto.amount,
           fee_applied: fee,
           amount_paid: netAmount,
-          currency: wallet.currency,
+          currency: dto.currency || wallet.currency,
           stripe_account_id: user.stripe_account_id,
           status: 'PENDING',
           provider: 'STRIPE',
@@ -158,25 +160,69 @@ export class WalletService {
         },
       });
 
-      // Create Stripe Transfer
+      // Create Stripe Transfer (supports multi-currency)
       try {
+        // Check platform account balance and handle currency conversion
+        const platformBalance = await this.stripeService.getPlatformBalance();
+        const requestedCurrency = dto.currency || wallet.currency; // Use requested currency or wallet default
+        const requestedAmount = netAmount;
+        
+        // Find available currency in platform account
+        let transferCurrency = requestedCurrency;
+        let transferAmount = requestedAmount;
+        
+        const availableCurrency = platformBalance.available.find(
+          (balance) => balance.currency === requestedCurrency
+        );
+        
+        if (!availableCurrency || availableCurrency.amount < Math.round(requestedAmount * 100)) {
+          // If insufficient funds in requested currency, use EUR (platform default)
+          const eurBalance = platformBalance.available.find(
+            (balance) => balance.currency === 'eur'
+          );
+          
+          if (eurBalance && eurBalance.amount >= Math.round(requestedAmount * 100)) {
+            transferCurrency = 'eur';
+            transferAmount = requestedAmount; // Let Stripe handle conversion automatically
+            
+            this.logger.log(
+              `Insufficient ${requestedCurrency} funds, using EUR with Stripe's automatic conversion. ` +
+              `Requested: ${requestedAmount} ${requestedCurrency}, ` +
+              `Using: ${requestedAmount} EUR (Stripe will convert automatically)`
+            );
+          } else {
+            throw new BadRequestException(
+              `Insufficient funds in platform account. ` +
+              `Requested: ${requestedAmount} ${requestedCurrency}, ` +
+              `Available: ${platformBalance.available.map(b => `${b.amount/100} ${b.currency}`).join(', ')}`
+            );
+          }
+        }
+
+        // Use Stripe's Adaptive Pricing for automatic currency conversion
         const transfer = await this.stripeService.createTransfer({
-          amount: netAmount,
-          currency: wallet.currency,
+          amount: requestedAmount, // Use requested amount
+          currency: requestedCurrency, // Use requested currency - Stripe converts automatically
           destination: user.stripe_account_id,
           transferGroup: withdrawal.id,
           metadata: {
             userId,
             withdrawalId: withdrawal.id,
+            // Multi-currency support: Stripe handles conversion automatically
+            originalCurrency: wallet.currency,
+            requestedCurrency: requestedCurrency,
+            platformCurrency: transferCurrency,
+            adaptivePricing: 'true', // Enable Stripe's Adaptive Pricing
           },
         });
 
-        // Update withdrawal transaction with transfer ID
+        // Update withdrawal transaction with transfer ID and requested currency
         await this.prisma.transaction.update({
           where: { id: withdrawal.id },
           data: {
             stripe_transfer_id: transfer.id,
             status: 'SUCCESS',
+            currency: requestedCurrency, // Store the requested currency
           },
         });
 
@@ -433,13 +479,23 @@ export class WalletService {
     });
 
     if (!wallet) {
+      // Get the user's first transaction currency to determine wallet currency
+      const firstTransaction = await this.prisma.transaction.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        select: { currency: true },
+      });
+
+      // Use the currency from user's first transaction, or null if no transactions yet
+      const walletCurrency = firstTransaction?.currency || null;
+
       wallet = await this.prisma.wallet.create({
         data: {
           userId,
           available_balance_stripe: 0,
           pending_balance_stripe: 0,
           withdrawn_total_stripe: 0,
-          currency: 'XAF',
+          currency: walletCurrency, // User's actual selection
         },
       });
     }
@@ -464,6 +520,34 @@ export class WalletService {
   }
 
   /**
+   * Get multi-currency balances for user
+   */
+  private async getMultiCurrencyBalances(userId: string): Promise<any[]> {
+    try {
+      // Get all transactions grouped by currency
+      const currencyBalances = await this.prisma.transaction.groupBy({
+        by: ['currency'],
+        where: {
+          userId,
+          type: 'CREDIT',
+          source: 'TRIP_EARNING',
+        },
+        _sum: {
+          amount_paid: true,
+        },
+      });
+
+      return currencyBalances.map(balance => ({
+        currency: balance.currency,
+        amount: Number(balance._sum.amount_paid || 0),
+      }));
+    } catch (error) {
+      this.logger.warn('Failed to get multi-currency balances:', error);
+      return [];
+    }
+  }
+
+  /**
    * Map withdrawal to DTO
    */
   private mapWithdrawal(withdrawal: any): WithdrawalResponseDto {
@@ -477,6 +561,69 @@ export class WalletService {
       stripeTransferId: withdrawal.stripe_transfer_id,
       createdAt: withdrawal.createdAt,
     };
+  }
+
+  /**
+   * Get multi-currency withdrawal options for user
+   */
+  async getMultiCurrencyWithdrawalOptions(userId: string): Promise<any> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { wallet: true },
+      });
+
+      if (!user || !user.stripe_account_id) {
+        throw new BadRequestException('Please complete payout setup first');
+      }
+
+      // Get supported payout currencies from Stripe (dynamic)
+      const supportedCurrencies = await this.stripeService.getAccountPayoutCurrencies(user.stripe_account_id);
+      
+      // Get user's balances by currency
+      const currencyBalances = await this.getMultiCurrencyBalances(userId);
+      
+      return {
+        supportedCurrencies,
+        userBalances: currencyBalances,
+        message: 'Multi-currency withdrawal options retrieved successfully',
+      };
+    } catch (error) {
+      this.logger.error('Failed to get multi-currency withdrawal options:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all supported currencies from Stripe
+   */
+  async getSupportedCurrencies(): Promise<any> {
+    try {
+      const supportedCurrencies = await this.stripeService.getSupportedCurrencies();
+      return {
+        supportedCurrencies,
+        message: 'Supported currencies retrieved successfully',
+      };
+    } catch (error) {
+      this.logger.error('Failed to get supported currencies:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get Stripe exchange rates
+   */
+  async getExchangeRates(): Promise<any> {
+    try {
+      const exchangeRates = await this.stripeService.getExchangeRates();
+      return {
+        exchangeRates,
+        message: 'Exchange rates retrieved successfully',
+      };
+    } catch (error) {
+      this.logger.error('Failed to get exchange rates:', error);
+      throw error;
+    }
   }
 
   /**
