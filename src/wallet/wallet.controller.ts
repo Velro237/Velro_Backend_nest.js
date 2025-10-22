@@ -9,6 +9,7 @@ import {
   Request,
   Patch,
   Param,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -28,6 +29,8 @@ import {
   WalletResponseDto,
   ChangeWalletStateDto,
   ChangeWalletStateResponseDto,
+  WalletTransactionsResponseDto,
+  PaginationQueryDto,
 } from './dto/wallet.dto';
 import {
   ConnectOnboardingDto,
@@ -48,7 +51,7 @@ export class WalletController {
   @Get()
   @ApiOperation({
     summary: 'Get wallet information',
-    description: 'Returns wallet balances and recent transactions',
+    description: 'Returns wallet balances and recent withdrawals',
   })
   @ApiResponse({
     status: 200,
@@ -57,6 +60,24 @@ export class WalletController {
   })
   async getWallet(@Request() req: any): Promise<WalletResponseDto> {
     return this.walletService.getWallet(req.user.id);
+  }
+
+  @Get('transactions')
+  @ApiOperation({
+    summary: 'Get wallet transactions',
+    description:
+      'Returns paginated wallet transactions with trip details, grouped by date',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Wallet transactions retrieved successfully',
+    type: WalletTransactionsResponseDto,
+  })
+  async getWalletTransactions(
+    @Request() req: any,
+    @Query() paginationDto: PaginationQueryDto,
+  ): Promise<WalletTransactionsResponseDto> {
+    return this.walletService.getWalletTransactions(req.user.id, paginationDto);
   }
 
   @Post('withdrawals/request')
