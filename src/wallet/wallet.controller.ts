@@ -65,7 +65,8 @@ export class WalletController {
   @Get('multi-currency-options')
   @ApiOperation({
     summary: 'Get multi-currency withdrawal options',
-    description: 'Returns supported currencies and user balances for multi-currency withdrawals',
+    description:
+      'Returns supported currencies and user balances for multi-currency withdrawals',
   })
   @ApiResponse({
     status: 200,
@@ -78,7 +79,8 @@ export class WalletController {
   @Get('supported-currencies')
   @ApiOperation({
     summary: 'Get all supported currencies',
-    description: 'Returns all currencies supported by Stripe (dynamic from Stripe API)',
+    description:
+      'Returns all currencies supported by Stripe (dynamic from Stripe API)',
   })
   @ApiResponse({
     status: 200,
@@ -99,6 +101,8 @@ export class WalletController {
   })
   async getExchangeRates(): Promise<any> {
     return this.walletService.getExchangeRates();
+  }
+
   @Get('transactions')
   @ApiOperation({
     summary: 'Get wallet transactions',
