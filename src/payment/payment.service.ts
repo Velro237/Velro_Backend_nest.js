@@ -29,6 +29,7 @@ import {
 } from './dto/get-wallet-request.dto';
 import { PaymentStatus } from 'generated/prisma';
 import { RequestService } from '../request/request.service';
+import { CurrencyService } from '../currency/currency.service';
 
 @Injectable()
 export class PaymentService {
@@ -41,6 +42,7 @@ export class PaymentService {
     private configService: ConfigService,
     @Inject(forwardRef(() => RequestService))
     private readonly requestService: RequestService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   async initializeWallet(
@@ -303,7 +305,25 @@ export class PaymentService {
       const travelerId = order.trip.user_id;
 
       // Get currency from order (supports multiple currencies)
-      const currency = order.currency || 'EUR';
+      let currency = order.currency || 'EUR';
+      
+      // Handle XAF conversion - convert to Stripe-supported currency
+      if (currency.toUpperCase() === 'XAF') {
+        // Convert XAF to EUR for Stripe processing
+        const conversion = this.currencyService.convertCurrency(
+          senderTotal,
+          'XAF',
+          'EUR'
+        );
+        
+        this.logger.log(
+          `XAF conversion: ${senderTotal} XAF = ${conversion.convertedAmount} EUR (rate: ${conversion.exchangeRate})`
+        );
+        
+        // Update amounts for Stripe processing
+        currency = 'EUR';
+        // Note: We keep the original XAF amounts in metadata for display
+      }
       
       // Validate currency is supported by Stripe (let Stripe handle validation)
       // Stripe will throw an error if currency is not supported
@@ -315,18 +335,33 @@ export class PaymentService {
       );
 
       // Create new PaymentIntent with CALCULATED amount (secure)
+      const metadata: Record<string, string> = {
+        senderId,
+        travelerId: travelerId,
+        travelerPrice: travelerPrice.toFixed(2),
+        platformFee: platformFee.toFixed(2),
+        senderTotal: senderTotal.toFixed(2),
+      };
+
+      // Add XAF conversion info if original currency was XAF
+      if (order.currency?.toUpperCase() === 'XAF') {
+        const conversion = this.currencyService.convertCurrency(
+          senderTotal,
+          'XAF',
+          'EUR'
+        );
+        metadata.originalCurrency = 'XAF';
+        metadata.originalAmount = senderTotal.toFixed(2);
+        metadata.exchangeRate = conversion.exchangeRate.toString();
+        metadata.convertedAmount = conversion.convertedAmount.toFixed(2);
+      }
+
       const paymentIntent = await this.stripeService.createPaymentIntent({
         amount: senderTotal,
         currency: currency,
         orderId: dto.orderId,
         travelerId: travelerId,
-        metadata: {
-          senderId,
-          travelerId: travelerId,
-          travelerPrice: travelerPrice.toFixed(2),
-          platformFee: platformFee.toFixed(2),
-          senderTotal: senderTotal.toFixed(2),
-        },
+        metadata,
       });
 
       // Update order with payment information
@@ -408,7 +443,7 @@ export class PaymentService {
       // Get or create wallet for traveler
       const wallet = await this.ensureWallet(order.trip.user_id);
       
-      // Get currency from order
+      // Get currency from order (this is the actual payment currency from Stripe)
       const paymentCurrency = order.currency || 'EUR';
       
       // Update wallet currency to match the payment currency if it's the first payment
@@ -440,7 +475,7 @@ export class PaymentService {
         this.calculatePlatformCommission(travelerPrice);
 
       this.logger.log(
-        `Payment breakdown - Traveler gets: €${travelerPrice}, Platform fee: €${platformCommission}, Stripe fee: €${stripeFee}`,
+        `Payment breakdown - Traveler gets: ${paymentCurrency}${travelerPrice}, Platform fee: ${paymentCurrency}${platformCommission}, Stripe fee: ${paymentCurrency}${stripeFee}`,
       );
 
       // Validate earnings
@@ -448,16 +483,22 @@ export class PaymentService {
         throw new Error(`Invalid traveler price: ${pendingEarnings}`);
       }
 
-      // Add to pending balance
+      // Get the appropriate currency columns for the payment currency
+      const currencyColumns = this.getCurrencyColumns(paymentCurrency);
+      
+      // Add to pending balance using currency-specific column
       await this.prisma.wallet.update({
         where: { id: wallet.id },
         data: {
-          pending_balance_stripe: {
+          [currencyColumns.hold]: {
             increment: Number(pendingEarnings),
           },
         },
       });
 
+      // Get current balance for the specific currency
+      const currentBalance = Number(wallet[currencyColumns.hold] || 0);
+      
       // Create transaction record
       await this.prisma.transaction.create({
         data: {
@@ -468,17 +509,17 @@ export class PaymentService {
           amount_requested: travelerPrice,
           fee_applied: stripeFee + platformCommission,
           amount_paid: pendingEarnings,
-          currency: order.currency || 'EUR',
+          currency: paymentCurrency, // Use the actual payment currency
           request_id: order.id,
           status: 'ONHOLD',
           provider: 'STRIPE',
           description: `Earnings from order ${order.id} (pending delivery)`,
-          balance_after:
-            Number(wallet.pending_balance_stripe) + pendingEarnings,
+          balance_after: currentBalance + pendingEarnings,
           metadata: {
             orderId: order.id,
             stripeFee,
             platformCommission,
+            paymentCurrency,
           },
         },
       });
@@ -653,6 +694,29 @@ export class PaymentService {
   }
 
   /**
+   * Get the appropriate currency column names for a given currency
+   */
+  private getCurrencyColumns(currency: string): {
+    available: string;
+    hold: string;
+  } {
+    switch (currency.toUpperCase()) {
+      case 'EUR':
+        return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+      case 'USD':
+        return { available: 'available_balance_usd', hold: 'hold_balance_usd' };
+      case 'CAD':
+        return { available: 'available_balance_cad', hold: 'hold_balance_cad' };
+      case 'XAF':
+        // XAF is display only, convert to EUR for processing
+        return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+      default:
+        // Default to EUR for unknown currencies
+        return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+    }
+  }
+
+  /**
    * Ensure wallet exists for user
    */
   private async ensureWallet(userId: string) {
@@ -674,6 +738,16 @@ export class PaymentService {
       wallet = await this.prisma.wallet.create({
         data: {
           userId,
+          // Initialize currency-specific balances to 0
+          available_balance_eur: 0,
+          available_balance_usd: 0,
+          available_balance_cad: 0,
+          available_balance_xaf: 0, // Display only, not processed
+          hold_balance_eur: 0,
+          hold_balance_usd: 0,
+          hold_balance_cad: 0,
+          hold_balance_xaf: 0, // Display only, not processed
+          // Legacy columns (keep for compatibility)
           available_balance_stripe: 0,
           pending_balance_stripe: 0,
           withdrawn_total_stripe: 0,

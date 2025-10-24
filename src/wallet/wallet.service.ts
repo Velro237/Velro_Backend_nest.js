@@ -11,8 +11,6 @@ import {
   WithdrawalRequestDto,
   WithdrawalResponseDto,
   WalletResponseDto,
-  WalletBalanceDto,
-  WalletTransactionDto,
   ChangeWalletStateDto,
   ChangeWalletStateResponseDto,
   WalletTransactionsResponseDto,
@@ -53,11 +51,10 @@ export class WalletService {
 
       return {
         balance: {
-          availableBalance: Number(wallet.available_balance_stripe),
-          pendingBalance: Number(wallet.pending_balance_stripe),
-          withdrawnTotal: Number(wallet.withdrawn_total_stripe),
+          availableBalance: Number(wallet.available_balance_eur) + Number(wallet.available_balance_usd) + Number(wallet.available_balance_cad),
+          pendingBalance: Number(wallet.hold_balance_eur) + Number(wallet.hold_balance_usd) + Number(wallet.hold_balance_cad),
+          withdrawnTotal: await this.calculateWithdrawnTotal(userId),
           currency: wallet.currency,
-          // Multi-currency support: show balances in original currencies
           multiCurrencyBalances: await this.getMultiCurrencyBalances(userId),
           availableBalanceXaf: Number(wallet.available_balance_xaf),
           holdBalanceXaf: Number(wallet.hold_balance_xaf),
@@ -290,12 +287,14 @@ export class WalletService {
         throw new BadRequestException('Wallet not found');
       }
 
-      const availableBalance = Number(wallet.available_balance_stripe);
+      // Get the appropriate currency columns
+      const currencyColumns = this.getCurrencyColumns(dto.currency || wallet.currency);
+      const availableBalance = Number(wallet[currencyColumns.available]);
 
       // Check if sufficient balance
       if (availableBalance < dto.amount) {
         throw new BadRequestException(
-          `Insufficient balance. Available: ${availableBalance} ${wallet.currency}`,
+          `Insufficient balance. Available: ${availableBalance} ${dto.currency || wallet.currency}`,
         );
       }
 
@@ -337,14 +336,16 @@ export class WalletService {
         },
       });
 
-      // Deduct from available balance
+      // Deduct from available balance using currency-specific column
+      const updateData = {
+        [currencyColumns.available]: {
+          decrement: dto.amount,
+        },
+      };
+
       await this.prisma.wallet.update({
         where: { id: wallet.id },
-        data: {
-          available_balance_stripe: {
-            decrement: dto.amount,
-          },
-        },
+        data: updateData,
       });
 
       // Create Stripe Transfer (supports multi-currency)
@@ -423,14 +424,16 @@ export class WalletService {
           status: 'SUCCESS',
         });
       } catch (transferError) {
-        // Rollback: restore balance
+        // Rollback: restore balance using currency-specific column
+        const rollbackData = {
+          [currencyColumns.available]: {
+            increment: dto.amount,
+          },
+        };
+
         await this.prisma.wallet.update({
           where: { id: wallet.id },
-          data: {
-            available_balance_stripe: {
-              increment: dto.amount,
-            },
-          },
+          data: rollbackData,
         });
 
         // Mark withdrawal as failed
@@ -508,17 +511,20 @@ export class WalletService {
         }
       }
 
-      // Move from pending to available
+      // Move from pending to available using currency-specific columns
+      const currencyColumns = this.getCurrencyColumns(wallet.currency);
+      const updateData = {
+        [currencyColumns.hold]: {
+          decrement: amount,
+        },
+        [currencyColumns.available]: {
+          increment: amount,
+        },
+      };
+
       await this.prisma.wallet.update({
         where: { id: wallet.id },
-        data: {
-          pending_balance_stripe: {
-            decrement: amount,
-          },
-          available_balance_stripe: {
-            increment: amount,
-          },
-        },
+        data: updateData,
       });
 
       // Create transaction for the move
@@ -536,7 +542,7 @@ export class WalletService {
           status: 'COMPLETED',
           provider: 'STRIPE',
           description: `Earnings released for order ${orderId}`,
-          balance_after: Number(wallet.available_balance_stripe) + amount,
+          balance_after: Number(wallet[currencyColumns.available]) + amount,
           metadata: {
             orderId,
             movedFromPending: true,
@@ -577,15 +583,8 @@ export class WalletService {
         },
       });
 
-      // Update withdrawn total
-      await this.prisma.wallet.update({
-        where: { userId: withdrawal.userId },
-        data: {
-          withdrawn_total_stripe: {
-            increment: withdrawal.amount_paid,
-          },
-        },
-      });
+      // Note: withdrawn total is now calculated from transactions in getWallet()
+      // No need to update wallet columns as the transaction record is sufficient
 
       this.logger.log(`Withdrawal ${withdrawal.id} marked as completed`);
     } catch (error) {
@@ -622,14 +621,17 @@ export class WalletService {
         },
       });
 
-      // Restore balance
+      // Restore balance using currency-specific column
+      const currencyColumns = this.getCurrencyColumns(withdrawal.currency);
+      const restoreData = {
+        [currencyColumns.available]: {
+          increment: withdrawal.amount_requested,
+        },
+      };
+
       await this.prisma.wallet.update({
         where: { userId: withdrawal.userId },
-        data: {
-          available_balance_stripe: {
-            increment: withdrawal.amount_requested,
-          },
-        },
+        data: restoreData,
       });
 
       this.logger.log(
@@ -679,10 +681,15 @@ export class WalletService {
       wallet = await this.prisma.wallet.create({
         data: {
           userId,
-          available_balance_stripe: 0,
-          pending_balance_stripe: 0,
-          withdrawn_total_stripe: 0,
-          currency: walletCurrency, // User's actual selection
+          available_balance_eur: 0,
+          available_balance_usd: 0,
+          available_balance_cad: 0,
+          available_balance_xaf: 0,
+          hold_balance_eur: 0,
+          hold_balance_usd: 0,
+          hold_balance_cad: 0,
+          hold_balance_xaf: 0,
+          currency: walletCurrency,
         },
       });
     }
@@ -690,20 +697,28 @@ export class WalletService {
     return wallet;
   }
 
+
   /**
-   * Map transaction to DTO
+   * Get the appropriate currency column names for a given currency
    */
-  private mapTransaction(transaction: any): WalletTransactionDto {
-    return {
-      id: transaction.id,
-      type: transaction.type,
-      source: transaction.source,
-      amount: Number(transaction.amount_paid),
-      currency: transaction.currency,
-      description: transaction.description,
-      balanceAfter: Number(transaction.balance_after),
-      createdAt: transaction.createdAt,
-    };
+  private getCurrencyColumns(currency: string): {
+    available: string;
+    hold: string;
+  } {
+    switch (currency.toUpperCase()) {
+      case 'EUR':
+        return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+      case 'USD':
+        return { available: 'available_balance_usd', hold: 'hold_balance_usd' };
+      case 'CAD':
+        return { available: 'available_balance_cad', hold: 'hold_balance_cad' };
+      case 'XAF':
+        // XAF is display only, convert to EUR for processing
+        return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+      default:
+        // Default to EUR for unknown currencies
+        return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+    }
   }
 
   /**
@@ -731,6 +746,29 @@ export class WalletService {
     } catch (error) {
       this.logger.warn('Failed to get multi-currency balances:', error);
       return [];
+    }
+  }
+
+  /**
+   * Calculate total withdrawn amount from transactions
+   */
+  private async calculateWithdrawnTotal(userId: string): Promise<number> {
+    try {
+      const withdrawnAggregation = await this.prisma.transaction.aggregate({
+        where: {
+          userId,
+          source: 'WITHDRAW',
+          status: 'COMPLETED',
+        },
+        _sum: {
+          amount_paid: true,
+        },
+      });
+
+      return Number(withdrawnAggregation._sum.amount_paid || 0);
+    } catch (error) {
+      this.logger.warn('Failed to calculate withdrawn total:', error);
+      return 0;
     }
   }
 

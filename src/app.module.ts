@@ -17,6 +17,7 @@ import { NotificationModule } from './notification/notification.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { PaymentModule } from './payment/payment.module';
 import { WalletModule } from './wallet/wallet.module';
+import { CurrencyModule } from './currency/currency.module';
 import * as path from 'path';
 
 @Module({
@@ -47,6 +48,7 @@ import * as path from 'path';
     SchedulerModule,
     PaymentModule,
     WalletModule,
+    CurrencyModule,
   ],
   controllers: [],
   providers: [],
