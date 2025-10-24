@@ -1,6 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsInt, Min, Max, IsEnum } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsOptional,
+  IsString,
+  IsInt,
+  Min,
+  Max,
+  IsEnum,
+  IsArray,
+  IsUUID,
+} from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 import {
   TripItemImageDto,
   TripItemDetailsDto,
@@ -72,6 +81,27 @@ export class GetTripsQueryDto {
   @Min(1)
   @Max(50)
   limit?: number = 10;
+
+  @ApiProperty({
+    description:
+      'Filter trips by specific trip item IDs. Comma-separated list of UUIDs. Returns trips that have at least one of the specified trip items.',
+    example:
+      '123e4567-e89b-12d3-a456-426614174000,123e4567-e89b-12d3-a456-426614174001',
+    required: false,
+    type: 'string',
+  })
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => {
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => id !== '');
+    }
+    return value;
+  })
+  trip_items_ids?: string;
 }
 
 export class UserInfoDto {

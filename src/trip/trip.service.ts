@@ -1389,6 +1389,7 @@ export class TripService {
         filter = 'all',
         page = 1,
         limit = 10,
+        trip_items_ids,
       } = query;
       const skip = (page - 1) * limit;
 
@@ -1504,6 +1505,31 @@ export class TripService {
         } catch (error) {
           // If search filter creation fails, log error but continue without search
           console.error('Error creating search filters:', error);
+        }
+      }
+
+      // Add trip items filtering if trip_items_ids is provided
+      if (trip_items_ids && trip_items_ids.trim() !== '') {
+        try {
+          // Parse comma-separated trip item IDs
+          const tripItemIds = trip_items_ids
+            .split(',')
+            .map((id) => id.trim())
+            .filter((id) => id !== '');
+
+          if (tripItemIds.length > 0) {
+            // Filter trips that have at least one of the specified trip items
+            baseWhereClause.trip_items = {
+              some: {
+                trip_item_id: {
+                  in: tripItemIds,
+                },
+              },
+            };
+          }
+        } catch (error) {
+          // If trip items filter creation fails, log error but continue without filter
+          console.error('Error creating trip items filter:', error);
         }
       }
 
