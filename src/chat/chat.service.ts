@@ -264,6 +264,7 @@ export class ChatService {
                   select: {
                     id: true,
                     email: true,
+                    name: true,
                     role: true,
                   },
                 },
@@ -338,6 +339,7 @@ export class ChatService {
         members: chat.members.map((member) => ({
           id: member.user.id,
           email: member.user.email,
+          name: member.user.name,
           role: member.user.role,
         })),
         createdAt: chat.createdAt,
@@ -548,6 +550,9 @@ export class ChatService {
         { lang },
       );
 
+      // Get chat request and trip data
+      const chatData = await this.getChatWithRequestAndTripData(chatId);
+
       const result = {
         message: message_text,
         messages: messageResponses,
@@ -559,6 +564,8 @@ export class ChatService {
           hasNext: page < totalPages,
           hasPrev: page > 1,
         },
+        request: chatData?.request || null,
+        trip: chatData?.trip || null,
       };
 
       // Cache the result for 2 minutes
@@ -790,6 +797,60 @@ export class ChatService {
     });
 
     return user;
+  }
+
+  async getChatWithRequestAndTripData(chatId: string): Promise<{
+    request: any;
+    trip: any;
+  } | null> {
+    const chat = await this.prisma.chat.findFirst({
+      where: { id: chatId },
+      include: {
+        trip: {
+          select: {
+            id: true,
+            pickup: true,
+            destination: true,
+            departure_date: true,
+            departure_time: true,
+            currency: true,
+            airline_id: true,
+            user: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+          },
+        },
+        request: {
+          select: {
+            id: true,
+            status: true,
+            cost: true,
+            currency: true,
+            created_at: true,
+            user: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                picture: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!chat) {
+      return null;
+    }
+
+    return {
+      request: chat.request,
+      trip: chat.trip,
+    };
   }
 
   async getChatSummary(

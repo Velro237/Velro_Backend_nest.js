@@ -28,6 +28,12 @@ import {
   ResendOtpResponseDto,
 } from './dto/pending-signup.dto';
 import {
+  RequestPasswordResetDto,
+  RequestPasswordResetResponseDto,
+  ResetPasswordDto,
+  ResetPasswordResponseDto,
+} from './dto/reset-password.dto';
+import {
   SendOtpDto,
   VerifyOtpDto,
   SendOtpResponseDto,
@@ -334,5 +340,50 @@ export class AuthController {
     @I18nLang() lang: string,
   ): Promise<ResendOtpResponseDto> {
     return this.authService.resendOtp(resendOtpDto, lang);
+  }
+
+  @Post('request-password-reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Request password reset',
+    description:
+      'Sends a password reset email with a secure link containing access key to the user.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Password reset link sent successfully',
+    type: RequestPasswordResetResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - User not found',
+  })
+  async requestPasswordReset(
+    @Body() requestPasswordResetDto: RequestPasswordResetDto,
+    @I18nLang() lang: string,
+  ): Promise<RequestPasswordResetResponseDto> {
+    return this.authService.requestPasswordReset(requestPasswordResetDto, lang);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset password',
+    description: 'Resets user password using access key and new password.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Password reset successfully',
+    type: ResetPasswordResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid access key or expired',
+  })
+  async resetPassword(
+    @Body() resetPasswordDto: ResetPasswordDto,
+    @I18nLang() lang: string,
+  ): Promise<ResetPasswordResponseDto> {
+    return this.authService.resetPassword(resetPasswordDto, lang);
   }
 }

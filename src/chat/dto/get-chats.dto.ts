@@ -81,6 +81,7 @@ export class ChatSummaryDto {
       properties: {
         id: { type: 'string' },
         email: { type: 'string' },
+        name: { type: 'string' },
         role: { type: 'string' },
       },
     },
@@ -88,6 +89,7 @@ export class ChatSummaryDto {
   members: Array<{
     id: string;
     email: string;
+    name: string;
     role: string;
   }>;
 

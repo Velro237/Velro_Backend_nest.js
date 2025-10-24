@@ -18,6 +18,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiExtraModels,
+  ApiBody,
 } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
 import { StripeService } from './stripe.service';
@@ -252,7 +253,9 @@ export class PaymentController {
 
         case 'payment_intent.canceled':
           console.log('PaymentIntent canceled:', event.data.object.id);
-          await this.paymentService.handlePaymentCancellation(event.data.object.id);
+          await this.paymentService.handlePaymentCancellation(
+            event.data.object.id,
+          );
           break;
 
         case 'account.updated':
@@ -295,5 +298,120 @@ export class PaymentController {
       console.error('Webhook error:', error);
       throw error;
     }
+  }
+
+  @Public()
+  @Post('mobilemoney/callback')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Mobile money payment callback',
+    description:
+      'Handles mobile money payment status updates from payment providers',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Callback processed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        message: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid callback data',
+  })
+  @ApiBody({
+    description: 'Mobile money payment callback data',
+    schema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          description: 'Payment status',
+          example: 'RECEIVED',
+        },
+        amount: {
+          type: 'string',
+          description: 'Payment amount',
+          example: '135000.0',
+        },
+        partnerId: {
+          type: 'string',
+          description: 'Partner/Provider transaction ID',
+          example: 'TR1B2C7001C1669',
+        },
+        operatorId: {
+          type: 'string',
+          description: 'Operator transaction ID',
+          example: '12882787757',
+        },
+        serviceCode: {
+          type: 'string',
+          description: 'Service code',
+          example: 'PAIEMENTMARCHAND_MTN_CM',
+        },
+        message: {
+          type: 'string',
+          nullable: true,
+          description: 'Optional message',
+          example: null,
+        },
+      },
+      required: ['status', 'amount', 'partnerId', 'operatorId', 'serviceCode'],
+    },
+    examples: {
+      success: {
+        summary: 'Successful payment callback',
+        description: 'Example of a successful payment callback',
+        value: {
+          status: 'RECEIVED',
+          amount: '135000.0',
+          partnerId: 'TR1B2C7001C1669',
+          operatorId: '12882787757',
+          serviceCode: 'PAIEMENTMARCHAND_MTN_CM',
+          message: null,
+        },
+      },
+      pending: {
+        summary: 'Pending payment callback',
+        description: 'Example of a pending payment callback',
+        value: {
+          status: 'PENDING',
+          amount: '50000.0',
+          partnerId: 'TR1B2C7001C1668',
+          operatorId: '12882787758',
+          serviceCode: 'PAIEMENTMARCHAND_ORANGE_CM',
+          message: 'Payment is being processed',
+        },
+      },
+      failed: {
+        summary: 'Failed payment callback',
+        description: 'Example of a failed payment callback',
+        value: {
+          status: 'FAILED',
+          amount: '25000.0',
+          partnerId: 'TR1B2C7001C1667',
+          operatorId: '12882787759',
+          serviceCode: 'PAIEMENTMARCHAND_MTN_CM',
+          message: 'Insufficient funds',
+        },
+      },
+    },
+  })
+  async handleMobileMoneyCallback(
+    @Body()
+    callbackData: {
+      status: string;
+      amount: string;
+      partnerId: string;
+      operatorId: string;
+      serviceCode: string;
+      message: string | null;
+    },
+  ): Promise<{ success: boolean; message: string }> {
+    return this.mobilemoneyService.handlePaymentCallback(callbackData);
   }
 }

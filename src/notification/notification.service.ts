@@ -393,7 +393,7 @@ export class NotificationService {
       const mailgunDomain = this.configService.get<string>('MAILGUN_DOMAIN');
       const mailgunFromEmail = this.configService.get<string>(
         'MAILGUN_FROM_EMAIL',
-        'noreply@velro.app',
+        'Velro <noreply@velro.app>',
       );
       const mailgunURL = this.configService.get<string>('MAILGUN_URL');
 

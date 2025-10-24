@@ -576,6 +576,11 @@ enum TransactionStatus {
   ONHOLD
   COMPLETED
   FAILED
+  PENDIND
+  IN_PROGRES
+  SEND
+  FAIL
+  RECEIVED
 }
 
 enum TransactionProvider {
@@ -649,6 +654,7 @@ model Transaction {
   source           TransactionSource
   status           TransactionStatus   @default(PENDING)
   provider         TransactionProvider
+  provider_id      String?
 
   stripe_transfer_id String? @unique
   stripe_account_id  String?

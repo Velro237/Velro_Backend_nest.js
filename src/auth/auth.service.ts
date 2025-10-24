@@ -20,6 +20,13 @@ import {
   ResendOtpDto,
   ResendOtpResponseDto,
 } from './dto/pending-signup.dto';
+import {
+  RequestPasswordResetDto,
+  RequestPasswordResetResponseDto,
+  ResetPasswordDto,
+  ResetPasswordResponseDto,
+} from './dto/reset-password.dto';
+
 import { I18nService, I18nContext } from 'nestjs-i18n';
 import * as bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -34,6 +41,7 @@ import { ConfigService } from '@nestjs/config';
 import Mailgun from 'mailgun.js';
 import { randomInt } from 'crypto';
 import { OtpService } from './otp/otp.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class AuthService {
@@ -43,6 +51,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly otpService: OtpService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async sendEmail(
@@ -952,6 +961,209 @@ export class AuthService {
         {
           lang,
           defaultValue: 'Failed to complete signup',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Request password reset - sends email with access key
+   */
+  async requestPasswordReset(
+    requestPasswordResetDto: RequestPasswordResetDto,
+    lang: string = 'en',
+  ): Promise<RequestPasswordResetResponseDto> {
+    const { email } = requestPasswordResetDto;
+
+    // Check if user exists
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true, name: true },
+    });
+
+    if (!user) {
+      const message = await this.i18n.translate(
+        'translation.auth.user.notFound',
+        {
+          lang,
+          defaultValue: 'User not found',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    try {
+      // Generate OTP and access key
+      const otpCode = randomInt(100_000, 1_000_000);
+      const accessKey = crypto.randomBytes(32).toString('hex');
+
+      // Create OTP record
+      const otp = await this.prisma.otp.create({
+        data: {
+          code: String(otpCode),
+          email: user.email,
+          type: 'FORGOT_PASSWORD',
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+          access_key: accessKey,
+        },
+      });
+
+      // Send password reset email using notification service
+      const resetLink = `https://velro.app?access_key=${accessKey}`;
+      const emailDto: SendEmailDto = {
+        to: user.email,
+        subject: 'Password Reset - Velro',
+        text: `Click the following link to reset your password: ${resetLink}`,
+        html: `
+          <h2>Password Reset Request</h2>
+          <p>Hello ${user.name},</p>
+          <p>You requested to reset your password. Click the button below to complete the process:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetLink}" 
+               style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
+              Reset Password
+            </a>
+          </div>
+          <p>Or copy and paste this link into your browser:</p>
+          <p style="word-break: break-all; color: #666;">${resetLink}</p>
+          <p>This link will expire in 15 minutes.</p>
+          <p>If you didn't request this password reset, please ignore this email.</p>
+          <p>Best regards,<br>The Velro Team</p>
+        `,
+      };
+
+      await this.sendEmail(emailDto, lang);
+
+      const message = await this.i18n.translate(
+        'translation.auth.passwordReset.emailSent',
+        {
+          lang,
+          defaultValue: 'Password reset link sent successfully',
+        },
+      );
+
+      return { message };
+    } catch (error: any) {
+      console.error('Error sending password reset email:', error);
+      const message = await this.i18n.translate(
+        'translation.auth.passwordReset.failed',
+        {
+          lang,
+          defaultValue: 'Failed to send password reset email',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Reset password using access key and new password
+   */
+  async resetPassword(
+    resetPasswordDto: ResetPasswordDto,
+    lang: string = 'en',
+  ): Promise<ResetPasswordResponseDto> {
+    const { accessKey, password } = resetPasswordDto;
+
+    try {
+      // Find OTP record by access key
+      const otp = await this.prisma.otp.findUnique({
+        where: { access_key: accessKey },
+      });
+
+      if (!otp) {
+        const message = await this.i18n.translate(
+          'translation.auth.accessKey.invalid',
+          {
+            lang,
+            defaultValue: 'Invalid access key',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Check if OTP is expired
+      if (otp.expiresAt < new Date()) {
+        const message = await this.i18n.translate(
+          'translation.auth.otp.expired',
+          {
+            lang,
+            defaultValue: 'Access key has expired',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Check if OTP is for password reset
+      if (otp.type !== 'FORGOT_PASSWORD') {
+        const message = await this.i18n.translate(
+          'translation.auth.otp.invalidType',
+          {
+            lang,
+            defaultValue: 'Invalid access key type',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Find user by email
+      const user = await this.prisma.user.findUnique({
+        where: { email: otp.email! },
+        select: { id: true, email: true, name: true },
+      });
+
+      if (!user) {
+        const message = await this.i18n.translate(
+          'translation.auth.user.notFound',
+          {
+            lang,
+            defaultValue: 'User not found',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Update user password
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          password: hashedPassword,
+        },
+      });
+
+      // Invalidate OTP
+      await this.prisma.otp.update({
+        where: { id: otp.id },
+        data: { verified: true },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.auth.passwordReset.success',
+        {
+          lang,
+          defaultValue: 'Password reset successfully',
+        },
+      );
+
+      return {
+        message,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        },
+      };
+    } catch (error: any) {
+      console.error('Error resetting password:', error);
+      const message = await this.i18n.translate(
+        'translation.auth.passwordReset.failed',
+        {
+          lang,
+          defaultValue: 'Failed to reset password',
         },
       );
       throw new InternalServerErrorException(message);

@@ -441,14 +441,14 @@ export class MobilemoneyService {
       const feePercent = this.configService.get<number>('VELRO_FEE_PERCENT', 0);
       const fixedFee = this.configService.get<number>('FIXED_FEE_XAF', 0);
       const feeApplied = (amountInXAF * feePercent) / 100;
-      const totalFee = feeApplied + fixedFee;
-      const amountPaid = amountInXAF + totalFee;
+      const totalFee = +feeApplied + +fixedFee;
+      const amountPaid = +amountInXAF + +totalFee;
 
       // Execute cashout (generates unique partnerId internally)
       const result = await this.cashout(
         phoneNumber,
         serviceCode,
-        amountInXAF,
+        amountPaid,
         lang,
       );
 
@@ -471,6 +471,7 @@ export class MobilemoneyService {
           description: `Mobile Money withdrawal for request ${requestId} to ${phoneNumber}`,
           status: 'PENDING',
           metadata: result,
+          provider_id: result.partnerId,
         },
       });
 
@@ -691,5 +692,162 @@ export class MobilemoneyService {
     const amountInXAF = amount * rate;
 
     return Number(amountInXAF.toFixed(2));
+  }
+
+  /**
+   * Handle mobile money payment callback
+   * Updates transaction status and credits trip creator's wallet if payment is received
+   */
+  async handlePaymentCallback(callbackData: {
+    status: string;
+    amount: string;
+    partnerId: string;
+    operatorId: string;
+    serviceCode: string;
+    message: string | null;
+  }): Promise<{ success: boolean; message: string }> {
+    try {
+      this.logger.log(
+        'Processing mobile money payment callback:',
+        callbackData,
+      );
+
+      const { status, amount, partnerId, operatorId, serviceCode, message } =
+        callbackData;
+
+      // Find transaction by provider_id (partnerId)
+      const transaction = await this.prisma.transaction.findFirst({
+        where: {
+          provider_id: partnerId,
+        },
+        include: {
+          trip: {
+            include: {
+              user: {
+                include: {
+                  wallet: true,
+                },
+              },
+            },
+          },
+          request: true,
+        },
+      });
+
+      if (!transaction) {
+        this.logger.warn(`Transaction not found for partnerId: ${partnerId}`);
+        return {
+          success: false,
+          message: 'Transaction not found',
+        };
+      }
+
+      // Update transaction status
+      await this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: status as any, // Cast to TransactionStatus enum
+          status_message: message,
+          processedAt: new Date(),
+          metadata: {
+            ...((transaction.metadata as any) || {}),
+            callbackData: {
+              operatorId,
+              serviceCode,
+              receivedAt: new Date(),
+            },
+          },
+        },
+      });
+
+      this.logger.log(
+        `Transaction ${transaction.id} status updated to: ${status}`,
+      );
+
+      // If payment is received, credit the trip creator's wallet
+      if (status === 'RECEIVED') {
+        const tripCreator = transaction.trip?.user;
+
+        if (!tripCreator) {
+          this.logger.warn(
+            `Trip creator not found for transaction: ${transaction.id}`,
+          );
+          return {
+            success: false,
+            message: 'Trip creator not found',
+          };
+        }
+
+        if (!tripCreator.wallet) {
+          this.logger.warn(
+            `Wallet not found for trip creator: ${tripCreator.id}`,
+          );
+          return {
+            success: false,
+            message: 'Trip creator wallet not found',
+          };
+        }
+
+        const netAmount = Number(transaction.amount_requested);
+
+        // Credit trip creator's wallet
+        await this.prisma.wallet.update({
+          where: { id: tripCreator.wallet.id },
+          data: {
+            hold_balance_xaf: {
+              increment: netAmount,
+            },
+          },
+        });
+
+        // Determine provider based on service code
+        let provider = 'MTN';
+        if (serviceCode.includes('ORANGE')) {
+          provider = 'ORANGE';
+        }
+
+        // Create a credit transaction for the trip creator
+        await this.prisma.transaction.create({
+          data: {
+            userId: tripCreator.id,
+            wallet_id: tripCreator.wallet.id,
+            trip_id: transaction.trip_id,
+            request_id: transaction.request_id,
+            type: 'CREDIT',
+            source: 'TRIP_EARNING',
+            amount_requested: netAmount,
+            fee_applied: 0,
+            amount_paid: netAmount,
+            currency: 'XAF',
+            status: 'ONHOLD',
+            provider: provider as any,
+            description: `Trip payment received from ${transaction.userId}`,
+            balance_after:
+              Number(tripCreator.wallet.hold_balance_xaf) + netAmount,
+            metadata: {
+              originalTransactionId: transaction.id,
+              paymentMethod: 'mobile_money',
+              serviceCode,
+              operatorId,
+            },
+          },
+        });
+
+        this.logger.log(
+          `Credited ${netAmount} ${transaction.currency} to trip creator ${tripCreator.id} for transaction ${transaction.id}`,
+        );
+      }
+
+      return {
+        success: true,
+        message: 'Callback processed successfully',
+      };
+    } catch (error) {
+      this.logger.error('Error processing payment callback:', error);
+      return {
+        success: false,
+        message: 'Error processing callback',
+      };
+    }
   }
 }

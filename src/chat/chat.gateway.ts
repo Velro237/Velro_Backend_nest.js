@@ -252,6 +252,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             user.id,
           );
 
+          // Get full chat data with request and trip information
+          const chatData =
+            await this.chatService.getChatWithRequestAndTripData(chatId);
+
           userSocket.emit('chat:created', {
             chatId,
             chatName: chatName || 'New Chat',
@@ -260,6 +264,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             message: `You were added to a new chat: ${chatName || 'New Chat'}`,
             lastMessage: lastMessage || null,
             unreadCount: chatSummary?.unreadCount || 0,
+            request: chatData?.request || null,
+            trip: chatData?.trip || null,
           });
         }
       }
