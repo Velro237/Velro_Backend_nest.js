@@ -282,6 +282,7 @@ export class ChatService {
               select: {
                 id: true,
                 pickup: true,
+                departure: true,
                 destination: true,
                 departure_date: true,
                 departure_time: true,
@@ -308,6 +309,11 @@ export class ChatService {
                     email: true,
                     name: true,
                     picture: true,
+                  },
+                },
+                request_items: {
+                  select: {
+                    quantity: true,
                   },
                 },
               },
@@ -347,6 +353,7 @@ export class ChatService {
           ? {
               id: chat.trip.id,
               pickup: chat.trip.pickup,
+              departure: chat.trip.departure,
               destination: chat.trip.destination,
               departure_date: chat.trip.departure_date,
               departure_time: chat.trip.departure_time,
@@ -367,6 +374,12 @@ export class ChatService {
               cost: chat.request.cost ? Number(chat.request.cost) : null,
               currency: chat.request.currency,
               created_at: chat.request.created_at,
+              availableKgs: chat.request.request_items
+                ? chat.request.request_items.reduce(
+                    (total, item) => total + item.quantity,
+                    0,
+                  )
+                : 0,
               user: chat.request.user
                 ? {
                     id: chat.request.user.id,
