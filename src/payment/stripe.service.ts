@@ -468,6 +468,51 @@ export class StripeService {
   }
 
   /**
+   * Create a Stripe customer
+   */
+  async createCustomer(params: {
+    email: string;
+    name?: string;
+    metadata?: Record<string, string>;
+  }): Promise<Stripe.Customer> {
+    try {
+      this.logger.log(`Creating customer for ${params.email}`);
+
+      const customer = await this.stripe.customers.create({
+        email: params.email,
+        name: params.name,
+        metadata: params.metadata,
+      });
+
+      this.logger.log(`Customer created: ${customer.id}`);
+      return customer;
+    } catch (error) {
+      this.logger.error('Failed to create customer:', error);
+      throw new BadRequestException(`Failed to create customer: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create an ephemeral key for a customer
+   */
+  async createEphemeralKey(customerId: string): Promise<Stripe.EphemeralKey> {
+    try {
+      this.logger.log(`Creating ephemeral key for customer ${customerId}`);
+
+      const ephemeralKey = await this.stripe.ephemeralKeys.create(
+        { customer: customerId },
+        { apiVersion: '2020-08-27' }
+      );
+
+      this.logger.log(`Ephemeral key created: ${ephemeralKey.id}`);
+      return ephemeralKey;
+    } catch (error) {
+      this.logger.error('Failed to create ephemeral key:', error);
+      throw new BadRequestException(`Failed to create ephemeral key: ${error.message}`);
+    }
+  }
+
+  /**
    * Get Stripe instance (for advanced operations)
    */
   getStripeInstance(): Stripe {
