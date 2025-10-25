@@ -1124,7 +1124,7 @@ export class RequestService {
       // Allow trip owner (traveler) or request sender to change status
       const isTripOwner = request.trip.user_id === userId;
       const isRequestSender = request.user_id === userId;
-      
+
       if (!isTripOwner && !isRequestSender) {
         const message = await this.i18n.translate(
           'translation.trip.request.unauthorized',
@@ -1151,7 +1151,9 @@ export class RequestService {
         case 'DECLINED':
           // Only traveler can accept/decline
           if (!isTraveler) {
-            throw new BadRequestException('Only traveler can accept or decline requests');
+            throw new BadRequestException(
+              'Only traveler can accept or decline requests',
+            );
           }
           // Can only accept or decline if current status is PENDING
           if (currentStatus !== 'PENDING') {
@@ -1212,10 +1214,14 @@ export class RequestService {
           } else if (isTraveler) {
             // Traveler can only cancel if PENDING
             if (currentStatus !== 'PENDING') {
-              throw new BadRequestException('Traveler can only cancel PENDING requests');
+              throw new BadRequestException(
+                'Traveler can only cancel PENDING requests',
+              );
             }
           } else {
-            throw new BadRequestException('Only sender or traveler can cancel requests');
+            throw new BadRequestException(
+              'Only sender or traveler can cancel requests',
+            );
           }
           break;
         case 'REFUNDED':
@@ -1231,6 +1237,35 @@ export class RequestService {
         where: { id: requestId },
         data: { status },
       });
+
+      // Send a system message with the new status
+      let systemMessage;
+      try {
+        systemMessage = await this.chatGateway.sendMessageProgrammatically({
+          chatId,
+          senderId: userId,
+          content: await this.i18n.translate(
+            'translation.chat.messages.systemStatusUpdate',
+            {
+              lang,
+              args: {
+                status: status.toLowerCase(),
+                newStatus: status,
+              },
+            },
+          ),
+          type: PrismaMessageType.SYSTEM,
+          replyToId: undefined,
+          imageUrl: undefined,
+          requestId: request.id,
+        });
+      } catch (systemMessageError) {
+        console.error(
+          'Failed to send system status message:',
+          systemMessageError,
+        );
+        systemMessage = null;
+      }
 
       // Send a message in the chat with the updated request status
       let statusMessage;
@@ -1379,6 +1414,15 @@ export class RequestService {
               content: statusMessage.content,
               type: statusMessage.type,
               createdAt: statusMessage.createdAt,
+            }
+          : null,
+        systemMessage: systemMessage
+          ? {
+              id: systemMessage.id,
+              chatId: systemMessage.chatId,
+              content: systemMessage.content,
+              type: systemMessage.type,
+              createdAt: systemMessage.createdAt,
             }
           : null,
       };

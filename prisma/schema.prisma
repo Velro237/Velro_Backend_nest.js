@@ -200,6 +200,7 @@ enum MessageType {
   IMAGE
   REQUEST
   PAYMENT
+  SYSTEM
 }
 
 model Trip {
