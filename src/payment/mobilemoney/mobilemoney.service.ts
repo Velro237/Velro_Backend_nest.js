@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentAction, PaymentCarrier } from '../entitiy/mobilemoney.entity';
 import { I18nService } from 'nestjs-i18n';
+import { RequestService } from '../../request/request.service';
 import { MobilemoneyCashoutResponseDto } from '../dto/mobilemoney-cashout.dto';
 import { MobilemoneyDepositResponseDto } from '../dto/mobilemoney-deposit.dto';
 import { MoalaBalanceResponseDto } from '../dto/moala-balance.dto';
@@ -34,6 +35,7 @@ export class MobilemoneyService {
     private readonly configService: ConfigService,
     private readonly i18n: I18nService,
     private readonly prisma: PrismaService,
+    private readonly requestService: RequestService,
   ) {
     this.baseUri = this.configService.get<string>('MOALA_URL');
     this.appKey = this.configService.get<string>('MOALA_API_KEY');
@@ -764,8 +766,27 @@ export class MobilemoneyService {
         `Transaction ${transaction.id} status updated to: ${status}`,
       );
 
-      // If payment is received, credit the trip creator's wallet
+      // If payment is received, update request status and credit the trip creator's wallet
       if (status === 'RECEIVED') {
+        // Update request status to CONFIRMED using the request service
+        if (transaction.request_id) {
+          try {
+            await this.requestService.changeRequestStatus(
+              transaction.request_id,
+              'CONFIRMED',
+              transaction.userId, // Use the transaction user ID as the system user
+              'en', // Default language
+            );
+            this.logger.log(
+              `Request ${transaction.request_id} status updated to CONFIRMED`,
+            );
+          } catch (requestStatusError) {
+            this.logger.error(
+              `Failed to update request status: ${requestStatusError.message}`,
+            );
+            // Continue with wallet crediting even if request status update fails
+          }
+        }
         const tripCreator = transaction.trip?.user;
 
         if (!tripCreator) {
