@@ -37,5 +37,17 @@ export class PaymentIntentResponseDto {
     example: 'EUR',
   })
   currency: string;
+
+  @ApiProperty({
+    description: 'Ephemeral key secret for Stripe customer',
+    example: 'ek_test_YWNjdF8xR3VQb1hKbE1pWExYaW5YQ3dITlB4WlJPeU5jU3pRbm9lSnp3d09TbUtxT3VfT3VBY01oVEZicHRKcHduMEhDWjZGMUZ2VURrdW4tV2F4SFlvbk5sYV93c25TUUhvbE5ZdE5yT3M=',
+  })
+  ephemeralKeySecret: string;
+
+  @ApiProperty({
+    description: 'Stripe customer ID',
+    example: 'cus_1234567890',
+  })
+  customerId: string;
 }
 

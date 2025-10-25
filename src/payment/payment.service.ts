@@ -280,11 +280,50 @@ export class PaymentService {
         }
 
         // Return existing intent if still pending
+        // For existing intents, we need to create customer and ephemeral key too
+        let customer;
+        try {
+          // Try to find existing customer by email
+          const existingCustomers = await this.stripeService.getStripeInstance().customers.list({
+            email: order.user.email,
+            limit: 1,
+          });
+          
+          if (existingCustomers.data.length > 0) {
+            customer = existingCustomers.data[0];
+            this.logger.log(`Using existing customer: ${customer.id}`);
+          } else {
+            // Create new customer
+            customer = await this.stripeService.createCustomer({
+              email: order.user.email,
+              name: order.user.name || undefined,
+              metadata: {
+                userId: senderId,
+                userRole: order.user.role,
+              },
+            });
+          }
+        } catch (error) {
+          this.logger.error('Failed to create/get customer for existing intent:', error);
+          throw new BadRequestException('Failed to create customer for payment');
+        }
+
+        // Create ephemeral key for the customer
+        let ephemeralKey;
+        try {
+          ephemeralKey = await this.stripeService.createEphemeralKey(customer.id);
+        } catch (error) {
+          this.logger.error('Failed to create ephemeral key for existing intent:', error);
+          throw new BadRequestException('Failed to create ephemeral key for payment');
+        }
+
         return {
           clientSecret: existingIntent.client_secret,
           paymentIntentId: existingIntent.id,
           amount: existingIntent.amount / 100,
           currency: existingIntent.currency.toUpperCase(),
+          ephemeralKeySecret: ephemeralKey.secret,
+          customerId: customer.id,
         };
       }
 
@@ -378,11 +417,50 @@ export class PaymentService {
         `PaymentIntent created successfully: ${paymentIntent.id}`,
       );
 
+      // Create or get customer for the sender
+      let customer;
+      try {
+        // Try to find existing customer by email
+        const existingCustomers = await this.stripeService.getStripeInstance().customers.list({
+          email: order.user.email,
+          limit: 1,
+        });
+        
+        if (existingCustomers.data.length > 0) {
+          customer = existingCustomers.data[0];
+          this.logger.log(`Using existing customer: ${customer.id}`);
+        } else {
+          // Create new customer
+          customer = await this.stripeService.createCustomer({
+            email: order.user.email,
+            name: order.user.name || undefined,
+            metadata: {
+              userId: senderId,
+              userRole: order.user.role,
+            },
+          });
+        }
+      } catch (error) {
+        this.logger.error('Failed to create/get customer:', error);
+        throw new BadRequestException('Failed to create customer for payment');
+      }
+
+      // Create ephemeral key for the customer
+      let ephemeralKey;
+      try {
+        ephemeralKey = await this.stripeService.createEphemeralKey(customer.id);
+      } catch (error) {
+        this.logger.error('Failed to create ephemeral key:', error);
+        throw new BadRequestException('Failed to create ephemeral key for payment');
+      }
+
       return {
         clientSecret: paymentIntent.client_secret,
         paymentIntentId: paymentIntent.id,
         amount: senderTotal,
         currency: currency,
+        ephemeralKeySecret: ephemeralKey.secret,
+        customerId: customer.id,
       };
     } catch (error) {
       this.logger.error('Failed to create payment intent:', error);
