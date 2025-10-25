@@ -81,11 +81,13 @@ export class MessageResponseDto {
     properties: {
       id: { type: 'string' },
       email: { type: 'string' },
+      name: { type: 'string' },
     },
   })
   sender: {
     id: string;
     email: string;
+    name: string;
   };
 
   @ApiProperty({

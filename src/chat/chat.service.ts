@@ -446,6 +446,7 @@ export class ChatService {
               select: {
                 id: true,
                 email: true,
+                name: true,
               },
             },
             request: {
@@ -501,6 +502,7 @@ export class ChatService {
             sender: {
               id: message.sender.id,
               email: message.sender.email,
+              name: message.sender.name,
             },
             content,
             imageUrl: message.image_url,
@@ -616,6 +618,7 @@ export class ChatService {
               select: {
                 id: true,
                 email: true,
+                name: true,
               },
             },
             request: {
@@ -665,6 +668,7 @@ export class ChatService {
         sender: {
           id: message.sender.id,
           email: message.sender.email,
+          name: message.sender.name,
         },
         content: message.content,
         imageUrl: message.image_url,
@@ -878,6 +882,7 @@ export class ChatService {
               select: {
                 id: true,
                 email: true,
+                name: true,
               },
             },
           },
