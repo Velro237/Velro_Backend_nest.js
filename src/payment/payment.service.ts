@@ -318,8 +318,8 @@ export class PaymentService {
         }
 
         return {
-          clientSecret: existingIntent.client_secret,
-          paymentIntentId: existingIntent.id,
+          clientSecret: existingIntent.id,
+          paymentIntentId: existingIntent.client_secret,
           amount: existingIntent.amount / 100,
           currency: existingIntent.currency.toUpperCase(),
           ephemeralKeySecret: ephemeralKey.secret,
@@ -455,8 +455,8 @@ export class PaymentService {
       }
 
       return {
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
+        clientSecret: paymentIntent.id,
+        paymentIntentId: paymentIntent.client_secret,
         amount: senderTotal,
         currency: currency,
         ephemeralKeySecret: ephemeralKey.secret,
