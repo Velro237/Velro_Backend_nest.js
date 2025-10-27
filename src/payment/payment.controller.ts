@@ -77,6 +77,10 @@ import {
   WithdrawalNumberListDto,
   DeleteWithdrawalNumberResponseDto,
 } from './dto/withdrawal-number.dto';
+import {
+  MobilemoneyKycDto,
+  MobilemoneyKycResponseDto,
+} from './dto/mobilemoney-kyc.dto';
 
 @ApiTags('Payments')
 @ApiBearerAuth('JWT-auth')
@@ -90,6 +94,8 @@ import {
   MobilemoneyDepositDto,
   MobilemoneyDepositResponseDto,
   MoalaBalanceResponseDto,
+  MobilemoneyKycDto,
+  MobilemoneyKycResponseDto,
 )
 @Controller('payments')
 @UseGuards(JwtAuthGuard)
@@ -170,6 +176,62 @@ export class PaymentController {
     @I18nLang() lang: string,
   ): Promise<MoalaBalanceResponseDto> {
     return this.mobilemoneyService.balance(lang);
+  }
+
+  @Post('mobilemoney/kyc')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Perform KYC check on a mobile money number',
+    description:
+      'Check the KYC status of a mobile money phone number for Cameroon (MTN or Orange). The service code is automatically determined from the phone number prefix.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'KYC check completed successfully',
+    type: MobilemoneyKycResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid phone number',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error - Failed to perform KYC check',
+  })
+  @ApiBody({
+    description: 'KYC check details - only phone number is required',
+    type: MobilemoneyKycDto,
+  })
+  async performKyc(
+    @Body() kycDto: MobilemoneyKycDto,
+    @I18nLang() lang: string,
+  ): Promise<MobilemoneyKycResponseDto> {
+    // Determine carrier from phone number prefix
+    const carrier = this.mobilemoneyService.getWithdrawalCarrier(
+      kycDto.phoneNumber,
+    );
+
+    if (!carrier) {
+      throw new BadRequestException(
+        'Invalid phone number - cannot determine carrier. Please provide a valid MTN or Orange Cameroon number.',
+      );
+    }
+
+    // Map carrier to service code
+    const serviceCode =
+      carrier === 'MTN'
+        ? 'PAIEMENTMARCHAND_MTN_CM'
+        : 'PAIEMENTMARCHAND_ORANGE_CM';
+
+    const result = await this.mobilemoneyService.kyc(
+      kycDto.phoneNumber,
+      serviceCode,
+      lang,
+    );
+    return {
+      data: result,
+      message: 'KYC check completed successfully',
+    };
   }
 
   // ============================================

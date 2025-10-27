@@ -157,6 +157,7 @@ export class MobilemoneyService {
 
       const timestamp = Math.floor(Date.now() / 1000);
       const endpoint = `/v1/api/kyc/${serviceCode}/${phoneNumber}`;
+      console.log('endpoint', endpoint);
       const sign = this.generateHmacSha256Hex(
         `${timestamp}GET${endpoint}`,
         this.secretKey,
@@ -572,6 +573,18 @@ export class MobilemoneyService {
         throw new BadRequestException(message);
       }
 
+      // Check if wallet is not blocked
+      if (wallet.state === 'BLOCKED') {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.walletBlocked',
+          {
+            lang,
+            defaultValue: 'Wallet is blocked. Cannot process deposit.',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
       // Check if user has enough balance
       const availableBalance = Number(wallet.available_balance_xaf);
       if (availableBalance < amount) {
@@ -965,30 +978,33 @@ export class MobilemoneyService {
   }
 
   /**
-   * Get carrier (MTN or ORANGE) from a Cameroon mobile number
-   * Numbers starting with 67, 68, 69, 60, 61 are MTN
-   * Numbers starting with 65, 66, 69, 60 are ORANGE
+   * Get carrier (MTN or ORANGE) from a Cameroon mobile number using regex patterns
+   *
+   * Patterns:
+   * - ORANGE: 69xxxxxxxx or 65[5-9]xxxxxx
+   * - MTN: 67xxxxxxxx or 68[0-4]xxxxxx or 65[0-4]xxxxxx
+   *
+   * @returns 'MTN' | 'ORANGE' | null if carrier cannot be determined
    */
-  private getWithdrawalCarrier(number: string): 'MTN' | 'ORANGE' {
+  getWithdrawalCarrier(number: string): 'MTN' | 'ORANGE' | null {
     const cleanNumber = number.trim();
+
     if (cleanNumber.length !== 9) {
       throw new BadRequestException('Mobile number must be 9 characters');
     }
 
-    const prefix = cleanNumber.substring(0, 2);
-
-    // MTN prefixes
-    if (['67', '68', '69', '60', '61'].includes(prefix)) {
-      return 'MTN';
-    }
-
-    // ORANGE prefixes
-    if (['65', '66', '69'].includes(prefix)) {
+    // Check for ORANGE patterns
+    if (/^(69\d{7}|65[5-9]\d{6})$/.test(cleanNumber)) {
       return 'ORANGE';
     }
 
-    // Default to MTN for unknown prefixes
-    return 'MTN';
+    // Check for MTN patterns
+    if (/^(67\d{7}|68[0-4]\d{6}|65[0-4]\d{6})$/.test(cleanNumber)) {
+      return 'MTN';
+    }
+
+    // Return null if no carrier can be determined
+    return null;
   }
 
   /**
@@ -1016,6 +1032,10 @@ export class MobilemoneyService {
 
     // Get carrier based on number
     const carrier = this.getWithdrawalCarrier(cleanNumber);
+
+    if (!carrier) {
+      throw new BadRequestException('Invalid phone number - carrier not found');
+    }
 
     try {
       // Check if number already exists
@@ -1087,6 +1107,10 @@ export class MobilemoneyService {
 
     // Get carrier based on number
     const carrier = this.getWithdrawalCarrier(cleanNumber);
+
+    if (!carrier) {
+      throw new BadRequestException('Invalid phone number - carrier not found');
+    }
 
     try {
       // Find the withdrawal number

@@ -468,6 +468,7 @@ export class ChatService {
                   select: {
                     id: true,
                     pickup: true,
+                    departure: true,
                     destination: true,
                     departure_date: true,
                     departure_time: true,
@@ -541,6 +542,7 @@ export class ChatService {
               ? {
                   id: message.request.trip.id,
                   pickup: message.request.trip.pickup,
+                  departure: message.request.trip.departure,
                   destination: message.request.trip.destination,
                   departure_date: message.request.trip.departure_date,
                   departure_time: message.request.trip.departure_time,
@@ -680,6 +682,7 @@ export class ChatService {
                   select: {
                     id: true,
                     pickup: true,
+                    departure: true,
                     destination: true,
                     departure_date: true,
                     departure_time: true,
@@ -747,6 +750,7 @@ export class ChatService {
           ? {
               id: message.request.trip.id,
               pickup: message.request.trip.pickup,
+              departure: message.request.trip.departure,
               destination: message.request.trip.destination,
               departure_date: message.request.trip.departure_date,
               departure_time: message.request.trip.departure_time,

@@ -129,6 +129,7 @@ export class MessageResponseDto {
   tripData?: {
     id: string;
     pickup: any;
+    departure: any;
     destination: any;
     departure_date: Date;
     departure_time: string;
