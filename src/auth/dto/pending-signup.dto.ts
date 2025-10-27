@@ -108,10 +108,11 @@ export class PendingSignupDto {
   @ApiProperty({
     description: 'User city',
     example: 'Yaoundé',
+    required: false,
   })
   @IsString()
-  @MinLength(1)
-  city: string;
+  @IsOptional()
+  city?: string;
 
   @ApiProperty({
     description: 'Whether user is a freight forwarder',
