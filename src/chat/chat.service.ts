@@ -485,6 +485,21 @@ export class ChatService {
                   select: {
                     id: true,
                     email: true,
+                    name: true,
+                    picture: true,
+                  },
+                },
+                request_items: {
+                  select: {
+                    quantity: true,
+                    special_notes: true,
+                    trip_item: {
+                      select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                      },
+                    },
                   },
                 },
               },
@@ -544,12 +559,37 @@ export class ChatService {
                   id: message.request.id,
                   status: message.request.status,
                   message: message.request.message,
+                  cost: message.request.cost
+                    ? Number(message.request.cost)
+                    : null,
+                  currency: message.request.currency,
                   createdAt: message.request.created_at,
                   updatedAt: message.request.updated_at,
+                  availableKgs: message.request.request_items
+                    ? message.request.request_items.reduce(
+                        (total, item) => total + item.quantity,
+                        0,
+                      )
+                    : 0,
+                  requestItems: message.request.request_items
+                    ? message.request.request_items.map((item) => ({
+                        quantity: item.quantity,
+                        specialNotes: item.special_notes,
+                        tripItem: item.trip_item
+                          ? {
+                              id: item.trip_item.id,
+                              name: item.trip_item.name,
+                              description: item.trip_item.description,
+                            }
+                          : undefined,
+                      }))
+                    : [],
                   user: message.request.user
                     ? {
                         id: message.request.user.id,
                         email: message.request.user.email,
+                        name: message.request.user.name,
+                        picture: message.request.user.picture,
                       }
                     : undefined,
                 }
@@ -657,6 +697,21 @@ export class ChatService {
                   select: {
                     id: true,
                     email: true,
+                    name: true,
+                    picture: true,
+                  },
+                },
+                request_items: {
+                  select: {
+                    quantity: true,
+                    special_notes: true,
+                    trip_item: {
+                      select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                      },
+                    },
                   },
                 },
               },
@@ -710,12 +765,35 @@ export class ChatService {
               id: message.request.id,
               status: message.request.status,
               message: message.request.message,
+              cost: message.request.cost ? Number(message.request.cost) : null,
+              currency: message.request.currency,
               createdAt: message.request.created_at,
               updatedAt: message.request.updated_at,
+              availableKgs: message.request.request_items
+                ? message.request.request_items.reduce(
+                    (total, item) => total + item.quantity,
+                    0,
+                  )
+                : 0,
+              requestItems: message.request.request_items
+                ? message.request.request_items.map((item) => ({
+                    quantity: item.quantity,
+                    specialNotes: item.special_notes,
+                    tripItem: item.trip_item
+                      ? {
+                          id: item.trip_item.id,
+                          name: item.trip_item.name,
+                          description: item.trip_item.description,
+                        }
+                      : undefined,
+                  }))
+                : [],
               user: message.request.user
                 ? {
                     id: message.request.user.id,
                     email: message.request.user.email,
+                    name: message.request.user.name,
+                    picture: message.request.user.picture,
                   }
                 : undefined,
             }

@@ -2,6 +2,8 @@ import {
   Controller,
   Post,
   Get,
+  Put,
+  Delete,
   Body,
   UseGuards,
   HttpCode,
@@ -11,6 +13,7 @@ import {
   RawBodyRequest,
   Req,
   BadRequestException,
+  Param,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,6 +22,7 @@ import {
   ApiBearerAuth,
   ApiExtraModels,
   ApiBody,
+  ApiParam,
 } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
 import { StripeService } from './stripe.service';
@@ -66,6 +70,13 @@ import { MobilemoneyService } from './mobilemoney/mobilemoney.service';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { ConfigService } from '@nestjs/config';
 import { WalletService } from '../wallet/wallet.service';
+import {
+  CreateWithdrawalNumberDto,
+  UpdateWithdrawalNumberDto,
+  WithdrawalNumberDto,
+  WithdrawalNumberListDto,
+  DeleteWithdrawalNumberResponseDto,
+} from './dto/withdrawal-number.dto';
 
 @ApiTags('Payments')
 @ApiBearerAuth('JWT-auth')
@@ -140,12 +151,14 @@ export class PaymentController {
   @HttpCode(HttpStatus.OK)
   @ApiMobilemoneyDeposit()
   async initiateMobilemoneyDeposit(
+    @CurrentUser() user: User,
     @Body() depositDto: MobilemoneyDepositDto,
     @I18nLang() lang: string,
   ): Promise<MobilemoneyDepositResponseDto> {
     return this.mobilemoneyService.makeDeposit(
       depositDto.amount,
-      depositDto.phoneNumber,
+      depositDto.withdrawalNumberId,
+      user.id,
       lang,
     );
   }
@@ -413,5 +426,131 @@ export class PaymentController {
     },
   ): Promise<{ success: boolean; message: string }> {
     return this.mobilemoneyService.handlePaymentCallback(callbackData);
+  }
+
+  /**
+   * Withdrawal Number Management Endpoints
+   */
+
+  @Post('withdrawal-number')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create a new withdrawal number',
+    description: 'Create a new withdrawal number for the authenticated user',
+  })
+  @ApiBody({ type: CreateWithdrawalNumberDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Withdrawal number created successfully',
+    type: WithdrawalNumberDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Bad request - Invalid input or mobile number already registered',
+  })
+  async createWithdrawalNumber(
+    @Body() createDto: CreateWithdrawalNumberDto,
+    @CurrentUser() user: User,
+  ): Promise<WithdrawalNumberDto> {
+    return this.mobilemoneyService.createWithdrawalNumber(
+      user.id,
+      createDto.number,
+      createDto.name,
+    );
+  }
+
+  @Get('withdrawal-numbers')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get user withdrawal numbers',
+    description: 'Retrieve all withdrawal numbers for the authenticated user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Withdrawal numbers retrieved successfully',
+    type: WithdrawalNumberListDto,
+  })
+  async getUserWithdrawalNumbers(
+    @CurrentUser() user: User,
+  ): Promise<{ withdrawalNumbers: WithdrawalNumberDto[] }> {
+    const withdrawalNumbers =
+      await this.mobilemoneyService.getUserWithdrawalNumbers(user.id);
+    return { withdrawalNumbers };
+  }
+
+  @Put('withdrawal-numbers/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update a withdrawal number',
+    description:
+      'Update an existing withdrawal number for the authenticated user',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Withdrawal number ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({ type: UpdateWithdrawalNumberDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Withdrawal number updated successfully',
+    type: WithdrawalNumberDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Bad request - Invalid input or mobile number already registered',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Withdrawal number not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - User does not own this withdrawal number',
+  })
+  async updateWithdrawalNumber(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateWithdrawalNumberDto,
+    @CurrentUser() user: User,
+  ): Promise<WithdrawalNumberDto> {
+    return this.mobilemoneyService.updateWithdrawalNumber(
+      id,
+      user.id,
+      updateDto.number,
+      updateDto.name,
+    );
+  }
+
+  @Delete('withdrawal-numbers/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete a withdrawal number',
+    description: 'Delete a withdrawal number for the authenticated user',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Withdrawal number ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Withdrawal number deleted successfully',
+    type: DeleteWithdrawalNumberResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Withdrawal number not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - User does not own this withdrawal number',
+  })
+  async deleteWithdrawalNumber(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+  ): Promise<DeleteWithdrawalNumberResponseDto> {
+    return this.mobilemoneyService.deleteWithdrawalNumber(id, user.id);
   }
 }

@@ -423,26 +423,26 @@ export const ApiMobilemoneyDeposit = () =>
     ApiOperation({
       summary: 'Initiate mobile money deposit (cashin)',
       description:
-        "Initiate a deposit transaction from a user's mobile money account (MTN or Orange Cameroon) to the platform. The user will receive a prompt on their phone to confirm the transaction. Minimum deposit amount is 100 XAF.",
+        "Initiate a deposit transaction from a user's mobile money account (MTN or Orange Cameroon) to the platform using a registered withdrawal number. The system will deduct the amount from your wallet balance, create a debit transaction, and send money to the specified withdrawal number. Minimum deposit amount is 100 XAF.",
     }),
     ApiBody({
       type: MobilemoneyDepositDto,
-      description: 'Deposit details including amount and phone number',
+      description: 'Deposit details including amount and withdrawal number ID',
       examples: {
         mtnDeposit: {
           summary: 'MTN Cameroon deposit',
-          description: 'Deposit from MTN mobile money account',
+          description: 'Deposit to MTN mobile money using withdrawal number',
           value: {
             amount: 5000,
-            phoneNumber: '670123456',
+            withdrawalNumberId: '123e4567-e89b-12d3-a456-426614174000',
           },
         },
         orangeDeposit: {
           summary: 'Orange Cameroon deposit',
-          description: 'Deposit from Orange Money account',
+          description: 'Deposit to Orange Money using withdrawal number',
           value: {
             amount: 10000,
-            phoneNumber: '690264140',
+            withdrawalNumberId: '123e4567-e89b-12d3-a456-426614174001',
           },
         },
         minimumDeposit: {
@@ -450,7 +450,7 @@ export const ApiMobilemoneyDeposit = () =>
           description: 'Deposit with minimum allowed amount',
           value: {
             amount: 100,
-            phoneNumber: '670123456',
+            withdrawalNumberId: '123e4567-e89b-12d3-a456-426614174002',
           },
         },
       },
@@ -458,7 +458,7 @@ export const ApiMobilemoneyDeposit = () =>
     ApiResponse({
       status: 200,
       description:
-        'Deposit initiated successfully. User will receive a prompt to confirm the transaction on their phone. (message will be translated)',
+        'Deposit initiated successfully. Amount will be deducted from wallet and sent to withdrawal number. (message will be translated)',
       type: MobilemoneyDepositResponseDto,
       example: {
         message: 'Deposit initiated successfully',
@@ -467,14 +467,14 @@ export const ApiMobilemoneyDeposit = () =>
           amount: 5000,
           phoneNumber: '670123456',
           carrier: 'MTN_CM',
-          status: 'PENDING',
+          status: 'SUCCESS',
         },
       },
     }),
     ApiResponse({
       status: 400,
       description:
-        'Bad request - Invalid phone number, unsupported carrier, or amount below minimum',
+        'Bad request - Invalid withdrawal number ID, insufficient balance, or amount below minimum',
       schema: {
         type: 'object',
         properties: {
@@ -482,23 +482,29 @@ export const ApiMobilemoneyDeposit = () =>
           message: {
             type: 'string',
             examples: [
-              'Invalid phone number. Must be a valid Cameroonian mobile number (MTN or Orange)',
+              'Withdrawal number not found',
+              'You do not have permission to use this withdrawal number',
+              'Insufficient balance. Available: 5000 XAF, Requested: 10000 XAF',
               'Amount must be at least 100',
-              'Carrier not supported for deposit',
             ],
           },
           error: { type: 'string', example: 'Bad Request' },
         },
         examples: {
-          invalidPhoneNumber: {
+          insufficientBalance: {
             statusCode: 400,
             message:
-              'Invalid phone number. Must be a valid Cameroonian mobile number (MTN or Orange)',
+              'Insufficient balance. Available: 5000 XAF, Requested: 10000 XAF',
             error: 'Bad Request',
           },
           minimumAmount: {
             statusCode: 400,
             message: 'Amount must be at least 100',
+            error: 'Bad Request',
+          },
+          withdrawalNumberNotFound: {
+            statusCode: 400,
+            message: 'Withdrawal number not found',
             error: 'Bad Request',
           },
         },

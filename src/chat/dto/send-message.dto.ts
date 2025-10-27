@@ -148,11 +148,25 @@ export class MessageResponseDto {
     id: string;
     status: string;
     message?: string;
+    cost: number | null;
+    currency: string;
     createdAt: Date;
     updatedAt: Date;
+    availableKgs: number;
+    requestItems: Array<{
+      quantity: number;
+      specialNotes: string | null;
+      tripItem?: {
+        id: string;
+        name: string;
+        description: string | null;
+      };
+    }>;
     user?: {
       id: string;
       email: string;
+      name: string;
+      picture: string | null;
     };
   };
 }

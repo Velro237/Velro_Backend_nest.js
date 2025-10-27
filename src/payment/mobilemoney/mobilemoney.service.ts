@@ -520,29 +520,79 @@ export class MobilemoneyService {
    */
   async makeDeposit(
     amount: number,
-    phoneNumber: string,
+    withdrawalNumberId: string,
+    userId: string,
     lang: string = 'en',
   ): Promise<MobilemoneyDepositResponseDto> {
     try {
       this.validateConfiguration(lang);
 
-      // Validate phone number carrier
-      const carrier = this.getCarrier(phoneNumber);
-      if (!carrier) {
+      // Get withdrawal number
+      const withdrawalNumber = await this.prisma.withdrawalNumber.findUnique({
+        where: { id: withdrawalNumberId },
+      });
+
+      if (!withdrawalNumber) {
         const message = await this.i18n.translate(
-          'translation.payment.mobilemoney.invalidPhoneNumber',
+          'translation.payment.mobilemoney.withdrawalNumberNotFound',
           {
             lang,
-            defaultValue:
-              'Invalid phone number. Must be a valid Cameroonian mobile number (MTN or Orange)',
+            defaultValue: 'Withdrawal number not found',
           },
         );
         throw new BadRequestException(message);
       }
 
+      // Check if user owns this withdrawal number
+      if (withdrawalNumber.user_id !== userId) {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.unauthorizedWithdrawalNumber',
+          {
+            lang,
+            defaultValue:
+              'You do not have permission to use this withdrawal number',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Get user wallet and check balance
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId: userId },
+      });
+
+      if (!wallet) {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.walletNotFound',
+          {
+            lang,
+            defaultValue: 'Wallet not found',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Check if user has enough balance
+      const availableBalance = Number(wallet.available_balance_xaf);
+      if (availableBalance < amount) {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.insufficientBalance',
+          {
+            lang,
+            defaultValue: `Insufficient balance. Available: ${availableBalance} XAF, Requested: ${amount} XAF`,
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Get carrier from withdrawal number
+      const carrier =
+        withdrawalNumber.carrier === 'MTN'
+          ? PaymentCarrier.MTN_CM
+          : PaymentCarrier.ORANGE_CM;
+
       // Get service code for the carrier (using PAIEMENTMARCHAND for deposits)
       const serviceCode = this.getServiceCode(carrier, PaymentAction.CASHIN);
-      console.log('serviceCode', serviceCode);
       if (!serviceCode) {
         const message = await this.i18n.translate(
           'translation.payment.mobilemoney.unsupportedCarrier',
@@ -555,7 +605,49 @@ export class MobilemoneyService {
       }
 
       // Execute cashin (generates unique partnerId internally)
-      const result = await this.cashin(phoneNumber, serviceCode, amount, lang);
+      const result = await this.cashin(
+        withdrawalNumber.number,
+        serviceCode,
+        amount,
+        lang,
+      );
+
+      // Deduct amount from available_balance_xaf and create transaction
+      await this.prisma.$transaction(async (prisma) => {
+        // Update wallet balance
+        await prisma.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            available_balance_xaf: {
+              decrement: amount,
+            },
+          },
+        });
+
+        // Create debit transaction
+        await prisma.transaction.create({
+          data: {
+            userId: userId,
+            wallet_id: wallet.id,
+            type: 'DEBIT',
+            source: 'WITHDRAW',
+            amount_requested: amount,
+            fee_applied: 0,
+            amount_paid: amount,
+            currency: 'XAF',
+            status: 'SUCCESS',
+            provider: withdrawalNumber.carrier as any,
+            provider_id: result.partnerId,
+            description: `Mobile money deposit to ${withdrawalNumber.number} (${withdrawalNumber.name})`,
+            balance_after: availableBalance - amount,
+            metadata: {
+              withdrawal_number_id: withdrawalNumberId,
+              withdrawal_number: withdrawalNumber.number,
+              service_code: serviceCode,
+            },
+          },
+        });
+      });
 
       const message = await this.i18n.translate(
         'translation.payment.mobilemoney.depositInitiated',
@@ -570,7 +662,7 @@ export class MobilemoneyService {
         transaction: {
           transactionId: result.partnerId, // Use partnerId as transaction ID
           amount,
-          phoneNumber,
+          phoneNumber: withdrawalNumber.number,
           carrier: String(carrier),
           status: result.status || 'PENDING',
         },
@@ -869,6 +961,267 @@ export class MobilemoneyService {
         success: false,
         message: 'Error processing callback',
       };
+    }
+  }
+
+  /**
+   * Get carrier (MTN or ORANGE) from a Cameroon mobile number
+   * Numbers starting with 67, 68, 69, 60, 61 are MTN
+   * Numbers starting with 65, 66, 69, 60 are ORANGE
+   */
+  private getWithdrawalCarrier(number: string): 'MTN' | 'ORANGE' {
+    const cleanNumber = number.trim();
+    if (cleanNumber.length !== 9) {
+      throw new BadRequestException('Mobile number must be 9 characters');
+    }
+
+    const prefix = cleanNumber.substring(0, 2);
+
+    // MTN prefixes
+    if (['67', '68', '69', '60', '61'].includes(prefix)) {
+      return 'MTN';
+    }
+
+    // ORANGE prefixes
+    if (['65', '66', '69'].includes(prefix)) {
+      return 'ORANGE';
+    }
+
+    // Default to MTN for unknown prefixes
+    return 'MTN';
+  }
+
+  /**
+   * Create a withdrawal number for a user
+   */
+  async createWithdrawalNumber(
+    userId: string,
+    number: string,
+    name: string,
+  ): Promise<{ id: string; number: string; carrier: string; name: string }> {
+    const cleanNumber = number.trim().replace(/\s+/g, '');
+    const cleanName = name.trim();
+
+    // Validate number length
+    if (cleanNumber.length !== 9) {
+      throw new BadRequestException(
+        'Mobile number must be exactly 9 characters',
+      );
+    }
+
+    // Validate name
+    if (!cleanName || cleanName.length === 0) {
+      throw new BadRequestException('Name is required');
+    }
+
+    // Get carrier based on number
+    const carrier = this.getWithdrawalCarrier(cleanNumber);
+
+    try {
+      // Check if number already exists
+      const existingNumber = await this.prisma.withdrawalNumber.findUnique({
+        where: { number: cleanNumber },
+      });
+
+      if (existingNumber) {
+        throw new BadRequestException(
+          'This mobile number is already registered',
+        );
+      }
+
+      // Create withdrawal number
+      const withdrawalNumber = await this.prisma.withdrawalNumber.create({
+        data: {
+          number: cleanNumber,
+          carrier: carrier,
+          name: cleanName,
+          user_id: userId,
+        },
+        select: {
+          id: true,
+          number: true,
+          carrier: true,
+          name: true,
+        },
+      });
+
+      this.logger.log(
+        `Created withdrawal number ${cleanNumber} (${carrier}) for user ${userId}`,
+      );
+
+      return withdrawalNumber;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.error('Error creating withdrawal number:', error);
+      throw new InternalServerErrorException(
+        'Failed to create withdrawal number',
+      );
+    }
+  }
+
+  /**
+   * Update a withdrawal number
+   */
+  async updateWithdrawalNumber(
+    id: string,
+    userId: string,
+    number: string,
+    name: string,
+  ): Promise<{ id: string; number: string; carrier: string; name: string }> {
+    const cleanNumber = number.trim().replace(/\s+/g, '');
+    const cleanName = name.trim();
+
+    // Validate number length
+    if (cleanNumber.length !== 9) {
+      throw new BadRequestException(
+        'Mobile number must be exactly 9 characters',
+      );
+    }
+
+    // Validate name
+    if (!cleanName || cleanName.length === 0) {
+      throw new BadRequestException('Name is required');
+    }
+
+    // Get carrier based on number
+    const carrier = this.getWithdrawalCarrier(cleanNumber);
+
+    try {
+      // Find the withdrawal number
+      const existingNumber = await this.prisma.withdrawalNumber.findUnique({
+        where: { id },
+      });
+
+      if (!existingNumber) {
+        throw new BadRequestException('Withdrawal number not found');
+      }
+
+      // Check if user owns this number
+      if (existingNumber.user_id !== userId) {
+        throw new BadRequestException(
+          'You do not have permission to update this number',
+        );
+      }
+
+      // Check if new number already exists (and is not the same as current)
+      if (cleanNumber !== existingNumber.number) {
+        const duplicateNumber = await this.prisma.withdrawalNumber.findUnique({
+          where: { number: cleanNumber },
+        });
+
+        if (duplicateNumber) {
+          throw new BadRequestException(
+            'This mobile number is already registered',
+          );
+        }
+      }
+
+      // Update withdrawal number
+      const updatedNumber = await this.prisma.withdrawalNumber.update({
+        where: { id },
+        data: {
+          number: cleanNumber,
+          carrier: carrier,
+          name: cleanName,
+        },
+        select: {
+          id: true,
+          number: true,
+          carrier: true,
+          name: true,
+        },
+      });
+
+      this.logger.log(
+        `Updated withdrawal number ${id} to ${cleanNumber} (${carrier})`,
+      );
+
+      return updatedNumber;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.error('Error updating withdrawal number:', error);
+      throw new InternalServerErrorException(
+        'Failed to update withdrawal number',
+      );
+    }
+  }
+
+  /**
+   * Delete a withdrawal number
+   */
+  async deleteWithdrawalNumber(
+    id: string,
+    userId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      // Find the withdrawal number
+      const existingNumber = await this.prisma.withdrawalNumber.findUnique({
+        where: { id },
+      });
+
+      if (!existingNumber) {
+        throw new BadRequestException('Withdrawal number not found');
+      }
+
+      // Check if user owns this number
+      if (existingNumber.user_id !== userId) {
+        throw new BadRequestException(
+          'You do not have permission to delete this number',
+        );
+      }
+
+      // Delete withdrawal number
+      await this.prisma.withdrawalNumber.delete({
+        where: { id },
+      });
+
+      this.logger.log(`Deleted withdrawal number ${id} for user ${userId}`);
+
+      return {
+        success: true,
+        message: 'Withdrawal number deleted successfully',
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.error('Error deleting withdrawal number:', error);
+      throw new InternalServerErrorException(
+        'Failed to delete withdrawal number',
+      );
+    }
+  }
+
+  /**
+   * Get all withdrawal numbers for a user
+   */
+  async getUserWithdrawalNumbers(
+    userId: string,
+  ): Promise<
+    Array<{ id: string; number: string; carrier: string; name: string }>
+  > {
+    try {
+      const withdrawalNumbers = await this.prisma.withdrawalNumber.findMany({
+        where: { user_id: userId },
+        select: {
+          id: true,
+          number: true,
+          carrier: true,
+          name: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return withdrawalNumbers;
+    } catch (error) {
+      this.logger.error('Error getting withdrawal numbers:', error);
+      throw new InternalServerErrorException(
+        'Failed to get withdrawal numbers',
+      );
     }
   }
 }

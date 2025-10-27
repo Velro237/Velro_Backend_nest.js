@@ -1,9 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsString, Min, IsNotEmpty, Matches } from 'class-validator';
+import { IsNumber, IsString, Min, IsNotEmpty, IsUUID } from 'class-validator';
 
 export class MobilemoneyDepositDto {
   @ApiProperty({
-    description: 'Amount to deposit from mobile money account',
+    description: 'Amount to deposit to mobile money account',
     example: 1000,
     minimum: 100,
   })
@@ -12,17 +12,13 @@ export class MobilemoneyDepositDto {
   amount: number;
 
   @ApiProperty({
-    description: 'Phone number to debit (Cameroonian mobile number)',
-    example: '690264140',
-    pattern: '^(69\\d{7}|67\\d{7}|68[0-4]\\d{6}|65\\d{7})$',
+    description: 'Withdrawal number ID to send money to',
+    example: '123e4567-e89b-12d3-a456-426614174000',
   })
   @IsString()
   @IsNotEmpty()
-  @Matches(/^(69\d{7}|67\d{7}|68[0-4]\d{6}|65\d{7})$/, {
-    message:
-      'Invalid phone number format. Must be a valid Cameroonian mobile number',
-  })
-  phoneNumber: string;
+  @IsUUID('4', { message: 'Invalid withdrawal number ID format' })
+  withdrawalNumberId: string;
 }
 
 export class MobilemoneyDepositResponseDto {

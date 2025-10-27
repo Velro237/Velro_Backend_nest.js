@@ -61,6 +61,19 @@ model CompanyService {
   pendingUsers PendingUser[] @relation("PendingUserServices")
 }
 
+model WithdrawalNumber {
+  id        String   @id @default(uuid())
+  number    String   @unique
+  carrier   String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user    User   @relation(fields: [user_id], references: [id])
+  user_id String
+}
+
 model User {
   id        String  @id @default(uuid())
   email     String  @unique
@@ -78,17 +91,18 @@ model User {
   currency  String? @default("XAF")
 
   name               String
-  isFreightForwarder Boolean       @default(false)
+  isFreightForwarder Boolean            @default(false)
   companyName        String?
   companyAddress     String?
   device_id          String?
-  role               UserRole      @default(USER)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  role               UserRole           @default(USER)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
   trips              Trip[]
   requests           TripRequest[]
   messages           Message[]
   chats              ChatMember[]
+  withdrawalNumbers  WithdrawalNumber[]
 
   // Stripe Connect fields
   stripe_account_id          String? @unique
