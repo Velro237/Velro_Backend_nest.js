@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 import Stripe from 'stripe';
 
 @Injectable()
@@ -8,7 +9,10 @@ export class StripeService {
   private readonly stripe: Stripe;
   private readonly appUrl: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private prisma: PrismaService,
+  ) {
     const secretKey = this.configService.get<string>('STRIPE_SECRET_KEY');
     
     if (!secretKey) {
@@ -58,53 +62,139 @@ export class StripeService {
     }
   }
 
-  /**
-   * Create or retrieve Stripe Express Connected Account for traveler
-   */
-  async ensureConnectedAccount(params: {
-    userId: string;
-    email: string;
-    country: string;
-    firstName?: string;
-    lastName?: string;
-  }): Promise<{ accountId: string; isNew: boolean }> {
-    try {
-      this.logger.log(`Ensuring connected account for user ${params.userId}`);
+/**
+ * Create or retrieve Stripe Express Connected Account for traveler
+ */
+async ensureConnectedAccount(params: {
+  userId: string;
+  email: string;
+  country: string;
+  firstName?: string;
+  lastName?: string;
+}): Promise<{ accountId: string; isNew: boolean }> {
+  try {
+    this.logger.log(`Ensuring connected account for user ${params.userId}`);
 
-      // Create Express account with appropriate capabilities
-      const capabilities: any = {
-        transfers: { requested: true },
-      };
-      
-      // For US accounts, we need both card_payments and transfers
-      if (params.country === 'US') {
-        capabilities.card_payments = { requested: true };
-      }
-      
-      const account = await this.stripe.accounts.create({
-        type: 'express',
-        country: params.country,
-        email: params.email,
-        capabilities,
-        business_type: 'individual',
-        individual: params.firstName && params.lastName ? {
-          first_name: params.firstName,
-          last_name: params.lastName,
-          email: params.email,
-        } : undefined,
-        metadata: {
-          userId: params.userId,
-        },
-      });
+    // 1. Fetch user data from database
+    const user = await this.prisma.user.findUnique({
+      where: { id: params.userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        address: true,
+        city: true,
+        state: true,
+        zip: true,
+        stripe_account_id: true,
+      },
+    });
 
-      this.logger.log(`Created Stripe account: ${account.id}`);
-      return { accountId: account.id, isNew: true };
-    } catch (error) {
-      this.logger.error('Failed to create connected account:', error);
-      throw new BadRequestException(`Failed to create payout account: ${error.message}`);
+    // 3. Fetch KYC data separately
+    const kycData = await this.prisma.userKYC.findFirst({
+      where: { userId: params.userId },
+      select: {
+        verificationData: true,
+      },
+    });
+
+    if (!user) {
+      throw new BadRequestException('User not found');
     }
-  }
 
+    // 2. Check if user already has a Stripe account
+    if (user.stripe_account_id) {
+      this.logger.log(`User already has Stripe account: ${user.stripe_account_id}`);
+      return { accountId: user.stripe_account_id, isNew: false };
+    }
+
+    // Validate required user data
+    if (!user.firstName || !user.lastName) {
+      throw new BadRequestException('User must have firstName and lastName to create Stripe account');
+    }
+
+    if (!user.phone) {
+      throw new BadRequestException('User must have phone number to create Stripe account');
+    }
+
+    // Format phone number for Stripe (remove any non-digit characters except +)
+    const formattedPhone = user.phone.replace(/[^\d+]/g, '');
+    if (!formattedPhone.startsWith('+')) {
+      throw new BadRequestException('Phone number must include country code (e.g., +1234567890)');
+    }
+
+    // Extract date of birth from KYC verification data
+    const dateOfBirth = this.extractDateOfBirthFromKYC(kycData?.verificationData);
+
+    // 4. Create Express account with real user data from database
+    const account = await this.stripe.accounts.create({
+      type: 'express',
+      country: params.country,
+      email: user.email,
+      business_type: 'individual',
+      individual: {
+        email: user.email,
+        first_name: user.firstName,
+        last_name: user.lastName,
+        phone: formattedPhone,
+        address: {
+          line1: user.address || '',
+          city: user.city || '',
+          state: user.state || '',
+          postal_code: user.zip || '',
+          country: params.country,
+        },
+        ...(dateOfBirth ? {
+          dob: {
+            day: dateOfBirth.getDate(),
+            month: dateOfBirth.getMonth() + 1,
+            year: dateOfBirth.getFullYear(),
+          },
+        } : {}),
+        // ID number will be collected during Stripe onboarding if required
+      },
+      business_profile: {
+        mcc: '7299', // Miscellaneous services
+        product_description: 'Peer-to-peer delivery marketplace traveler payouts',
+        support_email: user.email,
+        name: `${user.firstName} ${user.lastName} - Traveler`,
+      },
+      capabilities: {
+        card_payments: { requested: true },
+        transfers: { requested: true },
+      },
+      settings: {
+        payouts: {
+          schedule: { interval: 'daily' },
+        },
+        payments: {
+          statement_descriptor: 'VELRO'
+        }
+      },
+      metadata: {
+        userId: params.userId,
+      },
+    });
+
+    this.logger.log(`Created Stripe account: ${account.id}`);
+    
+    // Save account ID to user
+    await this.prisma.user.update({
+      where: { id: params.userId },
+      data: {
+        stripe_account_id: account.id,
+      },
+    });
+    
+    return { accountId: account.id, isNew: true };
+
+  } catch (error) {
+    this.logger.error('Failed to create connected account:', error);
+    throw new BadRequestException(`Failed to create payout account: ${error.message}`);
+  }
+}
   /**
    * Create Account Link for onboarding
    */
@@ -509,6 +599,33 @@ export class StripeService {
     } catch (error) {
       this.logger.error('Failed to create ephemeral key:', error);
       throw new BadRequestException(`Failed to create ephemeral key: ${error.message}`);
+    }
+  }
+
+  /**
+   * Extract date of birth from KYC verification data
+   */
+  private extractDateOfBirthFromKYC(verificationData: any): Date | null {
+    try {
+      if (!verificationData) return null;
+
+      // Parse the verification data if it's a string
+      const data = typeof verificationData === 'string' 
+        ? JSON.parse(verificationData) 
+        : verificationData;
+
+      // Look for date_of_birth field in verificationData (nested in id_verification)
+      if (data.id_verification && data.id_verification.date_of_birth) {
+        const dob = new Date(data.id_verification.date_of_birth);
+        if (!isNaN(dob.getTime())) {
+          return dob;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.error('Error extracting DOB from KYC data:', error);
+      return null;
     }
   }
 
