@@ -11,17 +11,12 @@ export class MobilemoneyCashoutDto {
   requestId: string;
 
   @ApiProperty({
-    description: 'Phone number to cash out to (Cameroonian mobile number)',
-    example: '690264140',
-    pattern: '^(69\\d{7}|67\\d{7}|68[0-4]\\d{6}|65\\d{7})$',
+    description: 'Withdrawal number ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
   })
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
-  @Matches(/^(69\d{7}|67\d{7}|68[0-4]\d{6}|65\d{7})$/, {
-    message:
-      'Invalid phone number format. Must be a valid Cameroonian mobile number',
-  })
-  phoneNumber: string;
+  withdrawalNumberId: string;
 }
 
 export class MobilemoneyCashoutResponseDto {

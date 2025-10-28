@@ -148,7 +148,7 @@ export class PaymentController {
     return this.mobilemoneyService.makeWithdrawal(
       user.id,
       cashoutDto.requestId,
-      cashoutDto.phoneNumber,
+      cashoutDto.withdrawalNumberId,
       lang,
     );
   }

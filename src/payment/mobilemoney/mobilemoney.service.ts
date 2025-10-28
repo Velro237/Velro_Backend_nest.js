@@ -323,7 +323,7 @@ export class MobilemoneyService {
   async makeWithdrawal(
     userId: string,
     requestId: string,
-    phoneNumber: string,
+    withdrawalNumberId: string,
     lang: string = 'en',
   ): Promise<MobilemoneyCashoutResponseDto> {
     try {
@@ -395,19 +395,40 @@ export class MobilemoneyService {
       //   );
       // }
 
-      // Validate phone number carrier
-      const carrier = this.getCarrier(phoneNumber);
-      if (!carrier) {
+      // Get withdrawal number
+      const withdrawalNumber = await this.prisma.withdrawalNumber.findUnique({
+        where: { id: withdrawalNumberId },
+      });
+
+      if (!withdrawalNumber) {
         const message = await this.i18n.translate(
-          'translation.payment.mobilemoney.invalidPhoneNumber',
+          'translation.payment.mobilemoney.withdrawalNumberNotFound',
           {
             lang,
-            defaultValue:
-              'Invalid phone number. Must be a valid Cameroonian mobile number (MTN or Orange)',
+            defaultValue: 'Withdrawal number not found',
           },
         );
         throw new BadRequestException(message);
       }
+
+      // Check if user owns this withdrawal number
+      if (withdrawalNumber.user_id !== userId) {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.unauthorizedWithdrawalNumber',
+          {
+            lang,
+            defaultValue:
+              'You do not have permission to use this withdrawal number',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Get carrier from withdrawal number
+      const carrier =
+        withdrawalNumber.carrier === 'MTN'
+          ? PaymentCarrier.MTN_CM
+          : PaymentCarrier.ORANGE_CM;
 
       // Get service code for the carrier
       const serviceCode = this.getServiceCode(
@@ -449,7 +470,7 @@ export class MobilemoneyService {
 
       // Execute cashout (generates unique partnerId internally)
       const result = await this.cashout(
-        phoneNumber,
+        withdrawalNumber.number,
         serviceCode,
         amountPaid,
         lang,
@@ -470,10 +491,14 @@ export class MobilemoneyService {
           currency: request.currency,
           provider: carrier === PaymentCarrier.MTN_CM ? 'MTN' : 'ORANGE',
           reference: result.partnerId,
-          phone_number: phoneNumber,
-          description: `Mobile Money withdrawal for request ${requestId} to ${phoneNumber}`,
+          phone_number: withdrawalNumber.number,
+          description: `Mobile Money withdrawal for request ${requestId} to ${withdrawalNumber.number} (${withdrawalNumber.name})`,
           status: 'PENDING',
-          metadata: result,
+          metadata: {
+            ...result,
+            withdrawal_number_id: withdrawalNumberId,
+            withdrawal_number: withdrawalNumber.number,
+          },
           provider_id: result.partnerId,
         },
       });
@@ -491,7 +516,7 @@ export class MobilemoneyService {
         transaction: {
           transactionId: transaction.id,
           amount: Number(transaction.amount_requested),
-          phoneNumber,
+          phoneNumber: withdrawalNumber.number,
           carrier: String(carrier),
           status: transaction.status,
         },

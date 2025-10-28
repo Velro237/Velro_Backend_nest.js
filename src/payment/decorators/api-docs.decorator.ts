@@ -255,24 +255,18 @@ export const ApiMobileMoneyCashout = () =>
     ApiOperation({
       summary: 'Initiate mobile money withdrawal',
       description:
-        'Initiate a cashout/withdrawal to a Cameroonian mobile money account (MTN or Orange) using a trip request. The withdrawal amount is taken from the request cost. Validates phone number format and carrier support.',
+        'Withdraw money from your mobile money account (MTN or Orange) to pay for a trip request. The withdrawal amount is taken from the request cost. Requires a previously registered withdrawal number.',
     }),
     ApiBody({
       type: MobilemoneyCashoutDto,
-      description: 'Withdrawal details including request ID and phone number',
+      description:
+        'Withdrawal details including request ID and withdrawal number ID',
       examples: {
-        'MTN Cameroon': {
-          summary: 'Withdraw to MTN Cameroon number',
+        'Basic withdrawal': {
+          summary: 'Withdraw to registered withdrawal number',
           value: {
             requestId: '123e4567-e89b-12d3-a456-426614174000',
-            phoneNumber: '677123456',
-          },
-        },
-        'Orange Cameroon': {
-          summary: 'Withdraw to Orange Cameroon number',
-          value: {
-            requestId: '123e4567-e89b-12d3-a456-426614174001',
-            phoneNumber: '691234567',
+            withdrawalNumberId: '123e4567-e89b-12d3-a456-426614174002',
           },
         },
       },
@@ -296,7 +290,7 @@ export const ApiMobileMoneyCashout = () =>
     ApiResponse({
       status: 400,
       description:
-        'Bad Request - Invalid amount, phone number, or unsupported carrier',
+        'Bad Request - Invalid amount, withdrawal number not found, or unsupported carrier',
       schema: {
         type: 'object',
         properties: {
@@ -305,8 +299,12 @@ export const ApiMobileMoneyCashout = () =>
             oneOf: [
               {
                 type: 'string',
+                example: 'Withdrawal number not found',
+              },
+              {
+                type: 'string',
                 example:
-                  'Invalid phone number. Must be a valid Cameroonian mobile number (MTN or Orange)',
+                  'You do not have permission to use this withdrawal number',
               },
               {
                 type: 'array',
@@ -421,9 +419,9 @@ export const ApiMobilemoneyDeposit = () =>
   applyDecorators(
     ApiBearerAuth('JWT-auth'),
     ApiOperation({
-      summary: 'Initiate mobile money deposit (cashin)',
+      summary: 'Withdraw XAF money from wallet',
       description:
-        "Initiate a deposit transaction from a user's mobile money account (MTN or Orange Cameroon) to the platform using a registered withdrawal number. The system will deduct the amount from your wallet balance, create a debit transaction, and send money to the specified withdrawal number. Minimum deposit amount is 100 XAF.",
+        'Withdraw XAF money from your wallet and send it to your registered mobile money withdrawal number (MTN or Orange Cameroon). The system will deduct the amount from your available_balance_xaf, create a debit transaction, and transfer the money to your registered withdrawal number. Minimum withdrawal amount is 100 XAF.',
     }),
     ApiBody({
       type: MobilemoneyDepositDto,
