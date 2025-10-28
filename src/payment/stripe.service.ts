@@ -115,18 +115,19 @@ async ensureConnectedAccount(params: {
       throw new BadRequestException('User must have firstName and lastName to create Stripe account');
     }
 
-    if (!user.phone) {
-      throw new BadRequestException('User must have phone number to create Stripe account');
+    // Extract phone number and date of birth from KYC verification data
+    const kycPhone = this.extractPhoneFromKYC(kycData?.verificationData);
+    const dateOfBirth = this.extractDateOfBirthFromKYC(kycData?.verificationData);
+
+    if (!kycPhone) {
+      throw new BadRequestException('User must have verified phone number in KYC to create Stripe account');
     }
 
     // Format phone number for Stripe (remove any non-digit characters except +)
-    const formattedPhone = user.phone.replace(/[^\d+]/g, '');
+    const formattedPhone = kycPhone.replace(/[^\d+]/g, '');
     if (!formattedPhone.startsWith('+')) {
       throw new BadRequestException('Phone number must include country code (e.g., +1234567890)');
     }
-
-    // Extract date of birth from KYC verification data
-    const dateOfBirth = this.extractDateOfBirthFromKYC(kycData?.verificationData);
 
     // 4. Create Express account with real user data from database
     const account = await this.stripe.accounts.create({
@@ -625,6 +626,27 @@ async ensureConnectedAccount(params: {
       return null;
     } catch (error) {
       this.logger.error('Error extracting DOB from KYC data:', error);
+      return null;
+    }
+  }
+
+  private extractPhoneFromKYC(verificationData: any): string | null {
+    try {
+      if (!verificationData) return null;
+
+      // Parse the verification data if it's a string
+      const data = typeof verificationData === 'string' 
+        ? JSON.parse(verificationData) 
+        : verificationData;
+
+      // Look for phone verification data in decision.phone
+      if (data.decision && data.decision.phone && data.decision.phone.full_number) {
+        return data.decision.phone.full_number;
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.error('Error extracting phone from KYC data:', error);
       return null;
     }
   }
