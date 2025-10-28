@@ -192,4 +192,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       await this.client.del(keys);
     }
   }
+
+  // Extended chat cache methods that accept full key
+  async setChatCacheEx(
+    key: string,
+    data: any,
+    ttl: number = 300,
+  ): Promise<void> {
+    await this.client.setEx(key, ttl, JSON.stringify(data));
+  }
+
+  async getChatCacheEx(key: string): Promise<any> {
+    const data = await this.client.get(key);
+    return data ? JSON.parse(data as string) : null;
+  }
 }

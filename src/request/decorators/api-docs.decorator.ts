@@ -519,27 +519,89 @@ export const ApiChangeRequestStatus = () =>
   applyDecorators(
     ApiOperation({
       summary: 'Change trip request status',
-      description:
-        'Change the status of a trip request (ACCEPTED, REJECTED, etc.). Only the trip owner can change the request status.',
+      description: `Change the status of a trip request. Available statuses and their requirements:
+
+**PENDING** - Initial status when request is created
+
+**ACCEPTED/DECLINED** - Only traveler can set (requires PENDING status)
+
+**CONFIRMED** - Only sender can set after payment (requires ACCEPTED status)
+
+**SENT** - Only sender can set (requires CONFIRMED status) - Sender marks package as sent to traveler
+
+**RECEIVED** - Only traveler can set (requires SENT status) - Traveler confirms received package
+
+**IN_TRANSIT** - Automatically set by system when departure date/time arrives
+
+**PENDING_DELIVERY** - Only traveler can set (requires IN_TRANSIT status) - Traveler ready for delivery
+
+**DELIVERED** - Only sender can set (requires PENDING_DELIVERY status) - Marks delivery complete. For XAF currency trips, this will move funds from hold_balance_xaf to available_balance_xaf
+
+**CANCELLED** - Can be set by sender or traveler (sender can cancel anytime, traveler only if PENDING)
+
+**EXPIRED** - Automatically set when trip departure date passes for PENDING requests
+
+**REFUNDED** - Set by system when refund is processed`,
     }),
     ApiBody({
       description: 'Request status change data',
       type: ChangeRequestStatusDto,
       examples: {
         accept: {
-          summary: 'Accept a trip request',
+          summary: 'Accept a trip request (traveler only, requires PENDING)',
           value: {
             requestId: '123e4567-e89b-12d3-a456-426614174001',
-            chatId: '123e4567-e89b-12d3-a456-426614174000',
             status: 'ACCEPTED',
           },
         },
-        reject: {
-          summary: 'Reject a trip request',
+        decline: {
+          summary: 'Decline a trip request (traveler only, requires PENDING)',
           value: {
             requestId: '123e4567-e89b-12d3-a456-426614174001',
-            chatId: '123e4567-e89b-12d3-a456-426614174000',
-            status: 'REJECTED',
+            status: 'DECLINED',
+          },
+        },
+        confirm: {
+          summary: 'Confirm after payment (sender only, requires ACCEPTED)',
+          value: {
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
+            status: 'CONFIRMED',
+          },
+        },
+        sent: {
+          summary: 'Mark as sent (sender only, requires CONFIRMED)',
+          value: {
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
+            status: 'SENT',
+          },
+        },
+        received: {
+          summary: 'Mark as received (traveler only, requires SENT)',
+          value: {
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
+            status: 'RECEIVED',
+          },
+        },
+        pendingDelivery: {
+          summary:
+            'Mark as pending delivery (traveler only, requires IN_TRANSIT)',
+          value: {
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
+            status: 'PENDING_DELIVERY',
+          },
+        },
+        delivered: {
+          summary: 'Mark as delivered (sender only, requires PENDING_DELIVERY)',
+          value: {
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
+            status: 'DELIVERED',
+          },
+        },
+        cancel: {
+          summary: 'Cancel request (sender any time, traveler if PENDING)',
+          value: {
+            requestId: '123e4567-e89b-12d3-a456-426614174001',
+            status: 'CANCELLED',
           },
         },
       },

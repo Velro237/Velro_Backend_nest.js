@@ -445,7 +445,7 @@ export class ChatService {
 
     // Try to get from cache first (user-specific cache)
     const cacheKey = `chat:${chatId}:messages:${userId}:${page}:${limit}`;
-    const cachedResult = await this.redis.getChatCache(cacheKey);
+    const cachedResult = await this.redis.getChatCacheEx(cacheKey);
     if (cachedResult) {
       return cachedResult;
     }
@@ -626,7 +626,7 @@ export class ChatService {
       };
 
       // Cache the result for 2 minutes
-      await this.redis.setChatCache(cacheKey, result, 120);
+      await this.redis.setChatCacheEx(cacheKey, result, 120);
 
       return result;
     } catch (error) {

@@ -403,13 +403,18 @@ enum TripStatus {
 }
 
 enum RequestStatus {
-  PENDING
-  ACCEPTED
-  DELIVERED
-  DECLINED
-  CANCELLED
-  REFUNDED
-  CONFIRMED
+  PENDING //when the request is created
+  ACCEPTED //when the request is accepted by the traveler
+  DECLINED //when the request is declined by the traveler
+  CANCELLED //when the request is cancelled by the traveler or sender
+  REFUNDED //when the request is refunded to the sender
+  EXPIRED //when the traveller do not accept the request before the departure date
+  CONFIRMED //when the request is paid by the sender
+  SENT //when user confrin send package to traveller
+  RECEIVED //when traveller confirm received package from user
+  IN_TRANSIT //when travel date and time arrives
+  PENDING_DELIVERY //traveller mark as delivered but not confirmed by user
+  DELIVERED //when the user confirm package is delivered by the traveler
 }
 
 enum ReportType {

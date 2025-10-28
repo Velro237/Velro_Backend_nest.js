@@ -471,4 +471,150 @@ export class SchedulerService {
     await this.cleanupExpiredData();
     this.logger.log('[MANUAL TRIGGER] Cleanup - Completed');
   }
+
+  /**
+   * Update CONFIRMED requests to IN_TRANSIT when departure date is today and time is within 1 hour
+   * Runs every hour
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async updateConfirmedRequestsToInTransit(): Promise<void> {
+    const startTime = new Date();
+    this.logger.log(
+      `[CRON START] Update Confirmed Requests to In Transit - Running at ${startTime.toISOString()}`,
+    );
+
+    try {
+      const now = new Date();
+      const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
+
+      // Get all CONFIRMED requests with trip data
+      const requests = await this.prisma.tripRequest.findMany({
+        where: {
+          status: 'CONFIRMED',
+        },
+        include: {
+          trip: {
+            select: {
+              id: true,
+              departure_date: true,
+              departure_time: true,
+            },
+          },
+        },
+      });
+
+      let updatedCount = 0;
+
+      for (const request of requests) {
+        const trip = request.trip;
+        if (!trip.departure_date || !trip.departure_time) {
+          continue;
+        }
+
+        // Check if departure date is today
+        const departureDate = new Date(trip.departure_date);
+        departureDate.setHours(0, 0, 0, 0);
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+
+        if (departureDate.getTime() !== today.getTime()) {
+          continue;
+        }
+
+        // Parse departure time (format: "HH:mm" or "HH:mm:ss")
+        const timeParts = trip.departure_time.split(':');
+        const departureHour = parseInt(timeParts[0], 10);
+        const departureMinute = parseInt(timeParts[1], 10);
+
+        // Create a full date-time for today's departure
+        const fullDepartureDateTime = new Date(today);
+        fullDepartureDateTime.setHours(departureHour, departureMinute, 0, 0);
+
+        // Check if departure time is within the next hour
+        if (
+          fullDepartureDateTime <= oneHourLater &&
+          fullDepartureDateTime >= now
+        ) {
+          // Update the request status
+          await this.prisma.tripRequest.update({
+            where: { id: request.id },
+            data: {
+              status: 'IN_TRANSIT',
+              updated_at: new Date(),
+            },
+          });
+
+          updatedCount++;
+          this.logger.log(
+            `Updated request ${request.id} to IN_TRANSIT (departure: ${fullDepartureDateTime.toISOString()})`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `Updated ${updatedCount} CONFIRMED requests to IN_TRANSIT`,
+      );
+
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      this.logger.log(
+        `[CRON END] Update Confirmed Requests to In Transit - Completed in ${duration}ms at ${endTime.toISOString()}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        '[CRON ERROR] Update Confirmed Requests to In Transit failed:',
+        error,
+      );
+    }
+  }
+
+  /**
+   * Update PENDING requests to EXPIRED when trip departure date is today
+   * Runs daily at midnight
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async updatePendingRequestsToExpired(): Promise<void> {
+    const startTime = new Date();
+    this.logger.log(
+      `[CRON START] Update Pending Requests to Expired - Running at ${startTime.toISOString()}`,
+    );
+
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const updatedRequests = await this.prisma.tripRequest.updateMany({
+        where: {
+          status: 'PENDING',
+          trip: {
+            departure_date: {
+              gte: today,
+              lt: tomorrow,
+            },
+          },
+        },
+        data: {
+          status: 'EXPIRED',
+          updated_at: new Date(),
+        },
+      });
+
+      this.logger.log(
+        `Updated ${updatedRequests.count} PENDING requests to EXPIRED`,
+      );
+
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      this.logger.log(
+        `[CRON END] Update Pending Requests to Expired - Completed in ${duration}ms at ${endTime.toISOString()}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        '[CRON ERROR] Update Pending Requests to Expired failed:',
+        error,
+      );
+    }
+  }
 }

@@ -554,18 +554,37 @@ export class RequestService {
             role: fullRequest.user.role,
             kycRecord: fullRequest.user.kycRecords?.[0] || null,
           },
-          request_items: fullRequest.request_items.map((item) => ({
-            trip_item_id: item.trip_item_id,
-            quantity: item.quantity,
-            special_notes: item.special_notes,
-            trip_item: item.trip_item,
-          })),
+          request_items: fullRequest.request_items.map((item) => {
+            // Find the corresponding trip item with price data
+            const tripItem = fullRequest.trip.trip_items.find(
+              (ti) => ti.trip_item_id === item.trip_item_id,
+            );
+
+            return {
+              trip_item_id: item.trip_item_id,
+              quantity: item.quantity,
+              special_notes: item.special_notes,
+              trip_item: item.trip_item,
+              price: tripItem ? Number(tripItem.price) : null,
+              available_kg: tripItem
+                ? tripItem.avalailble_kg
+                  ? Number(tripItem.avalailble_kg)
+                  : null
+                : null,
+            };
+          }),
           trip: {
             id: fullRequest.trip.id,
             departure: fullRequest.trip.departure,
             destination: fullRequest.trip.destination,
             departure_date: fullRequest.trip.departure_date,
             departure_time: fullRequest.trip.departure_time,
+            trip_items: fullRequest.trip.trip_items.map((ti) => ({
+              trip_item_id: ti.trip_item_id,
+              price: Number(ti.price),
+              available_kg: ti.avalailble_kg ? Number(ti.avalailble_kg) : null,
+              trip_item: ti.trip_item,
+            })),
           },
         };
 
@@ -1096,7 +1115,11 @@ export class RequestService {
       const request = await this.prisma.tripRequest.findUnique({
         where: { id: requestId },
         include: {
-          request_items: true,
+          request_items: {
+            include: {
+              trip_item: true,
+            },
+          },
           images: true,
           user: {
             select: {
@@ -1107,6 +1130,11 @@ export class RequestService {
           trip: {
             include: {
               user: true,
+              trip_items: {
+                include: {
+                  trip_item: true,
+                },
+              },
             },
           },
         },
@@ -1188,22 +1216,57 @@ export class RequestService {
           }
           break;
 
+        case 'SENT':
+          // Only sender can mark as sent
+          if (!isSender) {
+            throw new BadRequestException('Only sender can mark as sent');
+          }
+          // Can only mark as sent if current status is CONFIRMED
+          if (currentStatus !== 'CONFIRMED') {
+            throw new BadRequestException(
+              'Request must be in CONFIRMED status to be marked as sent',
+            );
+          }
+          break;
+
+        case 'RECEIVED':
+          // Only traveler can mark as received
+          if (!isTraveler) {
+            throw new BadRequestException('Only traveler can mark as received');
+          }
+          // Can only mark as received if current status is SENT
+          if (currentStatus !== 'SENT') {
+            throw new BadRequestException(
+              'Request must be in SENT status to be marked as received',
+            );
+          }
+          break;
+
+        case 'PENDING_DELIVERY':
+          // Only traveler can mark as pending delivery
+          if (!isTraveler) {
+            throw new BadRequestException(
+              'Only traveler can mark as pending delivery',
+            );
+          }
+          // Can only mark as pending delivery if current status is IN_TRANSIT
+          if (currentStatus !== 'IN_TRANSIT') {
+            throw new BadRequestException(
+              'Request must be in IN_TRANSIT status to be marked as pending delivery',
+            );
+          }
+          break;
+
         case 'DELIVERED':
           // Only sender can mark as delivered
           if (!isSender) {
             throw new BadRequestException('Only sender can mark as delivered');
           }
-          // Can only mark as delivered if current status is CONFIRMED
-          if (currentStatus !== 'CONFIRMED') {
-            const message = await this.i18n.translate(
-              'translation.trip.request.invalidTransition.mustBeConfirmed',
-              {
-                lang,
-                defaultValue:
-                  'Request must be in CONFIRMED status to be marked as delivered',
-              },
+          // Can only mark as delivered if current status is PENDING_DELIVERY
+          if (currentStatus !== 'PENDING_DELIVERY') {
+            throw new BadRequestException(
+              'Request must be in PENDING_DELIVERY status to be marked as delivered',
             );
-            throw new BadRequestException(message);
           }
           break;
 
@@ -1233,10 +1296,74 @@ export class RequestService {
       }
 
       // Update the request status
-      const updatedRequest = await this.prisma.tripRequest.update({
-        where: { id: requestId },
-        data: { status },
-      });
+      let updatedRequest;
+
+      // If status is DELIVERED, handle wallet balance updates for XAF currency
+      if (status === 'DELIVERED' && request.currency === 'XAF') {
+        // Update request status and wallet balances in a transaction
+        updatedRequest = await this.prisma.$transaction(async (prisma) => {
+          // Find the payment transaction
+          const transaction = await prisma.transaction.findFirst({
+            where: {
+              request_id: requestId,
+              source: 'TRIP_PAYMENT',
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+          });
+
+          // Get traveler's wallet
+          const travelerWallet = await prisma.wallet.findUnique({
+            where: { userId: request.trip.user_id },
+          });
+
+          if (!travelerWallet) {
+            throw new NotFoundException('Traveler wallet not found');
+          }
+
+          const amountPaid = transaction?.amount_paid
+            ? Number(transaction.amount_paid)
+            : 0;
+
+          // Update request status
+          const updated = await prisma.tripRequest.update({
+            where: { id: requestId },
+            data: { status },
+          });
+
+          // Move amount from hold_balance_xaf to available_balance_xaf
+          await prisma.wallet.update({
+            where: { id: travelerWallet.id },
+            data: {
+              hold_balance_xaf: {
+                decrement: amountPaid,
+              },
+              available_balance_xaf: {
+                increment: amountPaid,
+              },
+            },
+          });
+
+          // Update transaction status from ON_HOLD to COMPLETED
+          if (transaction) {
+            await prisma.transaction.update({
+              where: { id: transaction.id },
+              data: {
+                status: 'COMPLETED',
+              },
+            });
+          }
+
+          return updated;
+        });
+      } else {
+        // Normal update for other statuses
+        updatedRequest = await this.prisma.tripRequest.update({
+          where: { id: requestId },
+          data: { status },
+        });
+      }
 
       // Send a system message with the new status
       let systemMessage;
@@ -1354,17 +1481,39 @@ export class RequestService {
           status: status,
           message: request.message,
           cost: request.cost ? Number(request.cost) : null,
+          currency: request.currency,
           created_at: request.created_at,
           updated_at: request.updated_at,
           user: {
             id: request.user.id,
             email: request.user.email,
           },
-          request_items: request.request_items.map((item) => ({
-            trip_item_id: item.trip_item_id,
-            quantity: item.quantity,
-            special_notes: item.special_notes,
-          })),
+          request_items: request.request_items.map((item) => {
+            // Find the corresponding trip item with price data
+            const tripItem = (request.trip as any).trip_items?.find(
+              (ti: any) => ti.trip_item_id === item.trip_item_id,
+            );
+
+            return {
+              trip_item_id: item.trip_item_id,
+              quantity: item.quantity,
+              special_notes: item.special_notes,
+              price: tripItem ? Number(tripItem.price) : null,
+              available_kg: tripItem
+                ? tripItem.avalailble_kg
+                  ? Number(tripItem.avalailble_kg)
+                  : null
+                : null,
+              trip_item: (item as any).trip_item
+                ? {
+                    id: (item as any).trip_item.id,
+                    name: (item as any).trip_item.name,
+                    description: (item as any).trip_item.description,
+                    image_id: (item as any).trip_item.image_id,
+                  }
+                : null,
+            };
+          }),
           trip: {
             id: request.trip.id,
             user_id: request.trip.user_id,
@@ -1377,6 +1526,19 @@ export class RequestService {
               email: request.trip.user.email,
               name: request.trip.user.name,
             },
+            trip_items: (request.trip as any).trip_items?.map((ti: any) => ({
+              trip_item_id: ti.trip_item_id,
+              price: Number(ti.price),
+              available_kg: ti.avalailble_kg ? Number(ti.avalailble_kg) : null,
+              trip_item: ti.trip_item
+                ? {
+                    id: ti.trip_item.id,
+                    name: ti.trip_item.name,
+                    description: ti.trip_item.description,
+                    image_id: ti.trip_item.image_id,
+                  }
+                : null,
+            })),
           },
         };
 

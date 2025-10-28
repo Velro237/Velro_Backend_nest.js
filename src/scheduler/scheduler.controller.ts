@@ -117,4 +117,73 @@ export class SchedulerController {
       message: 'Cleanup triggered successfully',
     };
   }
+
+  @Post('trigger-update-confirmed-requests')
+  @ApiOperation({
+    summary:
+      'Manually trigger update CONFIRMED requests to IN_TRANSIT (Admin only)',
+    description:
+      'Manually trigger the update process that moves CONFIRMED requests to IN_TRANSIT when the trip departure date is today.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Update triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Update confirmed requests triggered successfully',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async triggerUpdateConfirmedRequests() {
+    await this.schedulerService.updateConfirmedRequestsToInTransit();
+    return {
+      message: 'Update confirmed requests triggered successfully',
+    };
+  }
+
+  @Post('trigger-update-pending-requests')
+  @ApiOperation({
+    summary: 'Manually trigger update PENDING requests to EXPIRED (Admin only)',
+    description:
+      'Manually trigger the update process that moves PENDING requests to EXPIRED when the trip departure date is today.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Update triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Update pending requests triggered successfully',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async triggerUpdatePendingRequests() {
+    await this.schedulerService.updatePendingRequestsToExpired();
+    return {
+      message: 'Update pending requests triggered successfully',
+    };
+  }
 }
