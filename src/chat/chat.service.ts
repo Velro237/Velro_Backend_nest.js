@@ -478,6 +478,12 @@ export class ChatService {
                       select: {
                         id: true,
                         email: true,
+                        name: true,
+                      },
+                    },
+                    trip_items: {
+                      include: {
+                        trip_item: true,
                       },
                     },
                   },
@@ -491,14 +497,13 @@ export class ChatService {
                   },
                 },
                 request_items: {
-                  select: {
-                    quantity: true,
-                    special_notes: true,
+                  include: {
                     trip_item: {
                       select: {
                         id: true,
                         name: true,
                         description: true,
+                        image_id: true,
                       },
                     },
                   },
@@ -552,7 +557,27 @@ export class ChatService {
                     ? {
                         id: message.request.trip.user.id,
                         email: message.request.trip.user.email,
+                        name: (message.request.trip as any).user.name,
                       }
+                    : undefined,
+                  trip_items: (message.request.trip as any).trip_items
+                    ? (message.request.trip as any).trip_items.map(
+                        (ti: any) => ({
+                          trip_item_id: ti.trip_item_id,
+                          price: Number(ti.price),
+                          available_kg: ti.avalailble_kg
+                            ? Number(ti.avalailble_kg)
+                            : null,
+                          trip_item: ti.trip_item
+                            ? {
+                                id: ti.trip_item.id,
+                                name: ti.trip_item.name,
+                                description: ti.trip_item.description,
+                                image_id: ti.trip_item.image_id,
+                              }
+                            : null,
+                        }),
+                      )
                     : undefined,
                 }
               : undefined,
@@ -574,17 +599,40 @@ export class ChatService {
                       )
                     : 0,
                   requestItems: message.request.request_items
-                    ? message.request.request_items.map((item) => ({
-                        quantity: item.quantity,
-                        specialNotes: item.special_notes,
-                        tripItem: item.trip_item
-                          ? {
-                              id: item.trip_item.id,
-                              name: item.trip_item.name,
-                              description: item.trip_item.description,
-                            }
-                          : undefined,
-                      }))
+                    ? (() => {
+                        // Find the trip items from the trip data
+                        const tripItems =
+                          (message.request as any).trip?.trip_items || [];
+
+                        return message.request.request_items.map(
+                          (item: any) => {
+                            // Find the corresponding trip item with price data
+                            const tripItem = tripItems.find(
+                              (ti: any) =>
+                                ti.trip_item_id === item.trip_item_id,
+                            );
+
+                            return {
+                              quantity: item.quantity,
+                              specialNotes: item.special_notes,
+                              price: tripItem ? Number(tripItem.price) : null,
+                              available_kg: tripItem
+                                ? tripItem.avalailble_kg
+                                  ? Number(tripItem.avalailble_kg)
+                                  : null
+                                : null,
+                              tripItem: item.trip_item
+                                ? {
+                                    id: item.trip_item.id,
+                                    name: item.trip_item.name,
+                                    description: item.trip_item.description,
+                                    image_id: item.trip_item.image_id,
+                                  }
+                                : undefined,
+                            };
+                          },
+                        );
+                      })()
                     : [],
                   user: message.request.user
                     ? {
@@ -692,6 +740,12 @@ export class ChatService {
                       select: {
                         id: true,
                         email: true,
+                        name: true,
+                      },
+                    },
+                    trip_items: {
+                      include: {
+                        trip_item: true,
                       },
                     },
                   },
@@ -705,14 +759,13 @@ export class ChatService {
                   },
                 },
                 request_items: {
-                  select: {
-                    quantity: true,
-                    special_notes: true,
+                  include: {
                     trip_item: {
                       select: {
                         id: true,
                         name: true,
                         description: true,
+                        image_id: true,
                       },
                     },
                   },
