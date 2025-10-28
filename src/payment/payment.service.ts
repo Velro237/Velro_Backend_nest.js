@@ -641,7 +641,7 @@ export class PaymentService {
         const result = await this.stripeService.ensureConnectedAccount({
           userId: user.id,
           email: user.email,
-          country: dto.country || this.detectCountryFromUser(user),
+          country: dto.country || await this.detectCountryFromUser(user),
           firstName: user.firstName,
           lastName: user.lastName,
         });
@@ -650,7 +650,7 @@ export class PaymentService {
         isNewAccount = result.isNew;
 
         // Save account ID to user
-        const detectedCountry = dto.country || this.detectCountryFromUser(user);
+        const detectedCountry = dto.country || await this.detectCountryFromUser(user);
         await this.prisma.user.update({
           where: { id: userId },
           data: {
@@ -676,16 +676,14 @@ export class PaymentService {
   }
 
   /**
-   * Auto-detect country from user data
+   * Auto-detect country from user data using KYC verification data
    */
-  private detectCountryFromUser(user: any): string {
-    // 1. Try phone number country code
-    if (user.phone) {
-      const phoneCountry = this.getCountryFromPhone(user.phone);
-      if (phoneCountry) {
-        this.logger.log(`Detected country from phone ${user.phone}: ${phoneCountry}`);
-        return phoneCountry;
-      }
+  private async detectCountryFromUser(user: any): Promise<string> {
+    // 1. Try to get country from KYC phone verification data
+    const kycCountry = await this.getCountryFromKYCPhone(user.id);
+    if (kycCountry) {
+      this.logger.log(`Detected country from KYC phone verification: ${kycCountry}`);
+      return kycCountry;
     }
     
     // 2. Try address country if stored
@@ -700,89 +698,33 @@ export class PaymentService {
   }
 
   /**
-   * Extract country code from phone number
+   * Extract country from KYC phone verification data
    */
-  private getCountryFromPhone(phone: string): string | null {
-    // Remove any non-digit characters except +
-    const cleanPhone = phone.replace(/[^\d+]/g, '');
-    
-    // Country code mapping
-    const countryCodes: Record<string, string> = {
-      '+1': 'US',      // US/Canada
-      '+33': 'FR',     // France
-      '+44': 'GB',     // UK
-      '+49': 'DE',     // Germany
-      '+34': 'ES',     // Spain
-      '+39': 'IT',     // Italy
-      '+237': 'CM',    // Cameroon
-      '+212': 'MA',    // Morocco
-      '+213': 'DZ',    // Algeria
-      '+216': 'TN',    // Tunisia
-      '+218': 'LY',    // Libya
-      '+220': 'GM',    // Gambia
-      '+221': 'SN',    // Senegal
-      '+222': 'MR',    // Mauritania
-      '+223': 'ML',    // Mali
-      '+224': 'GN',    // Guinea
-      '+225': 'CI',    // Côte d'Ivoire
-      '+226': 'BF',    // Burkina Faso
-      '+227': 'NE',    // Niger
-      '+228': 'TG',    // Togo
-      '+229': 'BJ',    // Benin
-      '+230': 'MU',    // Mauritius
-      '+231': 'LR',    // Liberia
-      '+232': 'SL',    // Sierra Leone
-      '+233': 'GH',    // Ghana
-      '+234': 'NG',    // Nigeria
-      '+235': 'TD',    // Chad
-      '+236': 'CF',    // Central African Republic
-      '+238': 'CV',    // Cape Verde
-      '+239': 'ST',    // São Tomé and Príncipe
-      '+240': 'GQ',    // Equatorial Guinea
-      '+241': 'GA',    // Gabon
-      '+242': 'CG',    // Republic of the Congo
-      '+243': 'CD',    // Democratic Republic of the Congo
-      '+244': 'AO',    // Angola
-      '+245': 'GW',    // Guinea-Bissau
-      '+246': 'IO',    // British Indian Ocean Territory
-      '+248': 'SC',    // Seychelles
-      '+249': 'SD',    // Sudan
-      '+250': 'RW',    // Rwanda
-      '+251': 'ET',    // Ethiopia
-      '+252': 'SO',    // Somalia
-      '+253': 'DJ',    // Djibouti
-      '+254': 'KE',    // Kenya
-      '+255': 'TZ',    // Tanzania
-      '+256': 'UG',    // Uganda
-      '+257': 'BI',    // Burundi
-      '+258': 'MZ',    // Mozambique
-      '+260': 'ZM',    // Zambia
-      '+261': 'MG',    // Madagascar
-      '+262': 'RE',    // Réunion
-      '+263': 'ZW',    // Zimbabwe
-      '+264': 'NA',    // Namibia
-      '+265': 'MW',    // Malawi
-      '+266': 'LS',    // Lesotho
-      '+267': 'BW',    // Botswana
-      '+268': 'SZ',    // Eswatini
-      '+269': 'KM',    // Comoros
-      '+290': 'SH',    // Saint Helena
-      '+291': 'ER',    // Eritrea
-      '+297': 'AW',    // Aruba
-      '+298': 'FO',    // Faroe Islands
-      '+299': 'GL',    // Greenland
-    };
+  private async getCountryFromKYCPhone(userId: string): Promise<string | null> {
+    try {
+      const kycData = await this.prisma.userKYC.findFirst({
+        where: { userId },
+        select: { verificationData: true },
+      });
 
-    // Check for exact matches first (longer codes first)
-    const sortedCodes = Object.keys(countryCodes).sort((a, b) => b.length - a.length);
-    
-    for (const code of sortedCodes) {
-      if (cleanPhone.startsWith(code)) {
-        return countryCodes[code];
+      if (!kycData?.verificationData) {
+        return null;
       }
-    }
 
-    return null;
+      const verificationData = kycData.verificationData as any;
+      
+      // Check if phone verification data exists and has country_code in decision.phone
+      if (verificationData.decision?.phone?.country_code) {
+        const countryCode = verificationData.decision.phone.country_code;
+        this.logger.log(`Found country code from KYC phone verification: ${countryCode}`);
+        return countryCode;
+      }
+      
+      return null;
+    } catch (error) {
+      this.logger.error(`Failed to get country from KYC phone verification:`, error);
+      return null;
+    }
   }
 
   /**
