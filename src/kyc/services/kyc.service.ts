@@ -253,6 +253,9 @@ export class KycService {
 
              if (newStatus === KYCStatus.APPROVED) {
                updateData.verifiedAt = new Date();
+               
+               // Activate user's wallet when KYC is approved
+               await this.activateUserWallet(kycRecord.userId);
              }
 
              if (newStatus === KYCStatus.DECLINED && callbackData.rejection_reason) {
@@ -268,6 +271,37 @@ export class KycService {
     } catch (error) {
       this.logger.error(`Failed to handle Didit callback:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Activate user's wallet when KYC is approved
+   */
+  private async activateUserWallet(userId: string): Promise<void> {
+    try {
+      // Find user's wallet
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId },
+      });
+
+      if (!wallet) {
+        this.logger.warn(`No wallet found for user ${userId} during KYC activation`);
+        return;
+      }
+
+      // Update wallet state to ACTIVE
+      await this.prisma.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          state: 'ACTIVE',
+          status_message: 'Wallet activated after successful KYC verification',
+        },
+      });
+
+      this.logger.log(`Wallet activated for user ${userId} after KYC approval`);
+    } catch (error) {
+      this.logger.error(`Failed to activate wallet for user ${userId}:`, error);
+      // Don't throw error to avoid breaking KYC callback
     }
   }
 
