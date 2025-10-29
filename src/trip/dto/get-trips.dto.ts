@@ -17,6 +17,7 @@ import {
 
 export enum TripFilterEnum {
   TODAY = 'today',
+  TOMORROW = 'tomorrow',
   WEEK = 'week',
   ALL = 'all',
 }
@@ -34,17 +35,27 @@ export class GetTripsQueryDto {
 
   @ApiProperty({
     description:
-      'Search destinations to filter trips by departure and destination country name and region. Search is case-insensitive.',
+      'Search to filter trips by departure city or country. Search is case-insensitive.',
+    example: 'San Francisco',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  departure?: string;
+
+  @ApiProperty({
+    description:
+      'Search to filter trips by destination city or country. Search is case-insensitive.',
     example: 'France',
     required: false,
   })
   @IsOptional()
   @IsString()
-  destinations?: string;
+  destination?: string;
 
   @ApiProperty({
     description:
-      'Filter trips by departure date. Options: "today" (trips departing today), "week" (trips departing this week), "all" (all future trips)',
+      'Filter trips by departure date. Options: "today" (trips departing today), "tomorrow" (trips departing tomorrow), "week" (trips departing this week), "all" (all future trips)',
     example: 'all',
     enum: TripFilterEnum,
     required: false,
@@ -53,6 +64,24 @@ export class GetTripsQueryDto {
   @IsOptional()
   @IsEnum(TripFilterEnum)
   filter?: TripFilterEnum = TripFilterEnum.ALL;
+
+  @ApiProperty({
+    description: 'Start date for departure date range (ISO 8601 format)',
+    example: '2024-01-01T00:00:00.000Z',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  departure_date_from?: string;
+
+  @ApiProperty({
+    description: 'End date for departure date range (ISO 8601 format)',
+    example: '2024-12-31T23:59:59.999Z',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  departure_date_to?: string;
 
   @ApiProperty({
     description: 'Page number for pagination (starts from 1)',
@@ -226,7 +255,7 @@ export class TripSummaryDto {
   mode_of_transport: ModeOfTransportDto | null;
 
   @ApiProperty({
-    description: 'Departure location',
+    description: 'Departure location (FROM)',
     example: {
       country: 'United States',
       country_code: 'US',
@@ -237,7 +266,7 @@ export class TripSummaryDto {
   departure: any;
 
   @ApiProperty({
-    description: 'Destination location',
+    description: 'Destination location (TO)',
     example: {
       country: 'France',
       country_code: 'FR',
@@ -246,6 +275,28 @@ export class TripSummaryDto {
     },
   })
   destination: any;
+
+  @ApiProperty({
+    description: 'Departure location (FROM) - alias of departure',
+    example: {
+      country: 'United States',
+      country_code: 'US',
+      region: 'California',
+      address: '123 Main St, San Francisco, CA 94105',
+    },
+  })
+  from?: any;
+
+  @ApiProperty({
+    description: 'Destination location (TO) - alias of destination',
+    example: {
+      country: 'France',
+      country_code: 'FR',
+      region: 'Île-de-France',
+      address: '456 Champs-Élysées, Paris, France',
+    },
+  })
+  to?: any;
 
   @ApiProperty({
     description: 'List of trip items with pricing and availability',

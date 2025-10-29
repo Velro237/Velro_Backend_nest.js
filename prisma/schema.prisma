@@ -563,7 +563,7 @@ enum NotificationType {
 
 // Payment & Wallet Enums
 enum PaymentStatus {
-  PENDING
+  PENDING 
   PROCESSING
   SUCCEEDED
   FAILED

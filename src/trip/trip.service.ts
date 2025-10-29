@@ -1385,11 +1385,14 @@ export class TripService {
     try {
       const {
         country,
-        destinations,
+        departure,
+        destination,
         filter = 'all',
         page = 1,
         limit = 10,
         trip_items_ids,
+        departure_date_from,
+        departure_date_to,
       } = query;
       const skip = (page - 1) * limit;
 
@@ -1404,7 +1407,22 @@ export class TripService {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      if (filter === 'today') {
+      // Handle custom date range if provided
+      if (departure_date_from || departure_date_to) {
+        const dateFilter: any = {};
+
+        if (departure_date_from) {
+          const fromDate = new Date(departure_date_from);
+          dateFilter.gte = fromDate;
+        }
+
+        if (departure_date_to) {
+          const toDate = new Date(departure_date_to);
+          dateFilter.lte = toDate;
+        }
+
+        baseWhereClause.departure_date = dateFilter;
+      } else if (filter === 'today') {
         // Show only trips departing today
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1412,6 +1430,19 @@ export class TripService {
         baseWhereClause.departure_date = {
           gte: today,
           lt: tomorrow,
+        };
+      } else if (filter === 'tomorrow') {
+        // Show only trips departing tomorrow
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+
+        const dayAfterTomorrow = new Date(tomorrow);
+        dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+
+        baseWhereClause.departure_date = {
+          gte: tomorrow,
+          lt: dayAfterTomorrow,
         };
       } else if (filter === 'week') {
         // Show only trips departing this week (from today to end of week - Sunday)
@@ -1432,73 +1463,67 @@ export class TripService {
         };
       }
 
-      // Add search filters if destinations is provided
-      if (destinations && destinations.trim() !== '') {
+      // Add search filters if departure or destination is provided
+      if (
+        (departure && departure.trim() !== '') ||
+        (destination && destination.trim() !== '')
+      ) {
         try {
           const searchFilters = [];
 
-          // Check if destinations is a valid date
-          const searchDate = new Date(destinations);
-          const isValidDate = !isNaN(searchDate.getTime());
+          // Search in departure location if departure parameter is provided
+          if (departure && departure.trim() !== '') {
+            searchFilters.push({
+              departure: {
+                path: ['country'],
+                string_contains: departure,
+                mode: 'insensitive',
+              },
+            });
 
-          // Search in departure location - country name and region
-          searchFilters.push({
-            departure: {
-              path: ['country'],
-              string_contains: destinations,
-              mode: 'insensitive',
-            },
-          });
+            searchFilters.push({
+              departure: {
+                path: ['region'],
+                string_contains: departure,
+                mode: 'insensitive',
+              },
+            });
 
-          searchFilters.push({
-            departure: {
-              path: ['region'],
-              string_contains: destinations,
-              mode: 'insensitive',
-            },
-          });
+            searchFilters.push({
+              departure: {
+                path: ['address'],
+                string_contains: departure,
+                mode: 'insensitive',
+              },
+            });
+          }
 
-          // Search in destination location - country name and region
-          searchFilters.push({
-            destination: {
-              path: ['country'],
-              string_contains: destinations,
-              mode: 'insensitive',
-            },
-          });
+          // Search in destination location if destination parameter is provided
+          if (destination && destination.trim() !== '') {
+            searchFilters.push({
+              destination: {
+                path: ['country'],
+                string_contains: destination,
+                mode: 'insensitive',
+              },
+            });
 
-          searchFilters.push({
-            destination: {
-              path: ['region'],
-              string_contains: destinations,
-              mode: 'insensitive',
-            },
-          });
+            searchFilters.push({
+              destination: {
+                path: ['region'],
+                string_contains: destination,
+                mode: 'insensitive',
+              },
+            });
 
-          // Search in destination JSON fields (country name, code, address) - case insensitive
-          searchFilters.push({
-            destination: {
-              path: ['country'],
-              string_contains: destinations,
-              mode: 'insensitive',
-            },
-          });
-
-          searchFilters.push({
-            destination: {
-              path: ['country_code'],
-              string_contains: destinations,
-              mode: 'insensitive',
-            },
-          });
-
-          searchFilters.push({
-            destination: {
-              path: ['address'],
-              string_contains: destinations,
-              mode: 'insensitive',
-            },
-          });
+            searchFilters.push({
+              destination: {
+                path: ['address'],
+                string_contains: destination,
+                mode: 'insensitive',
+              },
+            });
+          }
 
           // Add OR condition for all search filters
           baseWhereClause.OR = searchFilters;
@@ -1592,8 +1617,12 @@ export class TripService {
 
       let trips: any[] = allTrips;
 
-      // If country is specified and no destinations search, reorder to put matching trips at the top
-      if (country && (!destinations || destinations.trim() === '')) {
+      // If country is specified and no departure/destination search, reorder to put matching trips at the top
+      if (
+        country &&
+        (!departure || departure.trim() === '') &&
+        (!destination || destination.trim() === '')
+      ) {
         const countryTrips = allTrips.filter((trip) => {
           const destinationCountry =
             trip.destination &&
@@ -1644,6 +1673,8 @@ export class TripService {
           : null,
         departure: trip.departure,
         destination: trip.destination,
+        from: trip.departure, // Alias for departure
+        to: trip.destination, // Alias for destination
         trip_items: trip.trip_items.map((item) => ({
           trip_item_id: item.trip_item_id,
           price: Number(item.price),
