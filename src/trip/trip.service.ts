@@ -1534,24 +1534,21 @@ export class TripService {
       }
 
       // Add trip items filtering if trip_items_ids is provided
-      if (trip_items_ids && trip_items_ids.trim() !== '') {
+      // After Transform, trip_items_ids is always an array (or undefined)
+      if (
+        trip_items_ids &&
+        Array.isArray(trip_items_ids) &&
+        trip_items_ids.length > 0
+      ) {
         try {
-          // Parse comma-separated trip item IDs
-          const tripItemIds = trip_items_ids
-            .split(',')
-            .map((id) => id.trim())
-            .filter((id) => id !== '');
-
-          if (tripItemIds.length > 0) {
-            // Filter trips that have at least one of the specified trip items
-            baseWhereClause.trip_items = {
-              some: {
-                trip_item_id: {
-                  in: tripItemIds,
-                },
+          // Filter trips that have at least one of the specified trip items
+          baseWhereClause.trip_items = {
+            some: {
+              trip_item_id: {
+                in: trip_items_ids,
               },
-            };
-          }
+            },
+          };
         } catch (error) {
           // If trip items filter creation fails, log error but continue without filter
           console.error('Error creating trip items filter:', error);

@@ -1111,10 +1111,20 @@ export class RequestService {
     lang?: string,
   ): Promise<any> {
     try {
-      // Find the request by ID
+      // Find the request by ID - explicitly include chat_id to ensure it's retrieved
       const request = await this.prisma.tripRequest.findUnique({
         where: { id: requestId },
-        include: {
+        select: {
+          id: true,
+          status: true,
+          user_id: true,
+          trip_id: true,
+          chat_id: true, // Explicitly select chat_id
+          currency: true,
+          cost: true,
+          message: true,
+          created_at: true,
+          updated_at: true,
           request_items: {
             include: {
               trip_item: true,
@@ -1162,11 +1172,95 @@ export class RequestService {
       }
 
       // Get chat_id from request
+      let chatId: string;
       if (!request.chat_id) {
-        throw new NotFoundException('Chat not found for this request');
-      }
+        console.error(
+          `Request ${requestId} does not have a chat_id. Request status: ${request.status}, Trip ID: ${request.trip_id}, User ID: ${request.user_id}`,
+        );
+        // Try to find or create a chat if it doesn't exist
+        // First, try to find an existing chat between the users
+        const allChats = await this.prisma.chat.findMany({
+          where: {
+            members: {
+              some: {
+                user_id: userId, // Current user (could be sender or traveler)
+              },
+            },
+          },
+          include: {
+            members: true,
+          },
+        });
 
-      const chatId = request.chat_id;
+        const existingChat = allChats.find((chat) => {
+          const memberIds = chat.members.map((m) => m.user_id);
+          return (
+            memberIds.includes(userId) &&
+            memberIds.includes(request.user_id) &&
+            (chat.trip_id === request.trip_id || chat.trip_id === null)
+          );
+        });
+        if (existingChat) {
+          // Use existing chat and update both chat and request
+          chatId = existingChat.id;
+
+          // Update chat with trip_id if missing
+          if (!existingChat.trip_id) {
+            await this.prisma.chat.update({
+              where: { id: chatId },
+              data: { trip_id: request.trip_id },
+            });
+            console.log(
+              `Updated chat ${chatId} with trip_id ${request.trip_id}`,
+            );
+          }
+
+          // Update request with chat_id
+          await this.prisma.tripRequest.update({
+            where: { id: requestId },
+            data: { chat_id: chatId },
+          });
+          console.log(`Found existing chat ${chatId} for request ${requestId}`);
+        } else {
+          // Create a new chat if none exists
+          const trip = await this.prisma.trip.findUnique({
+            where: { id: request.trip_id },
+            select: { user_id: true },
+          });
+
+          if (!trip) {
+            throw new NotFoundException('Trip not found for this request');
+          }
+
+          const chatResult = await this.chatService.createChat(
+            {
+              otherUserId:
+                userId === request.user_id ? trip.user_id : request.user_id,
+              tripId: request.trip_id,
+              messageContent: await this.i18n.translate(
+                'translation.chat.messages.newTripRequest',
+                { lang },
+              ),
+              messageType: MessageType.REQUEST,
+              messageRequestId: requestId,
+            },
+            userId,
+            lang,
+          );
+
+          chatId = chatResult.chat.id;
+
+          // Update request with chat_id
+          await this.prisma.tripRequest.update({
+            where: { id: requestId },
+            data: { chat_id: chatId },
+          });
+
+          console.log(`Created new chat ${chatId} for request ${requestId}`);
+        }
+      } else {
+        chatId = request.chat_id;
+      }
 
       // Determine if user is sender or traveler
       const isSender = request.user_id === userId;
@@ -1368,6 +1462,9 @@ export class RequestService {
       // Send a system message with the new status
       let systemMessage;
       try {
+        console.log(
+          `Attempting to send system message for request ${requestId} in chat ${chatId} with status ${status}`,
+        );
         systemMessage = await this.chatGateway.sendMessageProgrammatically({
           chatId,
           senderId: userId,
@@ -1386,11 +1483,15 @@ export class RequestService {
           imageUrl: undefined,
           requestId: request.id,
         });
+        console.log(
+          `Successfully sent system message ${systemMessage?.id} for request ${requestId}`,
+        );
       } catch (systemMessageError) {
         console.error(
-          'Failed to send system status message:',
+          `Failed to send system status message for request ${requestId} in chat ${chatId}:`,
           systemMessageError,
         );
+        // Don't fail the entire operation, but log the error
         systemMessage = null;
       }
 

@@ -8,6 +8,7 @@ import {
   IsEnum,
   IsArray,
   IsUUID,
+  ValidateIf,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import {
@@ -113,24 +114,38 @@ export class GetTripsQueryDto {
 
   @ApiProperty({
     description:
-      'Filter trips by specific trip item IDs. Comma-separated list of UUIDs. Returns trips that have at least one of the specified trip items.',
+      'Filter trips by specific trip item IDs. Can be sent as: 1) Comma-separated string (recommended): "uuid1,uuid2,uuid3", or 2) Array notation: "trip_items_ids[]=uuid1&trip_items_ids[]=uuid2". Returns trips that have at least one of the specified trip items.',
     example:
       '123e4567-e89b-12d3-a456-426614174000,123e4567-e89b-12d3-a456-426614174001',
     required: false,
-    type: 'string',
+    oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
   })
   @IsOptional()
-  @IsString()
   @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) {
+      // If it's already an array, filter out empty values and return
+      const filtered = value
+        .map((id) => (typeof id === 'string' ? id.trim() : String(id).trim()))
+        .filter((id) => id !== '');
+      return filtered.length > 0 ? filtered : undefined;
+    }
     if (typeof value === 'string' && value.trim() !== '') {
-      return value
+      // If it's a comma-separated string, split it
+      const filtered = value
         .split(',')
         .map((id) => id.trim())
         .filter((id) => id !== '');
+      return filtered.length > 0 ? filtered : undefined;
     }
-    return value;
+    return undefined;
   })
-  trip_items_ids?: string;
+  @ValidateIf(
+    (o) => o.trip_items_ids !== undefined && o.trip_items_ids !== null,
+  )
+  @IsArray()
+  @IsUUID('4', { each: true })
+  trip_items_ids?: string[];
 }
 
 export class UserInfoDto {
