@@ -170,4 +170,35 @@ export class MessageResponseDto {
       picture: string | null;
     };
   };
+
+  @ApiProperty({
+    description: 'Review data for REVIEW type messages',
+    required: false,
+  })
+  reviewData?: {
+    id: string;
+    rating: number;
+    comment: string | null;
+    createdAt: Date;
+    giver: {
+      id: string;
+      email: string;
+      name: string;
+    };
+    receiver: {
+      id: string;
+      email: string;
+      name: string;
+    };
+    trip?: {
+      id: string;
+      pickup: any;
+      departure: any;
+      destination: any;
+    };
+    request?: {
+      id: string;
+      status: string;
+    };
+  };
 }

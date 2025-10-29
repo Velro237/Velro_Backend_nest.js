@@ -8,6 +8,16 @@ async function bootstrap() {
     rawBody: true, // Enable raw body for webhook signature verification
   });
 
+  // Enable CORS
+  app.enableCors({
+    origin: true, // Allow all origins (for development)
+    // For production, specify allowed origins:
+    // origin: ['https://velro.app', 'https://www.velro.app'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  });
+
   // Enable validation globally
   app.useGlobalPipes(
     new ValidationPipe({

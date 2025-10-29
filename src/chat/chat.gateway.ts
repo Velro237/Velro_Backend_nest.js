@@ -17,6 +17,7 @@ import { MessageType as PrismaMessageType } from 'generated/prisma';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 @WebSocketGateway({
   cors: { origin: '*' }, // restrict in production
@@ -33,6 +34,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
+    private readonly prisma: PrismaService,
   ) {}
 
   afterInit(server: Server) {
@@ -140,9 +142,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     replyToId?: string;
     imageUrl?: string;
     requestId?: string;
+    reviewId?: string;
   }): Promise<any> {
     try {
       // Create message using chat service
+      // Note: createMessage already fetches and includes reviewData for REVIEW type messages
       const message = await this.chatService.createMessage({
         chatId: data.chatId,
         senderId: data.senderId,
@@ -151,7 +155,92 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         replyToId: data.replyToId,
         imageUrl: data.imageUrl,
         requestId: data.requestId,
+        reviewId: data.reviewId,
       });
+
+      // Ensure review data is included if this is a REVIEW message
+      // createMessage already handles this, but we verify it's present
+      if (
+        data.type === PrismaMessageType.REVIEW &&
+        data.reviewId &&
+        !message.reviewData
+      ) {
+        // If reviewData is missing, fetch it explicitly
+        // This is a safety check, though createMessage should already include it
+        try {
+          const rating = await this.prisma.rating.findUnique({
+            where: { id: data.reviewId },
+            include: {
+              giver: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                },
+              },
+              receiver: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                },
+              },
+              trip: {
+                select: {
+                  id: true,
+                  pickup: true,
+                  departure: true,
+                  destination: true,
+                },
+              },
+              request: {
+                select: {
+                  id: true,
+                  status: true,
+                },
+              },
+            },
+          });
+
+          if (rating) {
+            message.reviewData = {
+              id: rating.id,
+              rating: rating.rating,
+              comment: rating.comment,
+              createdAt: rating.created_at,
+              giver: {
+                id: rating.giver.id,
+                email: rating.giver.email,
+                name: rating.giver.name,
+              },
+              receiver: {
+                id: rating.receiver.id,
+                email: rating.receiver.email,
+                name: rating.receiver.name,
+              },
+              trip: rating.trip
+                ? {
+                    id: rating.trip.id,
+                    pickup: rating.trip.pickup,
+                    departure: rating.trip.departure,
+                    destination: rating.trip.destination,
+                  }
+                : undefined,
+              request: rating.request
+                ? {
+                    id: rating.request.id,
+                    status: rating.request.status,
+                  }
+                : undefined,
+            };
+          }
+        } catch (reviewError) {
+          console.error(
+            'Error fetching review data in sendMessageProgrammatically:',
+            reviewError,
+          );
+        }
+      }
 
       // Get chat members to send targeted notifications
       const chatMembers = await this.chatService.getChatMembers(data.chatId);
@@ -163,6 +252,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       // Send new message notification to other users in the chat
+      // The message includes all review data when type is REVIEW
       for (const member of chatMembers) {
         if (member.user_id !== data.senderId) {
           const memberSocket = this.findSocketByUserId(member.user_id);

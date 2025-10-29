@@ -28,6 +28,14 @@ import {
   ResetPasswordDto,
   ResetPasswordResponseDto,
 } from './dto/reset-password.dto';
+import {
+  CreateAccountDeleteRequestDto,
+  CreateAccountDeleteRequestResponseDto,
+} from './dto/account-delete-request.dto';
+import {
+  AdminGetDeleteRequestsQueryDto,
+  AdminGetDeleteRequestsResponseDto,
+} from './dto/admin-get-delete-requests.dto';
 
 import { I18nService, I18nContext } from 'nestjs-i18n';
 import * as bcrypt from 'bcryptjs';
@@ -1256,6 +1264,157 @@ export class AuthService {
         {
           lang,
           defaultValue: 'Failed to resend OTP',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Create account deletion request
+   */
+  async createAccountDeleteRequest(
+    createAccountDeleteRequestDto: CreateAccountDeleteRequestDto,
+    lang: string = 'en',
+  ): Promise<CreateAccountDeleteRequestResponseDto> {
+    const { email, reason } = createAccountDeleteRequestDto;
+
+    // Check if user exists
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      const message = await this.i18n.translate(
+        'translation.auth.user.notFound',
+        {
+          lang,
+          defaultValue: 'User not found',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    try {
+      // Create account deletion request
+      const deleteRequest = await this.prisma.accountDeleteRequest.create({
+        data: {
+          email,
+          reason: reason || null,
+          user_id: user.id,
+          status: 'PENDING',
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.auth.accountDeleteRequest.created',
+        {
+          lang,
+          defaultValue: 'Account deletion request submitted successfully',
+        },
+      );
+
+      return {
+        message,
+        id: deleteRequest.id,
+      };
+    } catch (error: any) {
+      console.error('Error creating account deletion request:', error);
+      const message = await this.i18n.translate(
+        'translation.auth.accountDeleteRequest.failed',
+        {
+          lang,
+          defaultValue: 'Failed to create account deletion request',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get all account delete requests (Admin only)
+   */
+  async getAllAccountDeleteRequests(
+    query: AdminGetDeleteRequestsQueryDto,
+    lang: string = 'en',
+  ): Promise<AdminGetDeleteRequestsResponseDto> {
+    const { status, page = 1, limit = 10 } = query;
+    const skip = (page - 1) * limit;
+
+    try {
+      // Build where clause
+      const whereClause: any = {};
+      if (status) {
+        whereClause.status = status;
+      }
+
+      // Get requests with pagination
+      const [requests, total] = await Promise.all([
+        this.prisma.accountDeleteRequest.findMany({
+          where: whereClause,
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.accountDeleteRequest.count({ where: whereClause }),
+      ]);
+
+      // Transform to DTO format
+      const requestDtos = requests.map((request) => ({
+        id: request.id,
+        email: request.email,
+        reason: request.reason,
+        status: request.status,
+        user: {
+          id: request.user.id,
+          email: request.user.email,
+          name: request.user.name,
+        },
+        createdAt: request.createdAt,
+        updatedAt: request.updatedAt,
+      }));
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.auth.accountDeleteRequest.getAll.success',
+        {
+          lang,
+          defaultValue: 'Account delete requests retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        requests: requestDtos,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    } catch (error: any) {
+      console.error('Error getting account delete requests:', error);
+      const message = await this.i18n.translate(
+        'translation.auth.accountDeleteRequest.getAll.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve account delete requests',
         },
       );
       throw new InternalServerErrorException(message);

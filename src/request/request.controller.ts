@@ -54,6 +54,7 @@ import {
   GetUserRequestsQueryDto,
   GetUserRequestsResponseDto,
 } from './dto/get-user-requests.dto';
+import { RateRequestDto, RateRequestResponseDto } from './dto/rate-request.dto';
 import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
@@ -279,5 +280,51 @@ export class RequestController {
     @I18nLang() lang: string,
   ): Promise<GetUserRequestsResponseDto> {
     return this.requestService.getUserRequests(user.id, query, lang);
+  }
+
+  @Post(':id/rate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Rate a delivered trip request',
+    description:
+      'Rate a trip request that has been delivered. Only the sender (user who created the request) can rate. Requires request status to be DELIVERED.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip request ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request rated successfully',
+    type: RateRequestResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Request is not in DELIVERED status or validation error',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Only the sender can rate this request',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Request not found',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'You have already rated this request',
+  })
+  async rateRequest(
+    @Param('id') requestId: string,
+    @Body() rateRequestDto: Omit<RateRequestDto, 'requestId'>,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<RateRequestResponseDto> {
+    return this.requestService.rateRequest(
+      { ...rateRequestDto, requestId },
+      user.id,
+      lang,
+    );
   }
 }

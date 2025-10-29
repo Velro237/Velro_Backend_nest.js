@@ -114,18 +114,19 @@ model User {
   services CompanyService[] @relation("UserServices")
   cities   CompanyCity[]    @relation("UserCities")
 
-  reportsSubmitted Report[]       @relation("ReportReporter")
-  reportsReceived  Report[]       @relation("ReportReported")
-  reportsReplied   Report[]       @relation("ReportReplier")
-  refreshTokens    RefreshToken[]
-  accounts         Account[]
-  kycRecords       UserKYC[]
-  alerts           Alert[]
-  ratingsGiven     Rating[]       @relation("RatingGiver")
-  ratingsReceived  Rating[]       @relation("RatingReceiver")
-  notifications    Notification[]
-  wallet           Wallet?
-  transactions     Transaction[]
+  reportsSubmitted      Report[]               @relation("ReportReporter")
+  reportsReceived       Report[]               @relation("ReportReported")
+  reportsReplied        Report[]               @relation("ReportReplier")
+  refreshTokens         RefreshToken[]
+  accounts              Account[]
+  kycRecords            UserKYC[]
+  alerts                Alert[]
+  ratingsGiven          Rating[]               @relation("RatingGiver")
+  ratingsReceived       Rating[]               @relation("RatingReceiver")
+  notifications         Notification[]
+  wallet                Wallet?
+  transactions          Transaction[]
+  accountDeleteRequests AccountDeleteRequest[]
 }
 
 model Account {
@@ -194,6 +195,7 @@ model Message {
   content    String? // Text message
   image_url  String? // Optional for media messages
   request_id String? // Optional for request messages
+  review_id  String? // Optional for review messages
 
   type MessageType @default(TEXT)
 
@@ -215,6 +217,7 @@ enum MessageType {
   REQUEST
   PAYMENT
   SYSTEM
+  REVIEW
 }
 
 model Trip {
@@ -709,4 +712,26 @@ enum OtpType {
   SIGNUP
   FORGOT_PASSWORD
   VERIFY_EMAIL
+}
+
+model AccountDeleteRequest {
+  id        String              @id @default(uuid())
+  email     String
+  reason    String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  status    deleteRequestStatus @default(PENDING)
+
+  // Relation
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user_id String
+
+  @@index([user_id])
+  @@index([email])
+}
+
+enum deleteRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

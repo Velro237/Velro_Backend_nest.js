@@ -9,15 +9,20 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { UserService } from './user.service';
+import { AuthService } from '../auth/auth.service';
 import {
   AdminGetAllReportsQueryDto,
   AdminGetAllReportsResponseDto,
 } from './dto/admin-get-all-reports.dto';
 import { ReplyReportDto, ReplyReportResponseDto } from './dto/reply-report.dto';
+import {
+  AdminGetDeleteRequestsQueryDto,
+  AdminGetDeleteRequestsResponseDto,
+} from '../auth/dto/admin-get-delete-requests.dto';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import {
   ApiReplyReport,
   ApiAdminGetAllReports,
@@ -30,7 +35,10 @@ import { User } from 'generated/prisma';
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get('reports')
   @ApiAdminGetAllReports()
@@ -50,5 +58,31 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<ReplyReportResponseDto> {
     return this.userService.replyToReport(replyReportDto, user.id, lang);
+  }
+
+  @Get('account-delete-requests')
+  @ApiOperation({
+    summary: 'Get all account delete requests',
+    description:
+      'Retrieve all account deletion requests with optional status filtering and pagination. Admin only.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Account delete requests retrieved successfully',
+    type: AdminGetDeleteRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getAllAccountDeleteRequests(
+    @Query() query: AdminGetDeleteRequestsQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminGetDeleteRequestsResponseDto> {
+    return this.authService.getAllAccountDeleteRequests(query, lang);
   }
 }

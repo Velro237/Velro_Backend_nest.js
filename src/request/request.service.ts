@@ -35,6 +35,7 @@ import {
   CancelRequestDto,
   CancelRequestResponseDto,
 } from './dto/cancel-request.dto';
+import { RateRequestDto, RateRequestResponseDto } from './dto/rate-request.dto';
 import { CancellationService } from './cancellation.service';
 
 @Injectable()
@@ -2046,6 +2047,211 @@ export class RequestService {
         {
           lang,
           defaultValue: 'Failed to retrieve requests',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Rate a delivered trip request
+   * Only the sender (user who created the request) can rate
+   */
+  async rateRequest(
+    rateRequestDto: RateRequestDto,
+    userId: string,
+    lang: string = 'en',
+  ): Promise<RateRequestResponseDto> {
+    const { requestId, rating, comment } = rateRequestDto;
+
+    try {
+      // Get the request with trip and user information
+      const request = await this.prisma.tripRequest.findUnique({
+        where: { id: requestId },
+        include: {
+          trip: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                },
+              },
+            },
+          },
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      if (!request) {
+        const message = await this.i18n.translate(
+          'translation.request.notFound',
+          {
+            lang,
+            defaultValue: 'Request not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Check if request status is DELIVERED
+      if (request.status !== 'DELIVERED') {
+        const message = await this.i18n.translate(
+          'translation.request.rate.statusNotDelivered',
+          {
+            lang,
+            defaultValue: 'You can only rate requests that have been delivered',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Check if the user is the sender (user who created the request)
+      if (request.user_id !== userId) {
+        const message = await this.i18n.translate(
+          'translation.request.rate.unauthorized',
+          {
+            lang,
+            defaultValue: 'Only the sender can rate this request',
+          },
+        );
+        throw new ForbiddenException(message);
+      }
+
+      // Check if user has already rated this request
+      const existingRating = await this.prisma.rating.findFirst({
+        where: {
+          request_id: requestId,
+          giver_id: userId,
+        },
+      });
+
+      if (existingRating) {
+        const message = await this.i18n.translate(
+          'translation.request.rate.alreadyRated',
+          {
+            lang,
+            defaultValue: 'You have already rated this request',
+          },
+        );
+        throw new ConflictException(message);
+      }
+
+      // Create the rating
+      // Receiver is the traveler (trip owner)
+      const receiverId = request.trip.user_id;
+
+      const newRating = await this.prisma.rating.create({
+        data: {
+          giver_id: userId,
+          receiver_id: receiverId,
+          trip_id: request.trip_id,
+          request_id: requestId,
+          rating,
+          comment: comment || null,
+        },
+        include: {
+          giver: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+          receiver: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      // Send a REVIEW message in the chat if chat exists
+      if (request.chat_id) {
+        try {
+          // Get the review message content
+          const reviewContent = await this.i18n.translate(
+            'translation.chat.messages.reviewSubmitted',
+            {
+              lang,
+              args: {
+                rating: rating.toString(),
+              },
+              defaultValue: `Rating submitted: ${rating}/5`,
+            },
+          );
+
+          // Send review message with review_id
+          await this.chatGateway.sendMessageProgrammatically({
+            chatId: request.chat_id,
+            senderId: userId,
+            content: reviewContent,
+            type: PrismaMessageType.REVIEW,
+            requestId: undefined,
+            reviewId: newRating.id,
+          });
+
+          // Invalidate chat cache
+          await this.redis.invalidateChatCache(request.chat_id);
+        } catch (messageError) {
+          console.error('Failed to send review message in chat:', messageError);
+          // Don't throw - rating was created successfully
+        }
+      }
+
+      const message = await this.i18n.translate(
+        'translation.request.rate.success',
+        {
+          lang,
+          defaultValue: 'Request rated successfully',
+        },
+      );
+
+      return {
+        message,
+        ratingId: newRating.id,
+        rating: {
+          id: newRating.id,
+          rating: newRating.rating,
+          comment: newRating.comment,
+          createdAt: newRating.created_at,
+          giver: {
+            id: newRating.giver.id,
+            email: newRating.giver.email,
+            name: newRating.giver.name,
+          },
+          receiver: {
+            id: newRating.receiver.id,
+            email: newRating.receiver.email,
+            name: newRating.receiver.name,
+          },
+        },
+      };
+    } catch (error: any) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+
+      console.error('Error rating request:', error);
+      const message = await this.i18n.translate(
+        'translation.request.rate.failed',
+        {
+          lang,
+          defaultValue: 'Failed to rate request',
         },
       );
       throw new InternalServerErrorException(message);

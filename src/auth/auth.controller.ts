@@ -36,6 +36,10 @@ import {
   ResetPasswordResponseDto,
 } from './dto/reset-password.dto';
 import {
+  CreateAccountDeleteRequestDto,
+  CreateAccountDeleteRequestResponseDto,
+} from './dto/account-delete-request.dto';
+import {
   SendOtpDto,
   VerifyOtpDto,
   SendOtpResponseDto,
@@ -416,5 +420,36 @@ export class AuthController {
     @I18nLang() lang: string,
   ): Promise<ResetPasswordResponseDto> {
     return this.authService.resetPassword(resetPasswordDto, lang);
+  }
+
+  @Post('account-delete-request')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Request account deletion',
+    description:
+      'Creates a request to delete a user account. Requires email and optional reason.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Account deletion request created successfully',
+    type: CreateAccountDeleteRequestResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - User not found',
+  })
+  @ApiResponse({
+    status: 500,
+    description:
+      'Internal server error - Failed to create account deletion request',
+  })
+  async createAccountDeleteRequest(
+    @Body() createAccountDeleteRequestDto: CreateAccountDeleteRequestDto,
+    @I18nLang() lang: string,
+  ): Promise<CreateAccountDeleteRequestResponseDto> {
+    return this.authService.createAccountDeleteRequest(
+      createAccountDeleteRequestDto,
+      lang,
+    );
   }
 }

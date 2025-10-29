@@ -530,6 +530,82 @@ export class ChatService {
             );
           }
 
+          // Fetch review data if message type is REVIEW
+          let reviewData = undefined;
+          if (message.type === 'REVIEW' && message.review_id) {
+            try {
+              const rating = await this.prisma.rating.findUnique({
+                where: { id: message.review_id },
+                include: {
+                  giver: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                    },
+                  },
+                  receiver: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                    },
+                  },
+                  trip: {
+                    select: {
+                      id: true,
+                      pickup: true,
+                      departure: true,
+                      destination: true,
+                    },
+                  },
+                  request: {
+                    select: {
+                      id: true,
+                      status: true,
+                    },
+                  },
+                },
+              });
+
+              if (rating) {
+                reviewData = {
+                  id: rating.id,
+                  rating: rating.rating,
+                  comment: rating.comment,
+                  createdAt: rating.created_at,
+                  giver: {
+                    id: rating.giver.id,
+                    email: rating.giver.email,
+                    name: rating.giver.name,
+                  },
+                  receiver: {
+                    id: rating.receiver.id,
+                    email: rating.receiver.email,
+                    name: rating.receiver.name,
+                  },
+                  trip: rating.trip
+                    ? {
+                        id: rating.trip.id,
+                        pickup: rating.trip.pickup,
+                        departure: rating.trip.departure,
+                        destination: rating.trip.destination,
+                      }
+                    : undefined,
+                  request: rating.request
+                    ? {
+                        id: rating.request.id,
+                        status: rating.request.status,
+                      }
+                    : undefined,
+                };
+              }
+            } catch (reviewError) {
+              console.error('Error fetching review data:', reviewError);
+              // Continue without review data rather than failing
+            }
+          }
+
           return {
             id: message.id,
             chatId: message.chat_id,
@@ -644,6 +720,7 @@ export class ChatService {
                     : undefined,
                 }
               : undefined,
+            reviewData,
           };
         }),
       );
@@ -694,9 +771,18 @@ export class ChatService {
     replyToId?: string;
     imageUrl?: string;
     requestId?: string;
+    reviewId?: string;
   }): Promise<MessageResponseDto> {
-    const { chatId, senderId, content, type, replyToId, imageUrl, requestId } =
-      data;
+    const {
+      chatId,
+      senderId,
+      content,
+      type,
+      replyToId,
+      imageUrl,
+      requestId,
+      reviewId,
+    } = data;
 
     // Check if user is a member of the chat
     const isMember = await this.isUserMemberOfChat(senderId, chatId);
@@ -715,6 +801,7 @@ export class ChatService {
             type,
             image_url: imageUrl,
             request_id: requestId,
+            review_id: reviewId,
           },
           include: {
             sender: {
@@ -786,6 +873,85 @@ export class ChatService {
         return newMessage;
       });
 
+      // Fetch review data if message type is REVIEW
+      let reviewData = undefined;
+      if (message.type === 'REVIEW' && message.review_id) {
+        try {
+          const rating = await this.prisma.rating.findUnique({
+            where: { id: message.review_id },
+            include: {
+              giver: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                },
+              },
+              receiver: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                },
+              },
+              trip: {
+                select: {
+                  id: true,
+                  pickup: true,
+                  departure: true,
+                  destination: true,
+                },
+              },
+              request: {
+                select: {
+                  id: true,
+                  status: true,
+                },
+              },
+            },
+          });
+
+          if (rating) {
+            reviewData = {
+              id: rating.id,
+              rating: rating.rating,
+              comment: rating.comment,
+              createdAt: rating.created_at,
+              giver: {
+                id: rating.giver.id,
+                email: rating.giver.email,
+                name: rating.giver.name,
+              },
+              receiver: {
+                id: rating.receiver.id,
+                email: rating.receiver.email,
+                name: rating.receiver.name,
+              },
+              trip: rating.trip
+                ? {
+                    id: rating.trip.id,
+                    pickup: rating.trip.pickup,
+                    departure: rating.trip.departure,
+                    destination: rating.trip.destination,
+                  }
+                : undefined,
+              request: rating.request
+                ? {
+                    id: rating.request.id,
+                    status: rating.request.status,
+                  }
+                : undefined,
+            };
+          }
+        } catch (reviewError) {
+          console.error(
+            'Error fetching review data in createMessage:',
+            reviewError,
+          );
+          // Continue without review data rather than failing
+        }
+      }
+
       const result = {
         id: message.id,
         chatId: message.chat_id,
@@ -855,6 +1021,7 @@ export class ChatService {
                 : undefined,
             }
           : undefined,
+        reviewData,
       };
 
       // Invalidate cache for this chat
