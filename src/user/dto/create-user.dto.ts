@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsDateString,
   IsEmail,
   IsEnum,
   IsOptional,
@@ -88,4 +89,33 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   device_id?: string;
+
+  @ApiPropertyOptional({ example: 'johndoe' })
+  @IsOptional()
+  @IsString()
+  username?: string;
+
+  @ApiPropertyOptional({
+    example: '1990-01-15',
+    description: 'Date of birth in ISO 8601 format (YYYY-MM-DD)',
+  })
+  @IsOptional()
+  @IsDateString()
+  date_of_birth?: string;
+
+  @ApiPropertyOptional({
+    example: 'en',
+    description: 'Preferred language code (e.g., en, fr)',
+  })
+  @IsOptional()
+  @IsString()
+  lang?: string;
+
+  @ApiPropertyOptional({
+    example: 'XAF',
+    description: 'Preferred currency code (e.g., XAF, EUR, USD)',
+  })
+  @IsOptional()
+  @IsString()
+  currency?: string;
 }

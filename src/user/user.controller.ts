@@ -87,12 +87,9 @@ export class UserController {
   }
 
   @ApiUpdateUser()
-  @Patch(':id')
-  update(
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() dto: UpdateUserDto,
-  ) {
-    return this.userService.update(id, dto);
+  @Patch('profile')
+  update(@CurrentUser() user: User, @Body() dto: UpdateUserDto) {
+    return this.userService.update(user.id, dto);
   }
 
   @ApiRemoveUser()

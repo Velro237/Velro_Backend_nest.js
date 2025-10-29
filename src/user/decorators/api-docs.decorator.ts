@@ -959,8 +959,8 @@ export function ApiFindOneUser() {
 export function ApiUpdateUser() {
   return applyDecorators(
     ApiOperation({
-      summary: 'Update user',
-      description: 'Update user information by ID',
+      summary: 'Update user profile',
+      description: "Update the logged-in user's profile information",
     }),
     ApiBody({
       description: 'User update data',

@@ -28,6 +28,7 @@ const userSelect = {
   isFreightForwarder: true,
   companyName: true,
   companyAddress: true,
+  currency: true,
   createdAt: true,
   updatedAt: true,
   kycRecords: {
@@ -197,15 +198,35 @@ export class UserService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const { email, password, ...rest } = updateUserDto;
+    // Helper function to trim string values (except password)
+    const trimValue = (key: string, value: any): any => {
+      if (key === 'password' || typeof value !== 'string') {
+        return value;
+      }
+      return value.trim();
+    };
 
+    // Trim all string fields in the DTO
+    const trimmedDto: any = {};
+    for (const [key, value] of Object.entries(updateUserDto)) {
+      trimmedDto[key] = trimValue(key, value);
+    }
+
+    const { email, password, date_of_birth, ...rest } = trimmedDto;
+
+    // Validate email uniqueness with trimmed email
     if (email) {
-      const dup = await this.prisma.user.findUnique({ where: { email } });
+      const dup = await this.prisma.user.findUnique({
+        where: { email },
+      });
       if (dup && dup.id !== id)
         throw new ConflictException('User with this email already exists');
     }
 
     const hashed = password ? await bcrypt.hash(password, 10) : undefined;
+
+    // Convert date_of_birth string to DateTime if provided (already trimmed)
+    const dateOfBirth = date_of_birth ? new Date(date_of_birth) : undefined;
 
     try {
       return await this.prisma.user.update({
@@ -214,6 +235,7 @@ export class UserService {
           ...rest,
           ...(email ? { email } : {}),
           ...(hashed ? { password: hashed } : {}),
+          ...(dateOfBirth ? { date_of_birth: dateOfBirth } : {}),
         },
         select: userSelect,
       });
