@@ -637,11 +637,15 @@ export class PaymentService {
         isNewAccount = false;
         this.logger.log(`User already has Stripe account: ${accountId}`);
       } else {
-        // Create new Express account
+        // Create new Express account with user-provided address (required)
         const result = await this.stripeService.ensureConnectedAccount({
           userId: user.id,
           email: user.email,
           country: dto.country || await this.detectCountryFromUser(user),
+          street: dto.street,
+          apartment: dto.apartment,
+          city: dto.city,
+          postalCode: dto.postalCode,
           firstName: user.firstName,
           lastName: user.lastName,
         });

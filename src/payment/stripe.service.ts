@@ -69,6 +69,10 @@ async ensureConnectedAccount(params: {
   userId: string;
   email: string;
   country: string;
+  street: string;
+  apartment?: string;
+  city: string;
+  postalCode: string;
   firstName?: string;
   lastName?: string;
 }): Promise<{ accountId: string; isNew: boolean }> {
@@ -129,7 +133,7 @@ async ensureConnectedAccount(params: {
       throw new BadRequestException('Phone number must include country code (e.g., +1234567890)');
     }
 
-    // 4. Create Express account with real user data from database
+    // 4. Create Express account with user-provided address
     const account = await this.stripe.accounts.create({
       type: 'express',
       country: params.country,
@@ -140,13 +144,19 @@ async ensureConnectedAccount(params: {
         first_name: user.firstName,
         last_name: user.lastName,
         phone: formattedPhone,
-        address: {
-          line1: user.address || '',
-          city: user.city || '',
-          state: user.state || '',
-          postal_code: user.zip || '',
-          country: params.country,
-        },
+        ...(params.street || params.city || params.postalCode || params.apartment
+          ? {
+              address: {
+                line1: params.street || '',
+                line2: params.apartment || '',
+                city: params.city || '',
+                // state is optional and country-specific; keep empty string
+                state: '',
+                postal_code: params.postalCode || '',
+                country: params.country,
+              },
+            }
+          : {}),
         ...(dateOfBirth ? {
           dob: {
             day: dateOfBirth.getDate(),

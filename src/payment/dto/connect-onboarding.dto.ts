@@ -1,15 +1,53 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsNotEmpty } from 'class-validator';
+import { IsISO31661Alpha2 } from 'class-validator';
 
 export class ConnectOnboardingDto {
   @ApiProperty({
-    description: 'Country code for payout (ISO 3166-1 alpha-2)',
-    example: 'FR',
+    description: 'Country code for payout (ISO 3166-1 alpha-2) - auto-detected by backend',
+    example: 'DE',
+    required: false,
+  })
+  @IsString()
+  @IsISO31661Alpha2()
+  @IsOptional()
+  country?: string;
+
+  @ApiProperty({
+    description: 'Street address (line1) - collected on Stripe onboarding',
+    example: 'Wasgenstraße 75',
     required: false,
   })
   @IsString()
   @IsOptional()
-  country?: string;
+  street?: string;
+
+  @ApiProperty({
+    description: 'Apartment / unit / line2 (optional)',
+    example: 'Apt 4B',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  apartment?: string;
+
+  @ApiProperty({
+    description: 'City name - collected on Stripe onboarding',
+    example: 'Berlin',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  city?: string;
+
+  @ApiProperty({
+    description: 'Postal code / ZIP - collected on Stripe onboarding',
+    example: '14129',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  postalCode?: string;
 }
 
 export class ConnectOnboardingResponseDto {
