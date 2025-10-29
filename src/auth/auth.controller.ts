@@ -30,6 +30,8 @@ import {
 import {
   RequestPasswordResetDto,
   RequestPasswordResetResponseDto,
+  CheckPasswordResetOtpDto,
+  CheckPasswordResetOtpResponseDto,
   ResetPasswordDto,
   ResetPasswordResponseDto,
 } from './dto/reset-password.dto';
@@ -346,12 +348,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Request password reset',
-    description:
-      'Sends a password reset email with a secure link containing access key to the user.',
+    description: 'Sends a password reset OTP code to the user email address.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Password reset link sent successfully',
+    description: 'Password reset OTP sent successfully',
     type: RequestPasswordResetResponseDto,
   })
   @ApiResponse({
@@ -363,6 +364,36 @@ export class AuthController {
     @I18nLang() lang: string,
   ): Promise<RequestPasswordResetResponseDto> {
     return this.authService.requestPasswordReset(requestPasswordResetDto, lang);
+  }
+
+  @Post('check-password-reset-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check password reset OTP',
+    description:
+      'Verifies the OTP code sent via email and returns an access key to be used for password reset.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'OTP verified successfully',
+    type: CheckPasswordResetOtpResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - User not found',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired OTP',
+  })
+  async checkPasswordResetOtp(
+    @Body() checkPasswordResetOtpDto: CheckPasswordResetOtpDto,
+    @I18nLang() lang: string,
+  ): Promise<CheckPasswordResetOtpResponseDto> {
+    return this.authService.checkPasswordResetOtp(
+      checkPasswordResetOtpDto,
+      lang,
+    );
   }
 
   @Post('reset-password')

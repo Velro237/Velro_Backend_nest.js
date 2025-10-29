@@ -23,6 +23,8 @@ import {
 import {
   RequestPasswordResetDto,
   RequestPasswordResetResponseDto,
+  CheckPasswordResetOtpDto,
+  CheckPasswordResetOtpResponseDto,
   ResetPasswordDto,
   ResetPasswordResponseDto,
 } from './dto/reset-password.dto';
@@ -994,52 +996,19 @@ export class AuthService {
     }
 
     try {
-      // Generate OTP and access key
-      const otpCode = randomInt(100_000, 1_000_000);
-      const accessKey = crypto.randomBytes(32).toString('hex');
-
-      // Create OTP record
-      const otp = await this.prisma.otp.create({
-        data: {
-          code: String(otpCode),
-          email: user.email,
-          type: 'FORGOT_PASSWORD',
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
-          access_key: accessKey,
-        },
-      });
-
-      // Send password reset email using notification service
-      const resetLink = `https://velro.app?access_key=${accessKey}`;
-      const emailDto: SendEmailDto = {
-        to: user.email,
-        subject: 'Password Reset - Velro',
-        text: `Click the following link to reset your password: ${resetLink}`,
-        html: `
-          <h2>Password Reset Request</h2>
-          <p>Hello ${user.name},</p>
-          <p>You requested to reset your password. Click the button below to complete the process:</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetLink}" 
-               style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
-              Reset Password
-            </a>
-          </div>
-          <p>Or copy and paste this link into your browser:</p>
-          <p style="word-break: break-all; color: #666;">${resetLink}</p>
-          <p>This link will expire in 15 minutes.</p>
-          <p>If you didn't request this password reset, please ignore this email.</p>
-          <p>Best regards,<br>The Velro Team</p>
-        `,
-      };
-
-      await this.sendEmail(emailDto, lang);
+      // Use OTP service to create and send OTP
+      const otpResult = await this.otpService.createAndSendOtp(
+        user.email,
+        'FORGOT_PASSWORD',
+        undefined,
+        lang,
+      );
 
       const message = await this.i18n.translate(
-        'translation.auth.passwordReset.emailSent',
+        'translation.auth.passwordReset.otpSent',
         {
           lang,
-          defaultValue: 'Password reset link sent successfully',
+          defaultValue: 'Password reset OTP sent successfully',
         },
       );
 
@@ -1054,6 +1023,60 @@ export class AuthService {
         },
       );
       throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Check OTP code and return access key for password reset
+   */
+  async checkPasswordResetOtp(
+    checkPasswordResetOtpDto: CheckPasswordResetOtpDto,
+    lang: string = 'en',
+  ): Promise<CheckPasswordResetOtpResponseDto> {
+    const { email, code } = checkPasswordResetOtpDto;
+
+    // Check if user exists
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      const message = await this.i18n.translate(
+        'translation.auth.user.notFound',
+        {
+          lang,
+          defaultValue: 'User not found',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    try {
+      // Verify OTP using OtpService
+      const verifiedOtp = await this.otpService.verifyOtp(
+        email,
+        code,
+        'FORGOT_PASSWORD',
+        lang,
+      );
+
+      const message = await this.i18n.translate(
+        'translation.auth.passwordReset.otpVerified',
+        {
+          lang,
+          defaultValue:
+            'OTP verified successfully. Use the access key to reset your password.',
+        },
+      );
+
+      return {
+        message,
+        accessKey: verifiedOtp.access_key!,
+      };
+    } catch (error: any) {
+      console.error('Error verifying password reset OTP:', error);
+      throw error;
     }
   }
 

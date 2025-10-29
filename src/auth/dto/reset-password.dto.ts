@@ -37,6 +37,40 @@ export class ResetPasswordDto {
   password: string;
 }
 
+export class CheckPasswordResetOtpDto {
+  @ApiProperty({
+    description: 'User email address',
+    example: 'user@example.com',
+  })
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({
+    description: 'OTP code received via email',
+    example: '123456',
+    minLength: 6,
+    maxLength: 6,
+  })
+  @IsString()
+  @MinLength(6)
+  code: string;
+}
+
+export class CheckPasswordResetOtpResponseDto {
+  @ApiProperty({
+    description: 'Success message',
+    example:
+      'OTP verified successfully. Use the access key to reset your password.',
+  })
+  message: string;
+
+  @ApiProperty({
+    description: 'Access key to be used for password reset',
+    example: 'abc123def456ghi789jkl012mno345pqr678stu901vwx234yz',
+  })
+  accessKey: string;
+}
+
 export class ResetPasswordResponseDto {
   @ApiProperty({
     description: 'Success message',
