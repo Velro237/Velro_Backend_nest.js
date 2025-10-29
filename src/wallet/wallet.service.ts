@@ -51,11 +51,6 @@ export class WalletService {
 
       return {
         balance: {
-          availableBalance: Number(wallet.available_balance_eur) + Number(wallet.available_balance_usd) + Number(wallet.available_balance_cad),
-          pendingBalance: Number(wallet.hold_balance_eur) + Number(wallet.hold_balance_usd) + Number(wallet.hold_balance_cad),
-          withdrawnTotal: await this.calculateWithdrawnTotal(userId),
-          currency: wallet.currency,
-          multiCurrencyBalances: await this.getMultiCurrencyBalances(userId),
           availableBalanceXaf: Number(wallet.available_balance_xaf),
           holdBalanceXaf: Number(wallet.hold_balance_xaf),
           availableBalanceUsd: Number(wallet.available_balance_usd),
@@ -721,56 +716,7 @@ export class WalletService {
     }
   }
 
-  /**
-   * Get multi-currency balances for user
-   */
-  private async getMultiCurrencyBalances(userId: string): Promise<any[]> {
-    try {
-      // Get all transactions grouped by currency
-      const currencyBalances = await this.prisma.transaction.groupBy({
-        by: ['currency'],
-        where: {
-          userId,
-          type: 'CREDIT',
-          source: 'TRIP_EARNING',
-        },
-        _sum: {
-          amount_paid: true,
-        },
-      });
 
-      return currencyBalances.map(balance => ({
-        currency: balance.currency,
-        amount: Number(balance._sum.amount_paid || 0),
-      }));
-    } catch (error) {
-      this.logger.warn('Failed to get multi-currency balances:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Calculate total withdrawn amount from transactions
-   */
-  private async calculateWithdrawnTotal(userId: string): Promise<number> {
-    try {
-      const withdrawnAggregation = await this.prisma.transaction.aggregate({
-        where: {
-          userId,
-          source: 'WITHDRAW',
-          status: 'COMPLETED',
-        },
-        _sum: {
-          amount_paid: true,
-        },
-      });
-
-      return Number(withdrawnAggregation._sum.amount_paid || 0);
-    } catch (error) {
-      this.logger.warn('Failed to calculate withdrawn total:', error);
-      return 0;
-    }
-  }
 
   /**
    * Map withdrawal to DTO
@@ -805,12 +751,18 @@ export class WalletService {
       // Get supported payout currencies from Stripe (dynamic)
       const supportedCurrencies = await this.stripeService.getAccountPayoutCurrencies(user.stripe_account_id);
       
-      // Get user's balances by currency
-      const currencyBalances = await this.getMultiCurrencyBalances(userId);
+      // Get user's wallet balances
+      const wallet = await this.ensureWallet(userId);
+      const userBalances = [
+        { currency: 'XAF', amount: Number(wallet.available_balance_xaf) },
+        { currency: 'USD', amount: Number(wallet.available_balance_usd) },
+        { currency: 'EUR', amount: Number(wallet.available_balance_eur) },
+        { currency: 'CAD', amount: Number(wallet.available_balance_cad) },
+      ].filter(balance => balance.amount > 0);
       
       return {
         supportedCurrencies,
-        userBalances: currencyBalances,
+        userBalances,
         message: 'Multi-currency withdrawal options retrieved successfully',
       };
     } catch (error) {
