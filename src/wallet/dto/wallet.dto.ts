@@ -85,43 +85,6 @@ export class WithdrawalResponseDto {
 }
 
 export class WalletBalanceDto {
-  @ApiProperty({
-    description: 'Available balance (withdrawable now)',
-    example: 150.5,
-  })
-  availableBalance: number;
-
-  @ApiProperty({
-    description: 'Pending balance (awaiting delivery confirmation)',
-    example: 50.0,
-  })
-  pendingBalance: number;
-
-  @ApiProperty({
-    description: 'Total withdrawn amount',
-    example: 300.0,
-  })
-  withdrawnTotal: number;
-
-  @ApiProperty({
-    description: 'Currency',
-    example: 'EUR',
-  })
-  currency: string;
-
-  @ApiProperty({
-    description: 'Multi-currency balances (earnings in original currencies)',
-    example: [
-      { currency: 'EUR', amount: 100.0 },
-      { currency: 'USD', amount: 50.0 },
-      { currency: 'CAD', amount: 25.0 }
-    ],
-    required: false,
-  })
-  multiCurrencyBalances?: Array<{
-    currency: string;
-    amount: number;
-  }>;
   // XAF balances
   @ApiProperty({
     description: 'Available balance in XAF',
