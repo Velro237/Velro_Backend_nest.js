@@ -232,9 +232,6 @@ export class AuthService {
         data: {
           userId: user.id,
           currency: currency,
-          available_balance_stripe: 0,
-          pending_balance_stripe: 0,
-          withdrawn_total_stripe: 0,
         },
       });
 
@@ -887,9 +884,6 @@ export class AuthService {
         data: {
           userId: user.id,
           currency: 'XAF',
-          available_balance_stripe: 0,
-          pending_balance_stripe: 0,
-          withdrawn_total_stripe: 0,
         },
       });
 

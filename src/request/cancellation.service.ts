@@ -121,6 +121,10 @@ export class CancellationService {
   private async processCancellation(request: any, cancellationDto: CancelRequestDto) {
     const { cancellationType } = cancellationDto;
     const deliveryFee = Number(request.cost || 0);
+    // Ensure currency is present on request for downstream operations
+    if (!request.currency && request.trip?.currency) {
+      request.currency = request.trip.currency;
+    }
     const paymentStatus = request.payment_status;
 
     // Case 1: Sender cancels before payment
@@ -181,6 +185,9 @@ export class CancellationService {
 
     const refundAmount = deliveryFee - cancellationFee;
 
+    // Determine currency used for this request
+    const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+
     // Split cancellation fee: configurable percentages
     const travelerCompensationPercent = Number(this.configService.get<number>('CANCELLATION_TRAVELER_PERCENT'));
     const velroFeePercent = Number(this.configService.get<number>('CANCELLATION_VELRO_PERCENT'));
@@ -193,14 +200,22 @@ export class CancellationService {
       await this.processStripeCancellationOrRefund(request.payment_intent_id, refundAmount);
     }
 
+    // Release hold from traveler's wallet (remove full held amount)
+    try {
+      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+    } catch (e) {
+      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
     // Credit traveler with compensation
     if (travelerCompensation > 0) {
-      await this.creditTravelerCompensation(request.trip.user_id, travelerCompensation, request.id);
+      await this.creditTravelerCompensation(request.trip.user_id, travelerCompensation, request.id, currency);
     }
 
     // Record Velro fee
     if (velroFee > 0) {
-      await this.recordVelroFee(velroFee, request.id);
+      await this.recordVelroFee(velroFee, request.id, currency);
     }
 
     return {
@@ -210,6 +225,7 @@ export class CancellationService {
       cancellationFee,
       travelerCompensation,
       velroFee,
+      currency,
       status: 'CANCELLED',
       cancelledAt: new Date(),
     };
@@ -226,6 +242,16 @@ export class CancellationService {
       await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
     }
 
+    // Release any hold from traveler's wallet
+    try {
+      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+    } catch (e) {
+      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
+    const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+
     return {
       requestId: request.id,
       cancellationType: CancellationType.TRAVELER_CANCEL,
@@ -233,6 +259,7 @@ export class CancellationService {
       cancellationFee: 0,
       travelerCompensation: 0,
       velroFee: 0,
+      currency,
       status: 'CANCELLED',
       cancelledAt: new Date(),
     };
@@ -249,6 +276,16 @@ export class CancellationService {
       await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
     }
 
+    // Release any hold from traveler's wallet
+    try {
+      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+    } catch (e) {
+      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
+    const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+
     return {
       requestId: request.id,
       cancellationType: CancellationType.MUTUAL_CANCEL,
@@ -256,6 +293,7 @@ export class CancellationService {
       cancellationFee: 0,
       travelerCompensation: 0,
       velroFee: 0,
+      currency,
       status: 'CANCELLED',
       cancelledAt: new Date(),
     };
@@ -272,6 +310,16 @@ export class CancellationService {
       await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
     }
 
+    // Release any hold from traveler's wallet
+    try {
+      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+    } catch (e) {
+      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
+    const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+
     return {
       requestId: request.id,
       cancellationType,
@@ -279,6 +327,7 @@ export class CancellationService {
       cancellationFee: 0,
       travelerCompensation: 0,
       velroFee: 0,
+      currency,
       status: 'CANCELLED',
       cancelledAt: new Date(),
     };
@@ -305,21 +354,24 @@ export class CancellationService {
   /**
    * Credit traveler with compensation
    */
-  private async creditTravelerCompensation(travelerId: string, amount: number, requestId: string) {
+  private async creditTravelerCompensation(travelerId: string, amount: number, requestId: string, currency: string) {
     try {
-      this.logger.log(`Crediting traveler ${travelerId} with €${amount} compensation`);
+      this.logger.log(`Crediting traveler ${travelerId} with ${currency} ${amount} compensation`);
 
       // Get or create wallet
       const wallet = await this.walletService.ensureWallet(travelerId);
 
-      // Add compensation to available balance
+      // Resolve balance column by currency
+      const { availableColumn } = this.getCurrencyColumns(currency);
+
+      // Add compensation to available balance in the specific currency
       await this.prisma.wallet.update({
         where: { userId: travelerId },
         data: {
-          available_balance_stripe: {
+          [availableColumn]: {
             increment: amount,
           },
-        },
+        } as any,
       });
 
       // Record transaction
@@ -331,10 +383,10 @@ export class CancellationService {
           fee_applied: 0,
           amount_paid: amount,
           wallet_id: wallet.id,
-          currency: 'EUR',
+          currency: currency,
           description: `Cancellation compensation for request ${requestId}`,
           source: 'CANCELLATION_COMPENSATION',
-          balance_after: Number(wallet.available_balance_stripe) + amount,
+          balance_after: this.computeBalanceAfter(wallet, currency, amount),
           provider: 'STRIPE',
         },
       });
@@ -349,9 +401,9 @@ export class CancellationService {
   /**
    * Record Velro fee
    */
-  private async recordVelroFee(amount: number, requestId: string) {
+  private async recordVelroFee(amount: number, requestId: string, currency: string) {
     try {
-      this.logger.log(`Recording Velro fee: €${amount} for request ${requestId}`);
+      this.logger.log(`Recording Velro fee: ${currency} ${amount} for request ${requestId}`);
 
       // For system fees, we'll create a transaction record without a specific wallet
       // This is for tracking purposes only
@@ -363,6 +415,8 @@ export class CancellationService {
         });
 
         if (adminUser && adminUser.wallet) {
+          const { availableColumn } = this.getCurrencyColumns(currency);
+          const currentBalance = this.getWalletCurrencyBalance(adminUser.wallet, currency);
           await this.prisma.transaction.create({
             data: {
               userId: adminUser.id,
@@ -371,10 +425,10 @@ export class CancellationService {
               fee_applied: 0,
               amount_paid: amount,
               wallet_id: adminUser.wallet.id,
-              currency: 'EUR',
+              currency: currency,
               description: `Velro cancellation fee for request ${requestId}`,
               source: 'VELRO_FEE',
-              balance_after: Number(adminUser.wallet.available_balance_stripe) + amount,
+              balance_after: currentBalance + amount,
               provider: 'STRIPE',
             },
           });
@@ -389,5 +443,81 @@ export class CancellationService {
       this.logger.error(`Failed to record Velro fee: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Helpers: map currency to wallet columns and compute balances
+   */
+  private getCurrencyColumns(currency: string): { availableColumn: string; holdColumn: string } {
+    const c = (currency || 'EUR').toUpperCase();
+    switch (c) {
+      case 'XAF':
+        return { availableColumn: 'available_balance_xaf', holdColumn: 'hold_balance_xaf' };
+      case 'USD':
+        return { availableColumn: 'available_balance_usd', holdColumn: 'hold_balance_usd' };
+      case 'CAD':
+        return { availableColumn: 'available_balance_cad', holdColumn: 'hold_balance_cad' };
+      case 'EUR':
+      default:
+        return { availableColumn: 'available_balance_eur', holdColumn: 'hold_balance_eur' };
+    }
+  }
+
+  private getWalletCurrencyBalance(wallet: any, currency: string): number {
+    const c = (currency || 'EUR').toUpperCase();
+    switch (c) {
+      case 'XAF':
+        return Number(wallet.available_balance_xaf || 0);
+      case 'USD':
+        return Number(wallet.available_balance_usd || 0);
+      case 'CAD':
+        return Number(wallet.available_balance_cad || 0);
+      case 'EUR':
+      default:
+        return Number(wallet.available_balance_eur || 0);
+    }
+  }
+
+  private computeBalanceAfter(wallet: any, currency: string, delta: number): number {
+    return this.getWalletCurrencyBalance(wallet, currency) + Number(delta || 0);
+  }
+
+  /**
+   * Release held earnings from traveler's wallet for a cancelled request
+   */
+  private async releaseHold(travelerId: string, amount: number, currency: string, requestId: string) {
+    if (!amount || amount <= 0) return;
+    // Ensure wallet exists and resolve columns
+    const wallet = await this.walletService.ensureWallet(travelerId);
+    const { holdColumn } = this.getCurrencyColumns(currency);
+
+    // Decrement hold by the full delivery fee
+    await this.prisma.wallet.update({
+      where: { id: wallet.id },
+      data: {
+        [holdColumn]: {
+          decrement: amount,
+        },
+      } as any,
+    });
+
+    // Optional: record an audit transaction for hold release (no funds move to available)
+    await this.prisma.transaction.create({
+      data: {
+        userId: travelerId,
+        wallet_id: wallet.id,
+        type: 'DEBIT',
+        source: 'PAYMENT_CANCELLATION',
+        amount_requested: amount,
+        fee_applied: 0,
+        amount_paid: amount,
+        currency,
+        request_id: requestId,
+        status: 'SUCCESS',
+        provider: 'STRIPE',
+        description: `Hold released due to cancellation for request ${requestId}`,
+        balance_after: Number(wallet[holdColumn]) - amount,
+      },
+    });
   }
 }
