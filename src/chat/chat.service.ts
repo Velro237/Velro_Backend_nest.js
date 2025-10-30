@@ -483,7 +483,16 @@ export class ChatService {
                     },
                     trip_items: {
                       include: {
-                        trip_item: true,
+                        trip_item: {
+                          select: {
+                            id: true,
+                            name: true,
+                            description: true,
+                            image_id: true,
+                            created_at: true,
+                            updated_at: true,
+                          },
+                        },
                       },
                     },
                   },
@@ -504,6 +513,8 @@ export class ChatService {
                         name: true,
                         description: true,
                         image_id: true,
+                        created_at: true,
+                        updated_at: true,
                       },
                     },
                   },
@@ -640,16 +651,23 @@ export class ChatService {
                     ? (message.request.trip as any).trip_items.map(
                         (ti: any) => ({
                           trip_item_id: ti.trip_item_id,
-                          price: Number(ti.price),
-                          available_kg: ti.avalailble_kg
-                            ? Number(ti.avalailble_kg)
-                            : null,
+                          price:
+                            ti.price !== undefined ? Number(ti.price) : null,
+                          available_kg:
+                            ti.avalailble_kg !== undefined &&
+                            ti.avalailble_kg !== null
+                              ? Number(ti.avalailble_kg)
+                              : null,
+                          createdAt: ti.created_at,
+                          updatedAt: ti.updated_at,
                           trip_item: ti.trip_item
                             ? {
                                 id: ti.trip_item.id,
                                 name: ti.trip_item.name,
                                 description: ti.trip_item.description,
                                 image_id: ti.trip_item.image_id,
+                                createdAt: ti.trip_item.created_at,
+                                updatedAt: ti.trip_item.updated_at,
                               }
                             : null,
                         }),
@@ -676,21 +694,19 @@ export class ChatService {
                     : 0,
                   requestItems: message.request.request_items
                     ? (() => {
-                        // Find the trip items from the trip data
                         const tripItems =
                           (message.request as any).trip?.trip_items || [];
-
                         return message.request.request_items.map(
                           (item: any) => {
-                            // Find the corresponding trip item with price data
                             const tripItem = tripItems.find(
                               (ti: any) =>
                                 ti.trip_item_id === item.trip_item_id,
                             );
-
                             return {
                               quantity: item.quantity,
                               specialNotes: item.special_notes,
+                              createdAt: item.created_at,
+                              updatedAt: item.updated_at,
                               price: tripItem ? Number(tripItem.price) : null,
                               available_kg: tripItem
                                 ? tripItem.avalailble_kg
@@ -703,6 +719,8 @@ export class ChatService {
                                     name: item.trip_item.name,
                                     description: item.trip_item.description,
                                     image_id: item.trip_item.image_id,
+                                    createdAt: item.trip_item.created_at,
+                                    updatedAt: item.trip_item.updated_at,
                                   }
                                 : undefined,
                             };
