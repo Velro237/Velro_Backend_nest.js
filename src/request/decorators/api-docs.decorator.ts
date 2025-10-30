@@ -525,7 +525,7 @@ export const ApiChangeRequestStatus = () =>
 
 **ACCEPTED/DECLINED** - Only traveler can set (requires PENDING status)
 
-**CONFIRMED** - Only sender can set after payment (requires ACCEPTED status)
+**CONFIRMED** - Set automatically by system after successful payment (requires ACCEPTED status). Cannot be set manually.
 
 **SENT** - Only sender can set (requires CONFIRMED status) - Sender marks package as sent to traveler
 
@@ -561,13 +561,7 @@ export const ApiChangeRequestStatus = () =>
             status: 'DECLINED',
           },
         },
-        confirm: {
-          summary: 'Confirm after payment (sender only, requires ACCEPTED)',
-          value: {
-            requestId: '123e4567-e89b-12d3-a456-426614174001',
-            status: 'CONFIRMED',
-          },
-        },
+        // CONFIRMED is intentionally excluded from examples because it is system-set only
         sent: {
           summary: 'Mark as sent (sender only, requires CONFIRMED)',
           value: {

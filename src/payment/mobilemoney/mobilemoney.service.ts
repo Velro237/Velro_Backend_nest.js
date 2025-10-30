@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentAction, PaymentCarrier } from '../entitiy/mobilemoney.entity';
 import { I18nService } from 'nestjs-i18n';
 import { RequestService } from '../../request/request.service';
+import { CurrencyService } from '../../currency/currency.service';
 import { MobilemoneyCashoutResponseDto } from '../dto/mobilemoney-cashout.dto';
 import { MobilemoneyDepositResponseDto } from '../dto/mobilemoney-deposit.dto';
 import { MoalaBalanceResponseDto } from '../dto/moala-balance.dto';
@@ -36,6 +37,7 @@ export class MobilemoneyService {
     private readonly i18n: I18nService,
     private readonly prisma: PrismaService,
     private readonly requestService: RequestService,
+    private readonly currencyService: CurrencyService,
   ) {
     this.baseUri = this.configService.get<string>('MOALA_URL');
     this.appKey = this.configService.get<string>('MOALA_API_KEY');
@@ -610,14 +612,14 @@ export class MobilemoneyService {
         throw new BadRequestException(message);
       }
 
-      // Check if user has enough balance
-      const availableBalance = Number(wallet.available_balance_xaf);
-      if (availableBalance < amount) {
+      // Check if user has enough HOLD balance in XAF (funds reserved for trip payout)
+      const availableBalanceXaf = Number(wallet.available_balance_xaf);
+      if (availableBalanceXaf < amount) {
         const message = await this.i18n.translate(
           'translation.payment.mobilemoney.insufficientBalance',
           {
             lang,
-            defaultValue: `Insufficient balance. Available: ${availableBalance} XAF, Requested: ${amount} XAF`,
+            defaultValue: `Insufficient avalaible balance. Available: ${availableBalanceXaf} XAF, Requested: ${amount} XAF`,
           },
         );
         throw new BadRequestException(message);
@@ -650,15 +652,37 @@ export class MobilemoneyService {
         lang,
       );
 
-      // Deduct amount from available_balance_xaf and create transaction
+      // Deduct amount from HOLD balances (XAF and wallet currency) and create transaction
       await this.prisma.$transaction(async (prisma) => {
-        // Update wallet balance
+        // Convert XAF to wallet currency for proper decrement on multi-currency balances
+        let converted = 0;
+        try {
+          const conv = this.currencyService.convertCurrency(
+            amount,
+            'XAF',
+            wallet.currency,
+          );
+          converted = conv.convertedAmount;
+        } catch (convErr) {
+          this.logger.warn(
+            `Currency conversion XAF -> ${wallet.currency} failed during deposit: ${convErr?.message || convErr}`,
+          );
+          converted = 0;
+        }
+
+        // Update wallet balances: decrease XAF hold and corresponding wallet currency hold/total
         await prisma.wallet.update({
           where: { id: wallet.id },
           data: {
             available_balance_xaf: {
               decrement: amount,
             },
+            ...(converted > 0
+              ? {
+                  available_balance: { decrement: converted },
+                  total_balance: { decrement: converted },
+                }
+              : {}),
           },
         });
 
@@ -677,11 +701,13 @@ export class MobilemoneyService {
             provider: withdrawalNumber.carrier as any,
             provider_id: result.partnerId,
             description: `Mobile money deposit to ${withdrawalNumber.number} (${withdrawalNumber.name})`,
-            balance_after: availableBalance - amount,
+            balance_after: availableBalanceXaf - amount,
             metadata: {
               withdrawal_number_id: withdrawalNumberId,
               withdrawal_number: withdrawalNumber.number,
               service_code: serviceCode,
+              convertedAmount: converted,
+              walletCurrency: wallet.currency,
             },
           },
         });
@@ -896,8 +922,25 @@ export class MobilemoneyService {
         `Transaction ${transaction.id} status updated to: ${status}`,
       );
 
-      // If payment is received, update request status and credit the trip creator's wallet
+      // If payment is received, update request, status and credit the trip creator's wallet
       if (status === 'RECEIVED') {
+        // Attach transaction to request and mark payment as succeeded
+        if (transaction.request_id) {
+          try {
+            await this.prisma.tripRequest.update({
+              where: { id: transaction.request_id },
+              data: {
+                payment_intent_id: transaction.id,
+                payment_status: 'SUCCEEDED',
+              },
+            });
+          } catch (updateErr) {
+            this.logger.warn(
+              `Failed to update request payment fields for ${transaction.request_id}: ${updateErr?.message || updateErr}`,
+            );
+          }
+        }
+
         // Update request status to CONFIRMED using the request service
         if (transaction.request_id) {
           try {
@@ -941,13 +984,34 @@ export class MobilemoneyService {
 
         const netAmount = Number(transaction.amount_requested);
 
-        // Credit trip creator's wallet
+        // Credit trip creator's wallet (XAF hold) and converted hold in wallet currency
+        // Convert XAF net amount to wallet currency
+        let convertedHold = 0;
+        try {
+          const conv = this.currencyService.convertCurrency(
+            netAmount,
+            'XAF',
+            tripCreator.wallet.currency,
+          );
+          convertedHold = conv.convertedAmount;
+        } catch (convErr) {
+          this.logger.warn(
+            `Currency conversion XAF -> ${tripCreator.wallet.currency} failed: ${convErr?.message || convErr}`,
+          );
+        }
+
         await this.prisma.wallet.update({
           where: { id: tripCreator.wallet.id },
           data: {
             hold_balance_xaf: {
               increment: netAmount,
             },
+            ...(convertedHold > 0
+              ? {
+                  hold_balance: { increment: convertedHold },
+                  total_balance: { increment: convertedHold },
+                }
+              : {}),
           },
         });
 
@@ -980,6 +1044,8 @@ export class MobilemoneyService {
               paymentMethod: 'mobile_money',
               serviceCode,
               operatorId,
+              convertedHoldAmount: convertedHold,
+              walletCurrency: tripCreator.wallet.currency,
             },
           },
         });

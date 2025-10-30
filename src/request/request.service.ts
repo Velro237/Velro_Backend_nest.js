@@ -37,6 +37,7 @@ import {
 } from './dto/cancel-request.dto';
 import { RateRequestDto, RateRequestResponseDto } from './dto/rate-request.dto';
 import { CancellationService } from './cancellation.service';
+import { CurrencyService } from '../currency/currency.service';
 
 @Injectable()
 export class RequestService {
@@ -49,6 +50,7 @@ export class RequestService {
     private readonly walletService: WalletService,
     private readonly notificationService: NotificationService,
     private readonly cancellationService: CancellationService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   // Trip Request methods
@@ -1111,6 +1113,18 @@ export class RequestService {
     userId: string,
     lang?: string,
   ): Promise<any> {
+    // Disallow manual setting of CONFIRMED; it must be set by the payment flow
+    if (status === 'CONFIRMED') {
+      const message = await this.i18n.translate(
+        'translation.request.status.confirmedOnlyByPayment',
+        {
+          lang,
+          defaultValue:
+            'CONFIRMED status can only be set automatically after successful payment',
+        },
+      );
+      throw new BadRequestException(message);
+    }
     try {
       // Find the request by ID - explicitly include chat_id to ensure it's retrieved
       const request = await this.prisma.tripRequest.findUnique({
@@ -1121,6 +1135,7 @@ export class RequestService {
           user_id: true,
           trip_id: true,
           chat_id: true, // Explicitly select chat_id
+          payment_intent_id: true,
           currency: true,
           cost: true,
           message: true,
@@ -1292,25 +1307,6 @@ export class RequestService {
           }
           break;
 
-        case 'CONFIRMED':
-          // Only sender can confirm (after payment) or system can confirm
-          if (!isSender) {
-            throw new BadRequestException('Only sender can confirm requests');
-          }
-          // Can only confirm if current status is ACCEPTED
-          if (currentStatus !== 'ACCEPTED') {
-            const message = await this.i18n.translate(
-              'translation.trip.request.invalidTransition.mustBeAccepted',
-              {
-                lang,
-                defaultValue:
-                  'Request must be in ACCEPTED status to be confirmed',
-              },
-            );
-            throw new BadRequestException(message);
-          }
-          break;
-
         case 'SENT':
           // Only sender can mark as sent
           if (!isSender) {
@@ -1393,71 +1389,80 @@ export class RequestService {
       // Update the request status
       let updatedRequest;
 
-      // If status is DELIVERED, handle wallet balance updates for XAF currency
-      if (status === 'DELIVERED' && request.currency === 'XAF') {
-        // Update request status and wallet balances in a transaction
-        updatedRequest = await this.prisma.$transaction(async (prisma) => {
-          // Find the payment transaction
-          const transaction = await prisma.transaction.findFirst({
-            where: {
-              request_id: requestId,
-              source: 'TRIP_PAYMENT',
-            },
-            orderBy: {
-              createdAt: 'desc',
-            },
+      // Normal update for other statuses
+      updatedRequest = await this.prisma.tripRequest.update({
+        where: { id: requestId },
+        data: { status },
+      });
+
+      // If DELIVERED, settle wallet balances from hold to available using the payment transaction
+      if (status === 'DELIVERED' && request.payment_intent_id) {
+        try {
+          const paymentTx = await this.prisma.transaction.findUnique({
+            where: { id: request.payment_intent_id },
           });
 
-          // Get traveler's wallet
-          const travelerWallet = await prisma.wallet.findUnique({
-            where: { userId: request.trip.user_id },
-          });
+          if (paymentTx && paymentTx.currency === 'XAF') {
+            const amountPaid = paymentTx.amount_paid
+              ? Number(paymentTx.amount_paid)
+              : paymentTx.amount_requested
+                ? Number(paymentTx.amount_requested)
+                : 0;
 
-          if (!travelerWallet) {
-            throw new NotFoundException('Traveler wallet not found');
+            if (amountPaid > 0) {
+              await this.prisma.$transaction(async (prisma) => {
+                // Traveler's wallet
+                const travelerWallet = await prisma.wallet.findUnique({
+                  where: { userId: request.trip.user_id },
+                });
+                if (!travelerWallet) {
+                  throw new NotFoundException('Traveler wallet not found');
+                }
+
+                // Convert XAF to wallet currency for generic balances
+                let converted = 0;
+                try {
+                  const conv = this.currencyService.convertCurrency(
+                    amountPaid,
+                    'XAF',
+                    travelerWallet.currency,
+                  );
+                  converted = conv.convertedAmount;
+                } catch (convErr) {
+                  // Proceed with XAF balances even if conversion fails
+                  converted = 0;
+                }
+
+                // Move funds from hold to available (XAF and wallet currency)
+                await prisma.wallet.update({
+                  where: { id: travelerWallet.id },
+                  data: {
+                    hold_balance_xaf: { decrement: amountPaid },
+                    available_balance_xaf: { increment: amountPaid },
+                    ...(converted > 0
+                      ? {
+                          hold_balance: { decrement: converted },
+                          available_balance: { increment: converted },
+                        }
+                      : {}),
+                  },
+                });
+
+                // Mark payment transaction as COMPLETED if currently ONHOLD/SUCCESS
+                await prisma.transaction.update({
+                  where: { id: paymentTx.id },
+                  data: { status: 'COMPLETED' },
+                });
+              });
+            }
           }
-
-          const amountPaid = transaction?.amount_paid
-            ? Number(transaction.amount_paid)
-            : 0;
-
-          // Update request status
-          const updated = await prisma.tripRequest.update({
-            where: { id: requestId },
-            data: { status },
-          });
-
-          // Move amount from hold_balance_xaf to available_balance_xaf
-          await prisma.wallet.update({
-            where: { id: travelerWallet.id },
-            data: {
-              hold_balance_xaf: {
-                decrement: amountPaid,
-              },
-              available_balance_xaf: {
-                increment: amountPaid,
-              },
-            },
-          });
-
-          // Update transaction status from ON_HOLD to COMPLETED
-          if (transaction) {
-            await prisma.transaction.update({
-              where: { id: transaction.id },
-              data: {
-                status: 'COMPLETED',
-              },
-            });
-          }
-
-          return updated;
-        });
-      } else {
-        // Normal update for other statuses
-        updatedRequest = await this.prisma.tripRequest.update({
-          where: { id: requestId },
-          data: { status },
-        });
+        } catch (settleErr) {
+          console.error(
+            `Failed to settle wallet for delivered request ${requestId}: ${
+              (settleErr as any)?.message || settleErr
+            }`,
+          );
+        }
       }
 
       // Send a system message with the new status
@@ -1477,6 +1482,7 @@ export class RequestService {
                 status: status.toLowerCase(),
                 newStatus: status,
               },
+              defaultValue: `System: request status updated to ${status}`,
             },
           ),
           type: PrismaMessageType.SYSTEM,
@@ -1510,6 +1516,7 @@ export class RequestService {
                 status: status.toLowerCase(),
                 requesterEmail: request.user.email,
               },
+              defaultValue: `Request status changed to ${status}`,
             },
           ),
           type: PrismaMessageType.REQUEST,

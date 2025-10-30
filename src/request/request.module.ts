@@ -9,6 +9,7 @@ import { RedisModule } from '../redis/redis.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { NotificationModule } from '../notification/notification.module';
 import { PaymentModule } from '../payment/payment.module';
+import { CurrencyModule } from '../currency/currency.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PaymentModule } from '../payment/payment.module';
     WalletModule,
     NotificationModule,
     forwardRef(() => PaymentModule),
+    CurrencyModule,
   ],
   controllers: [RequestController],
   providers: [RequestService, CancellationService],
