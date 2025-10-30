@@ -89,9 +89,16 @@ export class PaymentService {
       const wallet = await this.prisma.wallet.create({
         data: {
           userId,
-          available_balance_stripe: 0,
-          pending_balance_stripe: 0,
-          withdrawn_total_stripe: 0,
+          // Initialize currency-specific balances to 0
+          available_balance_eur: 0,
+          available_balance_usd: 0,
+          available_balance_cad: 0,
+          available_balance_xaf: 0,
+          hold_balance_eur: 0,
+          hold_balance_usd: 0,
+          hold_balance_cad: 0,
+          hold_balance_xaf: 0,
+          // Keep aggregate fields for backward compatibility
           available_balance: 0.0,
           hold_balance: 0.0,
           total_balance: 0.0,
@@ -882,10 +889,6 @@ export class PaymentService {
           hold_balance_usd: 0,
           hold_balance_cad: 0,
           hold_balance_xaf: 0, // Display only, not processed
-          // Legacy columns (keep for compatibility)
-          available_balance_stripe: 0,
-          pending_balance_stripe: 0,
-          withdrawn_total_stripe: 0,
           available_balance: 0,
           hold_balance: 0,
           total_balance: 0,
@@ -930,6 +933,8 @@ export class PaymentService {
         });
 
         if (senderWallet) {
+          const refundCurrency = refund.currency?.toUpperCase?.() || 'EUR';
+          const balanceAfter = this.getWalletCurrencyBalance(senderWallet, refundCurrency);
           await this.prisma.transaction.create({
             data: {
               userId: order.user_id, // Sender
@@ -938,10 +943,10 @@ export class PaymentService {
               fee_applied: 0,
               amount_paid: refund.amount / 100,
               wallet_id: senderWallet.id,
-              currency: refund.currency.toUpperCase(),
+              currency: refundCurrency,
               description: `Refund for order ${order.id}`,
               source: 'REFUND',
-              balance_after: Number(senderWallet.available_balance_stripe), // No change to wallet balance
+              balance_after: balanceAfter, // No change to wallet balance
               provider: 'STRIPE',
             },
           });
@@ -1000,6 +1005,8 @@ export class PaymentService {
         });
 
         if (senderWallet) {
+          const cancelCurrency = (order.currency || 'EUR').toUpperCase();
+          const balanceAfter = this.getWalletCurrencyBalance(senderWallet, cancelCurrency);
           await this.prisma.transaction.create({
             data: {
               userId: order.user_id, // Sender
@@ -1008,10 +1015,10 @@ export class PaymentService {
               fee_applied: 0,
               amount_paid: Number(order.cost || 0),
               wallet_id: senderWallet.id,
-              currency: order.currency || 'EUR',
+              currency: cancelCurrency,
               description: `Payment cancelled for order ${order.id}`,
               source: 'PAYMENT_CANCELLATION',
-              balance_after: Number(senderWallet.available_balance_stripe), // No change to wallet balance
+              balance_after: balanceAfter, // No change to wallet balance
               provider: 'STRIPE',
             },
           });
@@ -1025,6 +1032,22 @@ export class PaymentService {
     } catch (error) {
       this.logger.error(`Failed to handle payment cancellation: ${error.message}`);
       throw error;
+    }
+  }
+
+  // Helpers for currency-specific wallet balances
+  private getWalletCurrencyBalance(wallet: any, currency: string): number {
+    const c = (currency || 'EUR').toUpperCase();
+    switch (c) {
+      case 'XAF':
+        return Number(wallet.available_balance_xaf || 0);
+      case 'USD':
+        return Number(wallet.available_balance_usd || 0);
+      case 'CAD':
+        return Number(wallet.available_balance_cad || 0);
+      case 'EUR':
+      default:
+        return Number(wallet.available_balance_eur || 0);
     }
   }
 }

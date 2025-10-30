@@ -650,9 +650,7 @@ model Wallet {
 
   transactions Transaction[]
 
-  available_balance_stripe Decimal @default(0) @db.Decimal(10, 2)
-  pending_balance_stripe   Decimal @default(0) @db.Decimal(10, 2)
-  withdrawn_total_stripe   Decimal @default(0) @db.Decimal(10, 2)
+  // removed legacy stripe balance fields: available_balance_stripe, pending_balance_stripe, withdrawn_total_stripe
 
   @@index([userId])
 }
