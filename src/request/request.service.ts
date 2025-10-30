@@ -1112,9 +1112,10 @@ export class RequestService {
     status: any,
     userId: string,
     lang?: string,
+    from_app: boolean = false,
   ): Promise<any> {
     // Disallow manual setting of CONFIRMED; it must be set by the payment flow
-    if (status === 'CONFIRMED') {
+    if (!from_app && status === 'CONFIRMED') {
       const message = await this.i18n.translate(
         'translation.request.status.confirmedOnlyByPayment',
         {
@@ -1348,6 +1349,25 @@ export class RequestService {
           }
           break;
 
+        case 'CONFIRMED':
+          // Only sender can confirm (after payment) or system can confirm
+          if (!isSender) {
+            throw new BadRequestException('Only sender can confirm requests');
+          }
+          // Can only confirm if current status is ACCEPTED
+          if (currentStatus !== 'ACCEPTED') {
+            const message = await this.i18n.translate(
+              'translation.trip.request.invalidTransition.mustBeAccepted',
+              {
+                lang,
+                defaultValue:
+                  'Request must be in ACCEPTED status to be confirmed',
+              },
+            );
+            throw new BadRequestException(message);
+          }
+          break;
+
         case 'DELIVERED':
           // Only sender can mark as delivered
           if (!isSender) {
@@ -1358,6 +1378,76 @@ export class RequestService {
             throw new BadRequestException(
               'Request must be in PENDING_DELIVERY status to be marked as delivered',
             );
+          }
+
+          if (status === 'DELIVERED' && request.payment_intent_id) {
+            try {
+              const paymentTx = await this.prisma.transaction.findUnique({
+                where: { id: request.payment_intent_id },
+              });
+              console.log('Payment transaction:', paymentTx.currency);
+
+              if (paymentTx && paymentTx.currency === 'XAF') {
+                console.log('Payment transaction:');
+                const amountPaid = Number(paymentTx.amount_requested);
+                if (isNaN(amountPaid)) {
+                  throw new BadRequestException('Invalid amount paid');
+                }
+
+                if (amountPaid > 0) {
+                  await this.prisma.$transaction(async (prisma) => {
+                    // Traveler's wallet
+                    const travelerWallet = await prisma.wallet.findUnique({
+                      where: { userId: request.trip.user_id },
+                    });
+                    if (!travelerWallet) {
+                      throw new NotFoundException('Traveler wallet not found');
+                    }
+
+                    // Convert XAF to wallet currency for generic balances
+                    let converted = 0;
+                    try {
+                      const conv = this.currencyService.convertCurrency(
+                        amountPaid,
+                        'XAF',
+                        travelerWallet.currency,
+                      );
+                      converted = conv.convertedAmount;
+                    } catch (convErr) {
+                      // Proceed with XAF balances even if conversion fails
+                      converted = 0;
+                    }
+
+                    // Move funds from hold to available (XAF and wallet currency)
+                    await prisma.wallet.update({
+                      where: { id: travelerWallet.id },
+                      data: {
+                        hold_balance_xaf: { decrement: amountPaid },
+                        available_balance_xaf: { increment: amountPaid },
+                        ...(converted > 0
+                          ? {
+                              hold_balance: { decrement: converted },
+                              available_balance: { increment: converted },
+                            }
+                          : {}),
+                      },
+                    });
+
+                    // Mark payment transaction as COMPLETED if currently ONHOLD/SUCCESS
+                    await prisma.transaction.update({
+                      where: { id: paymentTx.id },
+                      data: { status: 'COMPLETED' },
+                    });
+                  });
+                }
+              }
+            } catch (settleErr) {
+              console.error(
+                `Failed to settle wallet for delivered request ${requestId}: ${
+                  (settleErr as any)?.message || settleErr
+                }`,
+              );
+            }
           }
           break;
 
@@ -1396,74 +1486,6 @@ export class RequestService {
       });
 
       // If DELIVERED, settle wallet balances from hold to available using the payment transaction
-      if (status === 'DELIVERED' && request.payment_intent_id) {
-        try {
-          const paymentTx = await this.prisma.transaction.findUnique({
-            where: { id: request.payment_intent_id },
-          });
-
-          if (paymentTx && paymentTx.currency === 'XAF') {
-            const amountPaid = paymentTx.amount_paid
-              ? Number(paymentTx.amount_paid)
-              : paymentTx.amount_requested
-                ? Number(paymentTx.amount_requested)
-                : 0;
-
-            if (amountPaid > 0) {
-              await this.prisma.$transaction(async (prisma) => {
-                // Traveler's wallet
-                const travelerWallet = await prisma.wallet.findUnique({
-                  where: { userId: request.trip.user_id },
-                });
-                if (!travelerWallet) {
-                  throw new NotFoundException('Traveler wallet not found');
-                }
-
-                // Convert XAF to wallet currency for generic balances
-                let converted = 0;
-                try {
-                  const conv = this.currencyService.convertCurrency(
-                    amountPaid,
-                    'XAF',
-                    travelerWallet.currency,
-                  );
-                  converted = conv.convertedAmount;
-                } catch (convErr) {
-                  // Proceed with XAF balances even if conversion fails
-                  converted = 0;
-                }
-
-                // Move funds from hold to available (XAF and wallet currency)
-                await prisma.wallet.update({
-                  where: { id: travelerWallet.id },
-                  data: {
-                    hold_balance_xaf: { decrement: amountPaid },
-                    available_balance_xaf: { increment: amountPaid },
-                    ...(converted > 0
-                      ? {
-                          hold_balance: { decrement: converted },
-                          available_balance: { increment: converted },
-                        }
-                      : {}),
-                  },
-                });
-
-                // Mark payment transaction as COMPLETED if currently ONHOLD/SUCCESS
-                await prisma.transaction.update({
-                  where: { id: paymentTx.id },
-                  data: { status: 'COMPLETED' },
-                });
-              });
-            }
-          }
-        } catch (settleErr) {
-          console.error(
-            `Failed to settle wallet for delivered request ${requestId}: ${
-              (settleErr as any)?.message || settleErr
-            }`,
-          );
-        }
-      }
 
       // Send a system message with the new status
       let systemMessage;
@@ -1700,7 +1722,9 @@ export class RequestService {
     } catch (error) {
       if (
         error instanceof NotFoundException ||
-        error instanceof ConflictException
+        error instanceof ConflictException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
       ) {
         throw error;
       }
@@ -2039,13 +2063,19 @@ export class RequestService {
         },
       );
 
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
+
       return {
         message,
         requests: transformedRequests,
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages,
+        hasNext,
+        hasPrev,
       };
     } catch (error) {
       console.error('Error getting user requests:', error);

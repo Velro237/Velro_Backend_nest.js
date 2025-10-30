@@ -64,7 +64,7 @@ model CompanyService {
 
 model WithdrawalNumber {
   id        String   @id @default(uuid())
-  number    String   @unique
+  number    String
   carrier   String
   name      String
   createdAt DateTime @default(now())

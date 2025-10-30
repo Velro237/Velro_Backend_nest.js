@@ -85,6 +85,25 @@ export class WithdrawalResponseDto {
 }
 
 export class WalletBalanceDto {
+  // Generic balances (wallet currency)
+  @ApiProperty({
+    description: 'Available balance (wallet currency)',
+    example: 0,
+  })
+  availableBalance: number;
+
+  @ApiProperty({
+    description: 'Hold balance (wallet currency)',
+    example: 0,
+  })
+  holdBalance: number;
+
+  @ApiProperty({
+    description: 'Total balance (wallet currency)',
+    example: 0,
+  })
+  totalBalance: number;
+
   // XAF balances
   @ApiProperty({
     description: 'Available balance in XAF',

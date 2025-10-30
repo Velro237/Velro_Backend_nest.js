@@ -449,11 +449,16 @@ export class MobilemoneyService {
         throw new BadRequestException(message);
       }
 
-      // Calculate fee using VELRO_FEE_PERCENT from environment
-      const amountInXAF = await this.convertToXAF(amount, request.currency);
-
-      // Check if currency conversion was successful
-      if (amountInXAF === null) {
+      // Convert request cost to XAF using CurrencyService
+      let amountInXAF = 0;
+      try {
+        const conv = this.currencyService.convertCurrency(
+          amount,
+          (request.currency as string) || 'XAF',
+          'XAF',
+        );
+        amountInXAF = conv.convertedAmount;
+      } catch (convErr) {
         const message = await this.i18n.translate(
           'translation.payment.mobilemoney.invalidCurrency',
           {
@@ -490,7 +495,7 @@ export class MobilemoneyService {
           amount_requested: amountInXAF,
           fee_applied: totalFee,
           amount_paid: amountPaid,
-          currency: request.currency,
+          currency: 'XAF',
           provider: carrier === PaymentCarrier.MTN_CM ? 'MTN' : 'ORANGE',
           reference: result.partnerId,
           phone_number: withdrawalNumber.number,
@@ -877,6 +882,7 @@ export class MobilemoneyService {
       const transaction = await this.prisma.transaction.findFirst({
         where: {
           provider_id: partnerId,
+          status: 'PENDING',
         },
         include: {
           trip: {
@@ -949,6 +955,7 @@ export class MobilemoneyService {
               'CONFIRMED',
               transaction.userId, // Use the transaction user ID as the system user
               'en', // Default language
+              true,
             );
             this.logger.log(
               `Request ${transaction.request_id} status updated to CONFIRMED`,
@@ -1015,10 +1022,11 @@ export class MobilemoneyService {
           },
         });
 
-        // Determine provider based on service code
-        let provider = 'MTN';
-        if (serviceCode.includes('ORANGE')) {
-          provider = 'ORANGE';
+        // Determine provider: prefer original transaction.provider to keep consistency
+        // Fallback to serviceCode inference only if provider is missing
+        let provider = (transaction as any).provider as string | undefined;
+        if (!provider) {
+          provider = serviceCode.includes('ORANGE') ? 'ORANGE' : 'MTN';
         }
 
         // Create a credit transaction for the trip creator
@@ -1129,14 +1137,14 @@ export class MobilemoneyService {
     }
 
     try {
-      // Check if number already exists
-      const existingNumber = await this.prisma.withdrawalNumber.findUnique({
-        where: { number: cleanNumber },
+      // Check if number already exists for this user
+      const existingNumber = await this.prisma.withdrawalNumber.findFirst({
+        where: { number: cleanNumber, user_id: userId },
       });
 
       if (existingNumber) {
         throw new BadRequestException(
-          'This mobile number is already registered',
+          'This mobile number is already registered for your account',
         );
       }
 
@@ -1220,15 +1228,15 @@ export class MobilemoneyService {
         );
       }
 
-      // Check if new number already exists (and is not the same as current)
+      // Check if new number already exists for this user (and is not the same as current)
       if (cleanNumber !== existingNumber.number) {
-        const duplicateNumber = await this.prisma.withdrawalNumber.findUnique({
-          where: { number: cleanNumber },
+        const duplicateNumber = await this.prisma.withdrawalNumber.findFirst({
+          where: { number: cleanNumber, user_id: userId },
         });
 
         if (duplicateNumber) {
           throw new BadRequestException(
-            'This mobile number is already registered',
+            'This mobile number is already registered for your account',
           );
         }
       }

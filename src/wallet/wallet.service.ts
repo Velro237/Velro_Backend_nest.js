@@ -51,6 +51,9 @@ export class WalletService {
 
       return {
         balance: {
+          availableBalance: Number(wallet.available_balance),
+          holdBalance: Number(wallet.hold_balance),
+          totalBalance: Number(wallet.total_balance),
           availableBalanceXaf: Number(wallet.available_balance_xaf),
           holdBalanceXaf: Number(wallet.hold_balance_xaf),
           availableBalanceUsd: Number(wallet.available_balance_usd),
@@ -283,7 +286,9 @@ export class WalletService {
       }
 
       // Get the appropriate currency columns
-      const currencyColumns = this.getCurrencyColumns(dto.currency || wallet.currency);
+      const currencyColumns = this.getCurrencyColumns(
+        dto.currency || wallet.currency,
+      );
       const availableBalance = Number(wallet[currencyColumns.available]);
 
       // Check if sufficient balance
@@ -349,35 +354,41 @@ export class WalletService {
         const platformBalance = await this.stripeService.getPlatformBalance();
         const requestedCurrency = dto.currency || wallet.currency; // Use requested currency or wallet default
         const requestedAmount = netAmount;
-        
+
         // Find available currency in platform account
         let transferCurrency = requestedCurrency;
         let transferAmount = requestedAmount;
-        
+
         const availableCurrency = platformBalance.available.find(
-          (balance) => balance.currency === requestedCurrency
+          (balance) => balance.currency === requestedCurrency,
         );
-        
-        if (!availableCurrency || availableCurrency.amount < Math.round(requestedAmount * 100)) {
+
+        if (
+          !availableCurrency ||
+          availableCurrency.amount < Math.round(requestedAmount * 100)
+        ) {
           // If insufficient funds in requested currency, use EUR (platform default)
           const eurBalance = platformBalance.available.find(
-            (balance) => balance.currency === 'eur'
+            (balance) => balance.currency === 'eur',
           );
-          
-          if (eurBalance && eurBalance.amount >= Math.round(requestedAmount * 100)) {
+
+          if (
+            eurBalance &&
+            eurBalance.amount >= Math.round(requestedAmount * 100)
+          ) {
             transferCurrency = 'eur';
             transferAmount = requestedAmount; // Let Stripe handle conversion automatically
-            
+
             this.logger.log(
               `Insufficient ${requestedCurrency} funds, using EUR with Stripe's automatic conversion. ` +
-              `Requested: ${requestedAmount} ${requestedCurrency}, ` +
-              `Using: ${requestedAmount} EUR (Stripe will convert automatically)`
+                `Requested: ${requestedAmount} ${requestedCurrency}, ` +
+                `Using: ${requestedAmount} EUR (Stripe will convert automatically)`,
             );
           } else {
             throw new BadRequestException(
               `Insufficient funds in platform account. ` +
-              `Requested: ${requestedAmount} ${requestedCurrency}, ` +
-              `Available: ${platformBalance.available.map(b => `${b.amount/100} ${b.currency}`).join(', ')}`
+                `Requested: ${requestedAmount} ${requestedCurrency}, ` +
+                `Available: ${platformBalance.available.map((b) => `${b.amount / 100} ${b.currency}`).join(', ')}`,
             );
           }
         }
@@ -692,7 +703,6 @@ export class WalletService {
     return wallet;
   }
 
-
   /**
    * Get the appropriate currency column names for a given currency
    */
@@ -715,8 +725,6 @@ export class WalletService {
         return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
     }
   }
-
-
 
   /**
    * Map withdrawal to DTO
@@ -749,8 +757,11 @@ export class WalletService {
       }
 
       // Get supported payout currencies from Stripe (dynamic)
-      const supportedCurrencies = await this.stripeService.getAccountPayoutCurrencies(user.stripe_account_id);
-      
+      const supportedCurrencies =
+        await this.stripeService.getAccountPayoutCurrencies(
+          user.stripe_account_id,
+        );
+
       // Get user's wallet balances
       const wallet = await this.ensureWallet(userId);
       const userBalances = [
@@ -758,15 +769,18 @@ export class WalletService {
         { currency: 'USD', amount: Number(wallet.available_balance_usd) },
         { currency: 'EUR', amount: Number(wallet.available_balance_eur) },
         { currency: 'CAD', amount: Number(wallet.available_balance_cad) },
-      ].filter(balance => balance.amount > 0);
-      
+      ].filter((balance) => balance.amount > 0);
+
       return {
         supportedCurrencies,
         userBalances,
         message: 'Multi-currency withdrawal options retrieved successfully',
       };
     } catch (error) {
-      this.logger.error('Failed to get multi-currency withdrawal options:', error);
+      this.logger.error(
+        'Failed to get multi-currency withdrawal options:',
+        error,
+      );
       throw error;
     }
   }
@@ -776,7 +790,8 @@ export class WalletService {
    */
   async getSupportedCurrencies(): Promise<any> {
     try {
-      const supportedCurrencies = await this.stripeService.getSupportedCurrencies();
+      const supportedCurrencies =
+        await this.stripeService.getSupportedCurrencies();
       return {
         supportedCurrencies,
         message: 'Supported currencies retrieved successfully',
