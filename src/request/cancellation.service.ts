@@ -200,6 +200,14 @@ export class CancellationService {
       await this.processStripeCancellationOrRefund(request.payment_intent_id, refundAmount);
     }
 
+    // Release hold from traveler's wallet (remove full held amount)
+    try {
+      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+    } catch (e) {
+      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
     // Credit traveler with compensation
     if (travelerCompensation > 0) {
       await this.creditTravelerCompensation(request.trip.user_id, travelerCompensation, request.id, currency);
@@ -234,6 +242,14 @@ export class CancellationService {
       await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
     }
 
+    // Release any hold from traveler's wallet
+    try {
+      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+    } catch (e) {
+      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
     const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
 
     return {
@@ -260,6 +276,14 @@ export class CancellationService {
       await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
     }
 
+    // Release any hold from traveler's wallet
+    try {
+      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+    } catch (e) {
+      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
     const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
 
     return {
@@ -284,6 +308,14 @@ export class CancellationService {
     // Full cancellation/refund to sender
     if (request.payment_intent_id) {
       await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
+    }
+
+    // Release any hold from traveler's wallet
+    try {
+      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+    } catch (e) {
+      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
     }
 
     const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
@@ -448,5 +480,44 @@ export class CancellationService {
 
   private computeBalanceAfter(wallet: any, currency: string, delta: number): number {
     return this.getWalletCurrencyBalance(wallet, currency) + Number(delta || 0);
+  }
+
+  /**
+   * Release held earnings from traveler's wallet for a cancelled request
+   */
+  private async releaseHold(travelerId: string, amount: number, currency: string, requestId: string) {
+    if (!amount || amount <= 0) return;
+    // Ensure wallet exists and resolve columns
+    const wallet = await this.walletService.ensureWallet(travelerId);
+    const { holdColumn } = this.getCurrencyColumns(currency);
+
+    // Decrement hold by the full delivery fee
+    await this.prisma.wallet.update({
+      where: { id: wallet.id },
+      data: {
+        [holdColumn]: {
+          decrement: amount,
+        },
+      } as any,
+    });
+
+    // Optional: record an audit transaction for hold release (no funds move to available)
+    await this.prisma.transaction.create({
+      data: {
+        userId: travelerId,
+        wallet_id: wallet.id,
+        type: 'DEBIT',
+        source: 'PAYMENT_CANCELLATION',
+        amount_requested: amount,
+        fee_applied: 0,
+        amount_paid: amount,
+        currency,
+        request_id: requestId,
+        status: 'SUCCESS',
+        provider: 'STRIPE',
+        description: `Hold released due to cancellation for request ${requestId}`,
+        balance_after: Number(wallet[holdColumn]) - amount,
+      },
+    });
   }
 }
