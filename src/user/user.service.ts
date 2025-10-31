@@ -28,9 +28,27 @@ const userSelect = {
   isFreightForwarder: true,
   companyName: true,
   companyAddress: true,
+  businessType: true,
+  // additionalInfo: true, // TODO: Add this field to User model in schema.prisma first
   currency: true,
   createdAt: true,
   updatedAt: true,
+  services: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+    },
+  },
+  cities: {
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      contactName: true,
+      contactPhone: true,
+    },
+  },
   kycRecords: {
     select: {
       id: true,
@@ -113,11 +131,25 @@ export class UserService {
           isFreightForwarder: user.isFreightForwarder,
           companyName: user.companyName,
           companyAddress: user.companyAddress,
+          businessType: user.businessType,
+          // additionalInfo: user.additionalInfo, // TODO: Add this field to User model in schema.prisma first
+          services: (user.services || []).map((s) => ({
+            id: s.id,
+            name: s.name,
+            description: s.description || undefined,
+          })),
+          cities: (user.cities || []).map((c) => ({
+            id: c.id,
+            name: c.name,
+            address: c.address,
+            contactName: c.contactName,
+            contactPhone: c.contactPhone,
+          })),
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
           kycRecord: user.kycRecords?.[0] || null,
         },
-      };
+      } as GetMeResponseDto;
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -212,7 +244,8 @@ export class UserService {
       trimmedDto[key] = trimValue(key, value);
     }
 
-    const { email, password, date_of_birth, ...rest } = trimmedDto;
+    const { email, password, date_of_birth, services, cities, ...rest } =
+      trimmedDto;
 
     // Validate email uniqueness with trimmed email
     if (email) {
@@ -229,15 +262,176 @@ export class UserService {
     const dateOfBirth = date_of_birth ? new Date(date_of_birth) : undefined;
 
     try {
-      return await this.prisma.user.update({
-        where: { id },
-        data: {
-          ...rest,
-          ...(email ? { email } : {}),
-          ...(hashed ? { password: hashed } : {}),
-          ...(dateOfBirth ? { date_of_birth: dateOfBirth } : {}),
-        },
-        select: userSelect,
+      // Handle services and cities updates in a transaction
+      return await this.prisma.$transaction(async (prisma) => {
+        // Handle services (similar to cities)
+        let servicesData: any = undefined;
+        if (services !== undefined) {
+          // Get existing services for this user (via the many-to-many relation)
+          const user = await prisma.user.findUnique({
+            where: { id },
+            include: { services: { select: { id: true } } },
+          });
+
+          if (!user) {
+            throw new NotFoundException(`User #${id} not found`);
+          }
+
+          const serviceIdsFromRequest = new Set<string>();
+
+          for (const service of services) {
+            if (service.id) {
+              // Connect to existing service (validate it exists)
+              const existingService = await prisma.companyService.findUnique({
+                where: { id: service.id },
+                select: { id: true },
+              });
+
+              if (!existingService) {
+                throw new NotFoundException(
+                  `Service with ID ${service.id} not found`,
+                );
+              }
+
+              serviceIdsFromRequest.add(service.id);
+
+              // Update service details if provided
+              await prisma.companyService.update({
+                where: { id: service.id },
+                data: {
+                  name: service.name.trim(),
+                  ...(service.description !== undefined
+                    ? { description: service.description.trim() || null }
+                    : {}),
+                },
+              });
+            } else {
+              // Create new service
+              const newService = await prisma.companyService.create({
+                data: {
+                  name: service.name.trim(),
+                  description: service.description
+                    ? service.description.trim()
+                    : null,
+                },
+              });
+              serviceIdsFromRequest.add(newService.id);
+            }
+          }
+
+          // Disconnect services not in the request (but don't delete them as they're shared)
+          // The Prisma set operation will handle disconnection automatically
+
+          // Prepare services connection data
+          servicesData = {
+            set: Array.from(serviceIdsFromRequest).map((serviceId) => ({
+              id: serviceId,
+            })),
+          };
+        }
+
+        // Prepare cities data
+        let citiesData: any = undefined;
+        if (cities !== undefined) {
+          // Get existing cities for this user
+          const existingCities = await prisma.companyCity.findMany({
+            where: { userId: id },
+            select: { id: true },
+          });
+          const existingCityIds = new Set(existingCities.map((c) => c.id));
+
+          // Validate that all provided city IDs belong to this user
+          const cityIdsToUpdate = cities
+            .map((c) => c.id)
+            .filter((id): id is string => !!id);
+          if (cityIdsToUpdate.length > 0) {
+            const invalidCityIds = cityIdsToUpdate.filter(
+              (cityId) => !existingCityIds.has(cityId),
+            );
+            if (invalidCityIds.length > 0) {
+              throw new NotFoundException(
+                `One or more city IDs not found or do not belong to this user: ${invalidCityIds.join(', ')}`,
+              );
+            }
+          }
+
+          // Separate cities to create, update, and delete
+          const citiesToUpdate: string[] = [];
+          const citiesToCreate: any[] = [];
+          const cityIdsFromRequest = new Set<string>();
+
+          for (const city of cities) {
+            if (city.id) {
+              // Update existing city
+              cityIdsFromRequest.add(city.id);
+              citiesToUpdate.push(city.id);
+              await prisma.companyCity.update({
+                where: { id: city.id },
+                data: {
+                  name: city.name.trim(),
+                  address: city.address.trim(),
+                  contactName: city.contactName.trim(),
+                  contactPhone: city.contactPhone.trim(),
+                  userId: id,
+                },
+              });
+            } else {
+              // Create new city
+              citiesToCreate.push({
+                name: city.name.trim(),
+                address: city.address.trim(),
+                contactName: city.contactName.trim(),
+                contactPhone: city.contactPhone.trim(),
+                userId: id,
+              });
+            }
+          }
+
+          // Delete cities that are not in the request
+          const citiesToDelete = existingCities
+            .map((c) => c.id)
+            .filter((id) => !cityIdsFromRequest.has(id));
+
+          if (citiesToDelete.length > 0) {
+            await prisma.companyCity.deleteMany({
+              where: {
+                id: { in: citiesToDelete },
+                userId: id,
+              },
+            });
+          }
+
+          // Create new cities
+          if (citiesToCreate.length > 0) {
+            await prisma.companyCity.createMany({
+              data: citiesToCreate,
+            });
+          }
+
+          // For the relation update, we'll use connect to existing and newly created cities
+          // Get all current cities after update
+          const allCities = await prisma.companyCity.findMany({
+            where: { userId: id },
+            select: { id: true },
+          });
+          citiesData = {
+            set: allCities.map((c) => ({ id: c.id })),
+          };
+        }
+
+        // Update user with all fields
+        return await prisma.user.update({
+          where: { id },
+          data: {
+            ...rest,
+            ...(email ? { email } : {}),
+            ...(hashed ? { password: hashed } : {}),
+            ...(dateOfBirth ? { date_of_birth: dateOfBirth } : {}),
+            ...(servicesData ? { services: servicesData } : {}),
+            ...(citiesData ? { cities: citiesData } : {}),
+          },
+          select: userSelect,
+        });
       });
     } catch (e) {
       // NotFound → throw

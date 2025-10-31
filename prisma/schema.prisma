@@ -24,6 +24,7 @@ model PendingUser {
   city               String?
   companyName        String?
   companyAddress     String?
+  businessType       String?
   additionalInfo     String
   isFreightForwarder Boolean @default(false)
   otp_id             String
@@ -92,6 +93,7 @@ model User {
   lang          String?   @default("en")
   date_of_birth DateTime?
   otpCode       String?
+  businessType  String?
 
   name               String
   isFreightForwarder Boolean            @default(false)

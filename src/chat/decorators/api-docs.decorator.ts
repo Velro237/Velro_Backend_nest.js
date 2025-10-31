@@ -18,7 +18,7 @@ export function ApiCreateChat() {
     ApiOperation({
       summary: 'Create or get existing direct chat',
       description:
-        'Create a new direct chat between the authenticated user and another user, or return existing chat if one already exists (two users only)',
+        'Create a new direct chat between the authenticated user and another user, or return existing chat if one already exists (two users only). The initial message is optional - you can create a chat without sending a message.',
     }),
     ApiBearerAuth('JWT-auth'),
     ApiBody({ type: CreateChatDto }),

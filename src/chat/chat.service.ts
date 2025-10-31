@@ -129,28 +129,31 @@ export class ChatService {
             ],
           });
 
-          // Create the initial message
-          const initialMessage = await prisma.message.create({
-            data: {
-              content: messageContent,
-              type: messageType
-                ? (messageType as PrismaMessageType)
-                : PrismaMessageType.TEXT,
-              chat_id: newChat.id,
-              sender_id: userId,
-              reply_to_id: null, // Initial message in a new chat cannot be a reply
-              image_url: messageImageUrl || null,
-              request_id: messageRequestId || null,
-            },
-            include: {
-              sender: {
-                select: {
-                  id: true,
-                  email: true,
+          // Create the initial message only if messageContent is provided
+          let initialMessage = null;
+          if (messageContent) {
+            initialMessage = await prisma.message.create({
+              data: {
+                content: messageContent,
+                type: messageType
+                  ? (messageType as PrismaMessageType)
+                  : PrismaMessageType.TEXT,
+                chat_id: newChat.id,
+                sender_id: userId,
+                reply_to_id: null, // Initial message in a new chat cannot be a reply
+                image_url: messageImageUrl || null,
+                request_id: messageRequestId || null,
+              },
+              include: {
+                sender: {
+                  select: {
+                    id: true,
+                    email: true,
+                  },
                 },
               },
-            },
-          });
+            });
+          }
 
           // Fetch the chat with members
           const chat = await prisma.chat.findUnique({
@@ -202,16 +205,18 @@ export class ChatService {
             role: member.user.role,
           })),
         },
-        lastMessage: {
-          id: lastMessage.id,
-          content: lastMessage.content,
-          type: lastMessage.type,
-          createdAt: lastMessage.createdAt,
-          sender: {
-            id: lastMessage.sender.id,
-            email: lastMessage.sender.email,
-          },
-        },
+        lastMessage: lastMessage
+          ? {
+              id: lastMessage.id,
+              content: lastMessage.content,
+              type: lastMessage.type,
+              createdAt: lastMessage.createdAt,
+              sender: {
+                id: lastMessage.sender.id,
+                email: lastMessage.sender.email,
+              },
+            }
+          : null,
       };
     } catch (error) {
       console.log(error);

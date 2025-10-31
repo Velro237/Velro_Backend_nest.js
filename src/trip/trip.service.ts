@@ -54,7 +54,11 @@ import { GetUserTripDetailResponseDto } from './dto/get-user-trip-detail.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
 import { NotificationService } from '../notification/notification.service';
-import { UserRole, TripStatus } from 'generated/prisma/client';
+import { RequestService } from '../request/request.service';
+import { ChatGateway } from '../chat/chat.gateway';
+import { StripeService } from '../payment/stripe.service';
+import { WalletService } from '../wallet/wallet.service';
+import { UserRole, TripStatus, RequestStatus } from 'generated/prisma/client';
 
 @Injectable()
 export class TripService {
@@ -62,6 +66,10 @@ export class TripService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly notificationService: NotificationService,
+    private readonly requestService: RequestService,
+    private readonly chatGateway: ChatGateway,
+    private readonly stripeService: StripeService,
+    private readonly walletService: WalletService,
   ) {}
 
   async createTrip(
@@ -272,30 +280,31 @@ export class TripService {
 
     try {
       const updateData: any = { ...updateTripDto };
+      const { trip_items, ...tripUpdateData } = updateData;
 
       // Remove status from updateData - users cannot update status directly
-      delete updateData.status;
+      delete tripUpdateData.status;
 
       // Convert departure_date string to Date if provided
-      if (updateData.departure_date) {
-        updateData.departure_date = new Date(updateData.departure_date);
+      if (tripUpdateData.departure_date) {
+        tripUpdateData.departure_date = new Date(tripUpdateData.departure_date);
       }
 
       // Convert arrival_date string to Date if provided
-      if (updateData.arrival_date) {
-        updateData.arrival_date = new Date(updateData.arrival_date);
+      if (tripUpdateData.arrival_date) {
+        tripUpdateData.arrival_date = new Date(tripUpdateData.arrival_date);
       }
 
       // Store departure and arrival dates in variables
       // Use new values if provided, otherwise use existing values
-      let departureDate = updateData.departure_date
-        ? new Date(updateData.departure_date)
+      let departureDate = tripUpdateData.departure_date
+        ? new Date(tripUpdateData.departure_date)
         : new Date(existingTrip.departure_date);
 
       let arrivalDate =
-        updateData.arrival_date !== undefined
-          ? updateData.arrival_date
-            ? new Date(updateData.arrival_date)
+        tripUpdateData.arrival_date !== undefined
+          ? tripUpdateData.arrival_date
+            ? new Date(tripUpdateData.arrival_date)
             : null
           : existingTrip.arrival_date
             ? new Date(existingTrip.arrival_date)
@@ -334,20 +343,20 @@ export class TripService {
       }
 
       // Handle JSON fields properly
-      if (updateData.pickup !== undefined) {
-        updateData.pickup = updateData.pickup || null;
+      if (tripUpdateData.pickup !== undefined) {
+        tripUpdateData.pickup = tripUpdateData.pickup || null;
       }
-      if (updateData.destination !== undefined) {
-        updateData.destination = updateData.destination || null;
+      if (tripUpdateData.destination !== undefined) {
+        tripUpdateData.destination = tripUpdateData.destination || null;
       }
 
       // Check if schedule-related fields have changed
       let scheduleChanged = false;
 
       // Check departure_date
-      if (updateData.departure_date) {
+      if (tripUpdateData.departure_date) {
         const existingDate = new Date(existingTrip.departure_date);
-        const newDate = new Date(updateData.departure_date);
+        const newDate = new Date(tripUpdateData.departure_date);
         if (existingDate.getTime() !== newDate.getTime()) {
           scheduleChanged = true;
         }
@@ -355,19 +364,19 @@ export class TripService {
 
       // Check departure_time
       if (
-        updateData.departure_time !== undefined &&
-        updateData.departure_time !== existingTrip.departure_time
+        tripUpdateData.departure_time !== undefined &&
+        tripUpdateData.departure_time !== existingTrip.departure_time
       ) {
         scheduleChanged = true;
       }
 
       // Check arrival_date
-      if (updateData.arrival_date !== undefined) {
+      if (tripUpdateData.arrival_date !== undefined) {
         const existingArrivalDate = existingTrip.arrival_date
           ? new Date(existingTrip.arrival_date).getTime()
           : null;
-        const newArrivalDate = updateData.arrival_date
-          ? new Date(updateData.arrival_date).getTime()
+        const newArrivalDate = tripUpdateData.arrival_date
+          ? new Date(tripUpdateData.arrival_date).getTime()
           : null;
 
         if (existingArrivalDate !== newArrivalDate) {
@@ -377,31 +386,127 @@ export class TripService {
 
       // Check arrival_time
       if (
-        updateData.arrival_time !== undefined &&
-        updateData.arrival_time !== existingTrip.arrival_time
+        tripUpdateData.arrival_time !== undefined &&
+        tripUpdateData.arrival_time !== existingTrip.arrival_time
       ) {
         scheduleChanged = true;
       }
 
       // If any schedule field changed, change status to RESCHEDULED
       if (scheduleChanged) {
-        updateData.status = 'RESCHEDULED';
+        tripUpdateData.status = 'RESCHEDULED';
       }
 
-      const trip = await this.prisma.trip.update({
-        where: { id: tripId },
-        data: updateData,
-        select: {
-          id: true,
-          user_id: true,
-          departure_date: true,
-          departure_time: true,
-          arrival_date: true,
-          arrival_time: true,
-          status: true,
-          fully_booked: true,
-          updatedAt: true,
-        },
+      // Validate airline_id if provided
+      if (tripUpdateData.airline_id !== undefined) {
+        const airline = await this.prisma.airline.findUnique({
+          where: { id: tripUpdateData.airline_id },
+        });
+
+        if (!airline) {
+          const message = await this.i18n.translate(
+            'translation.trip.update.airlineNotFound',
+            {
+              lang,
+              defaultValue: 'Airline not found',
+            },
+          );
+          throw new NotFoundException(message);
+        }
+      }
+
+      // Validate mode_of_transport_id if provided
+      if (tripUpdateData.mode_of_transport_id !== undefined) {
+        if (tripUpdateData.mode_of_transport_id !== null) {
+          const transportType = await this.prisma.transportType.findUnique({
+            where: { id: tripUpdateData.mode_of_transport_id },
+          });
+
+          if (!transportType) {
+            const message = await this.i18n.translate(
+              'translation.trip.update.transportNotFound',
+              {
+                lang,
+                defaultValue: 'Transport type not found',
+              },
+            );
+            throw new NotFoundException(message);
+          }
+        }
+      }
+
+      // Validate trip items if provided
+      if (trip_items !== undefined) {
+        if (trip_items.length === 0) {
+          const message = await this.i18n.translate(
+            'translation.trip.update.tripItemsRequired',
+            {
+              lang,
+              defaultValue: 'At least one trip item is required',
+            },
+          );
+          throw new BadRequestException(message);
+        }
+
+        // Validate trip items exist in database
+        const tripItemIds = trip_items.map((item) => item.trip_item_id);
+        const existingTripItems = await this.prisma.tripItem.findMany({
+          where: { id: { in: tripItemIds } },
+          select: { id: true },
+        });
+
+        if (existingTripItems.length !== tripItemIds.length) {
+          const message = await this.i18n.translate(
+            'translation.trip.update.tripItemNotFound',
+            {
+              lang,
+              defaultValue: 'One or more trip items not found',
+            },
+          );
+          throw new NotFoundException(message);
+        }
+      }
+
+      // Update trip and trip items in a transaction
+      const result = await this.prisma.$transaction(async (prisma) => {
+        // Update the trip
+        const trip = await prisma.trip.update({
+          where: { id: tripId },
+          data: tripUpdateData,
+          select: {
+            id: true,
+            user_id: true,
+            departure_date: true,
+            departure_time: true,
+            arrival_date: true,
+            arrival_time: true,
+            status: true,
+            fully_booked: true,
+            updatedAt: true,
+          },
+        });
+
+        // Update trip items if provided
+        if (trip_items !== undefined) {
+          // Delete existing trip items
+          await prisma.tripItemsList.deleteMany({
+            where: { trip_id: tripId },
+          });
+
+          // Create new trip items
+          if (trip_items.length > 0) {
+            await prisma.tripItemsList.createMany({
+              data: trip_items.map((item) => ({
+                trip_id: tripId,
+                trip_item_id: item.trip_item_id,
+                price: item.price,
+                avalailble_kg: item.available_kg || null,
+              })),
+            });
+          }
+        }
+
+        return trip;
       });
 
       const message = await this.i18n.translate(
@@ -413,13 +518,472 @@ export class TripService {
 
       return {
         message,
-        trip,
+        trip: result,
       };
     } catch (error) {
+      // Preserve specific exceptions (NotFoundException, BadRequestException, etc.)
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+
       const message = await this.i18n.translate(
         'translation.trip.update.failed',
         {
           lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Cancel a trip
+   * Handles trip cancellation, updates related requests, processes refunds, and sends notifications
+   */
+  async cancelTrip(
+    tripId: string,
+    userId: string,
+    reason: string,
+    additionalNotes?: string,
+    lang?: string,
+  ) {
+    // Check if trip exists
+    const trip = await this.prisma.trip.findUnique({
+      where: { id: tripId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
+        requests: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!trip) {
+      const message = await this.i18n.translate(
+        'translation.trip.cancel.notFound',
+        {
+          lang,
+          defaultValue: 'Trip not found',
+        },
+      );
+      throw new NotFoundException(message);
+    }
+
+    // Check if user is authorized to cancel this trip
+    if (trip.user_id !== userId) {
+      const message = await this.i18n.translate(
+        'translation.trip.cancel.unauthorized',
+        {
+          lang,
+          defaultValue: 'You are not authorized to cancel this trip',
+        },
+      );
+      throw new ForbiddenException(message);
+    }
+
+    // Validate trip is not already cancelled
+    if (trip.status === TripStatus.CANCELLED) {
+      const message = await this.i18n.translate(
+        'translation.trip.cancel.alreadyCancelled',
+        {
+          lang,
+          defaultValue: 'Trip is already cancelled',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    // Check if there are any IN_TRANSIT requests (block cancellation)
+    const inTransitRequests = trip.requests.filter(
+      (req) => req.status === RequestStatus.IN_TRANSIT,
+    );
+    if (inTransitRequests.length > 0) {
+      const message = await this.i18n.translate(
+        'translation.trip.cancel.hasInTransitRequests',
+        {
+          lang,
+          defaultValue:
+            'Cannot cancel trip with requests in transit. Please contact support.',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    // Prepare cancellation reason
+    const cancellationReason = additionalNotes
+      ? `${reason}: ${additionalNotes}`
+      : reason;
+
+    try {
+      // Process cancellation in transaction
+      const result = await this.prisma.$transaction(async (prisma) => {
+        // Update trip status
+        const updatedTrip = await prisma.trip.update({
+          where: { id: tripId },
+          data: {
+            status: TripStatus.CANCELLED,
+            // Note: Prisma schema doesn't have cancelledAt or cancellationReason fields
+            // These would need to be added to the schema, or stored in metadata
+          },
+        });
+
+        // Process all related requests
+        let affectedRequests = 0;
+        let refundsProcessed = 0;
+
+        for (const request of trip.requests) {
+          // Skip requests that are already cancelled, declined, or expired
+          if (
+            request.status === RequestStatus.CANCELLED ||
+            request.status === RequestStatus.DECLINED ||
+            request.status === RequestStatus.EXPIRED
+          ) {
+            continue;
+          }
+
+          affectedRequests++;
+
+          // Store original status for refund logic
+          const originalStatus = request.status;
+          const needsRefund =
+            originalStatus === RequestStatus.CONFIRMED ||
+            originalStatus === RequestStatus.ACCEPTED ||
+            (request.payment_status === 'SUCCEEDED' &&
+              request.payment_intent_id);
+
+          // Use changeRequestStatus to update request status to CANCELLED
+          // This will handle chat messages and system notifications
+          try {
+            await this.requestService.changeRequestStatus(
+              request.id,
+              RequestStatus.CANCELLED,
+              userId, // traveler ID
+              lang,
+            );
+
+            // Update request with cancellation metadata
+            await prisma.tripRequest.update({
+              where: { id: request.id },
+              data: {
+                cancelled_at: new Date(),
+                cancellation_type: 'TRIP_CANCELLED',
+                cancellation_reason: `Trip cancelled: ${cancellationReason}`,
+              },
+            });
+          } catch (requestError) {
+            console.error(
+              `Failed to update request ${request.id} status:`,
+              requestError,
+            );
+            // Continue processing other requests
+          }
+
+          // Process refunds for paid/accepted requests (using original status)
+          if (needsRefund) {
+            try {
+              // Get payment transaction
+              const paymentTx = await prisma.transaction.findUnique({
+                where: { id: request.payment_intent_id! },
+                include: {
+                  user: {
+                    include: {
+                      wallet: true,
+                    },
+                  },
+                },
+              });
+
+              if (paymentTx && paymentTx.status === 'SUCCESS') {
+                const amountPaid = Number(paymentTx.amount_paid);
+                const currency = paymentTx.currency;
+
+                // Process refund based on payment method
+                if (paymentTx.provider === 'STRIPE' && paymentTx.provider_id) {
+                  // Stripe refund using processCancellationOrRefund
+                  try {
+                    await this.stripeService.processCancellationOrRefund(
+                      paymentTx.provider_id,
+                      amountPaid,
+                    );
+
+                    // Update transaction status (use SUCCESS with refund metadata)
+                    await prisma.transaction.update({
+                      where: { id: paymentTx.id },
+                      data: {
+                        status: 'SUCCESS', // TransactionStatus doesn't have REFUNDED
+                        description: `Refunded due to trip cancellation: ${cancellationReason}`,
+                        metadata: {
+                          ...((paymentTx.metadata as any) || {}),
+                          refundedAt: new Date().toISOString(),
+                          refundReason: 'TRIP_CANCELLED',
+                          refundStatus: 'PROCESSED',
+                        },
+                      },
+                    });
+
+                    refundsProcessed++;
+                  } catch (stripeError) {
+                    console.error(
+                      `Failed to process Stripe refund for transaction ${paymentTx.id}:`,
+                      stripeError,
+                    );
+                    // Continue - manual intervention may be required
+                  }
+                } else {
+                  // Internal wallet refund
+                  const senderWallet = paymentTx.user.wallet;
+                  if (senderWallet) {
+                    // Credit back to sender's wallet
+                    const updateData: any = {
+                      available_balance_xaf:
+                        currency === 'XAF'
+                          ? { increment: amountPaid }
+                          : undefined,
+                    };
+
+                    // Add currency-specific balance update
+                    if (currency === 'EUR') {
+                      updateData.available_balance_eur = {
+                        increment: amountPaid,
+                      };
+                    } else if (currency === 'USD') {
+                      updateData.available_balance_usd = {
+                        increment: amountPaid,
+                      };
+                    } else if (currency === 'CAD') {
+                      updateData.available_balance_cad = {
+                        increment: amountPaid,
+                      };
+                    }
+
+                    // Update generic balances if currency service is available
+                    // For now, we'll update the currency-specific balance
+
+                    await prisma.wallet.update({
+                      where: { id: senderWallet.id },
+                      data: updateData,
+                    });
+
+                    // Update transaction status (use SUCCESS with refund metadata)
+                    await prisma.transaction.update({
+                      where: { id: paymentTx.id },
+                      data: {
+                        status: 'SUCCESS', // TransactionStatus doesn't have REFUNDED
+                        description: `Refunded due to trip cancellation: ${cancellationReason}`,
+                        metadata: {
+                          ...((paymentTx.metadata as any) || {}),
+                          refundedAt: new Date().toISOString(),
+                          refundReason: 'TRIP_CANCELLED',
+                          refundMethod: 'WALLET',
+                          refundStatus: 'PROCESSED',
+                        },
+                      },
+                    });
+
+                    // Create refund transaction record
+                    await prisma.transaction.create({
+                      data: {
+                        userId: paymentTx.userId,
+                        wallet_id: senderWallet.id,
+                        amount_requested: amountPaid,
+                        amount_paid: amountPaid,
+                        fee_applied: 0,
+                        currency: currency,
+                        type: 'CREDIT',
+                        source: 'REFUND',
+                        status: 'SUCCESS',
+                        provider: paymentTx.provider,
+                        description: `Refund for cancelled trip: ${cancellationReason}`,
+                        metadata: {
+                          originalTransactionId: paymentTx.id,
+                          tripId: tripId,
+                          requestId: request.id,
+                          refundReason: 'TRIP_CANCELLED',
+                        },
+                        balance_after:
+                          Number(senderWallet.available_balance) + amountPaid,
+                      },
+                    });
+
+                    refundsProcessed++;
+                  }
+                }
+              }
+            } catch (refundError) {
+              console.error(
+                `Failed to process refund for request ${request.id}:`,
+                refundError,
+              );
+              // Continue processing other requests
+            }
+          }
+        }
+
+        // Archive all chats linked to this trip
+        const chats = await prisma.chat.findMany({
+          where: { trip_id: tripId },
+        });
+
+        for (const chat of chats) {
+          // Send system message to chat
+          try {
+            await this.chatGateway.sendMessageProgrammatically({
+              chatId: chat.id,
+              senderId: userId,
+              content: await this.i18n.translate(
+                'translation.chat.messages.tripCancelled',
+                {
+                  lang,
+                  args: { tripId, reason: cancellationReason },
+                  defaultValue: `⚠️ This trip has been cancelled by the traveler. Reason: ${cancellationReason}. All related deliveries have been voided.`,
+                },
+              ),
+              type: 'SYSTEM',
+            });
+          } catch (chatError) {
+            console.error(
+              `Failed to send system message to chat ${chat.id}:`,
+              chatError,
+            );
+          }
+        }
+
+        return {
+          trip: updatedTrip,
+          affectedRequests,
+          refundsProcessed,
+        };
+      });
+
+      // Send notifications
+      try {
+        // Notify traveler (confirmation)
+        await this.notificationService.createNotification(
+          {
+            user_id: trip.user_id,
+            title: await this.i18n.translate(
+              'translation.trip.cancel.notification.traveler.title',
+              {
+                lang,
+                defaultValue: 'Trip Cancelled',
+              },
+            ),
+            message: await this.i18n.translate(
+              'translation.trip.cancel.notification.traveler.message',
+              {
+                lang,
+                defaultValue: 'Your trip has been successfully cancelled.',
+              },
+            ),
+            type: 'SYSTEM',
+            data: {
+              tripId: tripId,
+              reason: cancellationReason,
+              action: 'TRIP_CANCELLED',
+            },
+          },
+          lang,
+        );
+
+        // Notify all senders with requests
+        for (const request of trip.requests) {
+          if (
+            request.status !== RequestStatus.CANCELLED &&
+            request.status !== RequestStatus.DECLINED &&
+            request.status !== RequestStatus.EXPIRED
+          ) {
+            await this.notificationService.createNotification(
+              {
+                user_id: request.user_id,
+                title: await this.i18n.translate(
+                  'translation.trip.cancel.notification.sender.title',
+                  {
+                    lang,
+                    defaultValue: 'Trip Cancelled',
+                  },
+                ),
+                message: await this.i18n.translate(
+                  'translation.trip.cancel.notification.sender.message',
+                  {
+                    lang,
+                    args: {
+                      tripId,
+                    },
+                    defaultValue: `The trip #${tripId} has been cancelled by the traveler. ${result.refundsProcessed > 0 ? 'Any payments made will be refunded.' : ''}`,
+                  },
+                ),
+                type: 'REQUEST',
+                data: {
+                  tripId: tripId,
+                  requestId: request.id,
+                  reason: cancellationReason,
+                  refunded: result.refundsProcessed > 0,
+                  action: 'TRIP_CANCELLED',
+                },
+              },
+              lang,
+            );
+          }
+        }
+      } catch (notificationError) {
+        console.error('Failed to send notifications:', notificationError);
+        // Don't fail the cancellation if notifications fail
+      }
+
+      const message = await this.i18n.translate(
+        'translation.trip.cancel.success',
+        {
+          lang,
+          args: {
+            affectedRequests: result.affectedRequests,
+            refundsProcessed: result.refundsProcessed,
+          },
+          defaultValue: `Trip cancelled successfully. ${result.affectedRequests} request(s) affected. ${result.refundsProcessed} refund(s) processed.`,
+        },
+      );
+
+      return {
+        message,
+        tripId,
+        affectedRequests: result.affectedRequests,
+        refundsProcessed: result.refundsProcessed,
+      };
+    } catch (error) {
+      // Preserve specific exceptions
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+
+      console.error('Error cancelling trip:', error);
+      const message = await this.i18n.translate(
+        'translation.trip.cancel.failed',
+        {
+          lang,
+          defaultValue: 'Failed to cancel trip',
         },
       );
       throw new InternalServerErrorException(message);

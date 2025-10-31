@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsOptional, IsArray, IsUUID, IsEnum } from 'class-validator';
 import { MessageType } from './send-message.dto';
 
@@ -31,11 +31,14 @@ export class CreateChatDto {
   tripId?: string;
 
   @ApiProperty({
-    description: 'Initial message content (required)',
+    description:
+      'Initial message content (optional - chat can be created without a message)',
     example: 'Hello! I would like to discuss the trip details.',
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  messageContent: string;
+  messageContent?: string;
 
   @ApiProperty({
     description: 'Initial message type',
@@ -114,9 +117,11 @@ export class CreateChatResponseDto {
     }>;
   };
 
-  @ApiProperty({
-    description: 'Last message that was created with the chat',
+  @ApiPropertyOptional({
+    description:
+      'Last message that was created with the chat (null if chat was created without a message)',
     type: 'object',
+    nullable: true,
     properties: {
       id: { type: 'string' },
       content: { type: 'string' },
@@ -140,5 +145,5 @@ export class CreateChatResponseDto {
       id: string;
       email: string;
     };
-  };
+  } | null;
 }

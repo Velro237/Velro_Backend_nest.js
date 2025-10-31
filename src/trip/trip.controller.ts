@@ -24,6 +24,7 @@ import {
 import { TripService } from './trip.service';
 import { CreateTripDto, CreateTripResponseDto } from './dto/create-trip.dto';
 import { UpdateTripDto, UpdateTripResponseDto } from './dto/update-trip.dto';
+import { CancelTripDto, CancelTripResponseDto } from './dto/cancel-trip.dto';
 import { TripItemListDto } from './dto/trip-item-list.dto';
 import {
   CreateTransportTypeDto,
@@ -147,6 +148,54 @@ export class TripController {
     // For demo purposes, using a dummy user ID
     // In a real app, this would come from authentication
     return this.tripService.updateTrip(tripId, updateTripDto, user.id, lang);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Cancel a trip',
+    description:
+      'Cancel a trip as the traveler. This will automatically cancel related requests, process refunds for paid requests, send notifications, and archive chats. Cannot cancel if there are requests in transit.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip ID to cancel',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({ type: CancelTripDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Trip cancelled successfully',
+    type: CancelTripResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Bad Request - Trip already cancelled or has requests in transit',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Not authorized to cancel this trip',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip not found',
+  })
+  @ApiBearerAuth('JWT-auth')
+  async cancelTrip(
+    @Param('id') tripId: string,
+    @Body() cancelTripDto: CancelTripDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<CancelTripResponseDto> {
+    return this.tripService.cancelTrip(
+      tripId,
+      user.id,
+      cancelTripDto.reason,
+      cancelTripDto.additionalNotes,
+      lang,
+    );
   }
 
   // TransportType endpoints

@@ -26,6 +26,23 @@ export class GetMeResponseDto {
       isFreightForwarder: false,
       companyName: null,
       companyAddress: null,
+      businessType: 'Logistics',
+      services: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'Logistics',
+          description: 'Full logistics services',
+        },
+      ],
+      cities: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174001',
+          name: 'Paris Office',
+          address: '123 Main St, Paris',
+          contactName: 'John Doe',
+          contactPhone: '+1234567890',
+        },
+      ],
       createdAt: '2024-01-15T10:30:00.000Z',
       updatedAt: '2024-01-16T14:30:00.000Z',
       kycRecord: {
@@ -55,6 +72,19 @@ export class GetMeResponseDto {
     isFreightForwarder?: boolean;
     companyName?: string;
     companyAddress?: string;
+    businessType?: string;
+    services?: Array<{
+      id: string;
+      name: string;
+      description?: string;
+    }>;
+    cities?: Array<{
+      id: string;
+      name: string;
+      address: string;
+      contactName: string;
+      contactPhone: string;
+    }>;
     createdAt: Date;
     updatedAt: Date;
     kycRecord?: {
