@@ -713,7 +713,7 @@ export class TripService {
               });
 
               if (paymentTx && paymentTx.status === 'SUCCESS') {
-                const amountPaid = Number(paymentTx.amount_paid);
+                const amountPaid = Number(paymentTx.amount_requested);
                 const currency = paymentTx.currency;
 
                 // Process refund based on payment method

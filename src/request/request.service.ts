@@ -410,6 +410,41 @@ export class RequestService {
               requestId: result.request.id,
             });
           }
+
+          // Send system message for both new and existing chats
+          try {
+            const systemMessageContent = await this.i18n.translate(
+              'translation.chat.messages.systemRequestCreated',
+              {
+                lang,
+                args: {
+                  status: 'PENDING',
+                },
+                defaultValue:
+                  'System: New trip request created with status PENDING',
+              },
+            );
+
+            await this.chatGateway.sendMessageProgrammatically({
+              chatId: chatResult.chat.id,
+              senderId: userId,
+              content: systemMessageContent,
+              type: PrismaMessageType.SYSTEM,
+              replyToId: undefined,
+              imageUrl: undefined,
+              requestId: result.request.id,
+            });
+
+            console.log(
+              `Successfully sent system message for new request ${result.request.id} in chat ${chatResult.chat.id}`,
+            );
+          } catch (systemMessageError) {
+            console.error(
+              `Failed to send system message for new request ${result.request.id} in chat ${chatResult.chat.id}:`,
+              systemMessageError,
+            );
+            // Don't fail the entire operation, but log the error
+          }
         } catch (messageError) {
           console.error(
             'Failed to send message in existing chat:',
