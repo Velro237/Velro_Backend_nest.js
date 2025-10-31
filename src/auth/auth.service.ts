@@ -42,7 +42,8 @@ import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
 import * as dayjs from 'dayjs';
-import jwksClient from 'jwks-rsa';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const jwksClient = require('jwks-rsa');
 import {
   SendEmailDto,
   SendEmailResponseDto,
@@ -541,19 +542,39 @@ export class AuthService {
     return this.issueTokens(user.user.id);
   }
 
-  // APPLE: vérifier l’id_token via JWKS
+  // APPLE: vérifier l'id_token via JWKS
   async loginWithAppleIdToken(idToken: string) {
+    // Decode token first to get the audience and kid
+    const decoded: any = jwt.decode(idToken, { complete: true });
+    if (!decoded || !decoded.header || !decoded.payload) {
+      throw new BadRequestException('Invalid Apple id_token format');
+    }
+
+    const kid = decoded.header.kid;
+    const tokenAudience = decoded.payload.aud; // Use the audience from the token itself
+
+    // Build list of acceptable audiences (token's own + env var if different)
+    const acceptableAudiences = [
+      tokenAudience, // Primary: use the token's own audience
+      process.env.APPLE_CLIENT_ID, // Fallback: env variable
+    ]
+      .filter(Boolean)
+      .filter((aud, index, self) => self.indexOf(aud) === index); // Remove duplicates
+
     const client = jwksClient({
       jwksUri: 'https://appleid.apple.com/auth/keys',
     });
-    const decodedHeader: any = jwt.decode(idToken, { complete: true });
-    const kid = decodedHeader?.header?.kid;
+
     const key = await client.getSigningKey(kid);
     const signingKey = key.getPublicKey();
 
+    // Verify with acceptable audiences
     const verified = jwt.verify(idToken, signingKey, {
       algorithms: ['RS256'],
-      audience: process.env.APPLE_CLIENT_ID!, // très important !
+      audience:
+        acceptableAudiences.length === 1
+          ? acceptableAudiences[0]
+          : acceptableAudiences,
       issuer: 'https://appleid.apple.com',
     }) as any;
 
@@ -562,11 +583,42 @@ export class AuthService {
 
     if (!sub) throw new BadRequestException('Invalid Apple id_token');
 
+    // Extract name if user shared it (Apple sends name only on first authorization)
+    // Check both decoded payload (before verification) and verified payload
+    let name: string | null = null;
+
+    // Check verified payload first (most reliable)
+    if (verified.name) {
+      if (typeof verified.name === 'string') {
+        name = verified.name;
+      } else if (verified.name.firstName || verified.name.lastName) {
+        // Apple sometimes sends name as object with firstName/lastName
+        const firstName = verified.name.firstName || '';
+        const lastName = verified.name.lastName || '';
+        name = `${firstName} ${lastName}`.trim() || null;
+      }
+    }
+
+    // Also check decoded payload in case name is only in unverified token
+    // (Apple includes name in the initial id_token when user first authorizes)
+    if (!name && decoded.payload.name) {
+      if (typeof decoded.payload.name === 'string') {
+        name = decoded.payload.name;
+      } else if (
+        decoded.payload.name.firstName ||
+        decoded.payload.name.lastName
+      ) {
+        const firstName = decoded.payload.name.firstName || '';
+        const lastName = decoded.payload.name.lastName || '';
+        name = `${firstName} ${lastName}`.trim() || null;
+      }
+    }
+
     const user = await this.upsertUserFromOAuth({
       provider: 'APPLE',
       providerAccountId: sub,
       email,
-      name: null,
+      name, // Use extracted name if available, otherwise null
       picture: null,
       idToken,
     });

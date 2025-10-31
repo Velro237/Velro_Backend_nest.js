@@ -12,6 +12,7 @@ export class GetMeResponseDto {
     example: {
       id: '123e4567-e89b-12d3-a456-426614174000',
       email: 'user@example.com',
+      username: 'johndoe',
       name: 'John Doe',
       firstName: 'John',
       lastName: 'Doe',
@@ -27,6 +28,14 @@ export class GetMeResponseDto {
       companyName: null,
       companyAddress: null,
       businessType: 'Logistics',
+      currency: 'XAF',
+      lang: 'en',
+      date_of_birth: '1990-01-01T00:00:00.000Z',
+      stripe_account_id: 'acct_1234567890',
+      payout_country: 'CM',
+      payout_currency: 'EUR',
+      transfers_capability: 'active',
+      stripe_onboarding_complete: true,
       services: [
         {
           id: '123e4567-e89b-12d3-a456-426614174000',
@@ -58,6 +67,7 @@ export class GetMeResponseDto {
   user: {
     id: string;
     email: string;
+    username?: string | null;
     name?: string;
     firstName?: string;
     lastName?: string;
@@ -73,6 +83,14 @@ export class GetMeResponseDto {
     companyName?: string;
     companyAddress?: string;
     businessType?: string;
+    currency?: string | null;
+    lang?: string | null;
+    date_of_birth?: Date | null;
+    stripe_account_id?: string | null;
+    payout_country?: string | null;
+    payout_currency?: string | null;
+    transfers_capability?: string | null;
+    stripe_onboarding_complete?: boolean | null;
     services?: Array<{
       id: string;
       name: string;

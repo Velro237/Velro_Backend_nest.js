@@ -14,6 +14,7 @@ import * as bcrypt from 'bcryptjs';
 const userSelect = {
   id: true,
   email: true,
+  username: true,
   name: true,
   firstName: true,
   lastName: true,
@@ -31,6 +32,13 @@ const userSelect = {
   businessType: true,
   // additionalInfo: true, // TODO: Add this field to User model in schema.prisma first
   currency: true,
+  lang: true,
+  date_of_birth: true,
+  stripe_account_id: true,
+  payout_country: true,
+  payout_currency: true,
+  transfers_capability: true,
+  stripe_onboarding_complete: true,
   createdAt: true,
   updatedAt: true,
   services: {
@@ -117,6 +125,7 @@ export class UserService {
         user: {
           id: user.id,
           email: user.email,
+          username: user.username,
           name: user.name,
           firstName: user.firstName,
           lastName: user.lastName,
@@ -132,6 +141,14 @@ export class UserService {
           companyName: user.companyName,
           companyAddress: user.companyAddress,
           businessType: user.businessType,
+          currency: user.currency,
+          lang: user.lang,
+          date_of_birth: user.date_of_birth,
+          stripe_account_id: user.stripe_account_id,
+          payout_country: user.payout_country,
+          payout_currency: user.payout_currency,
+          transfers_capability: user.transfers_capability,
+          stripe_onboarding_complete: user.stripe_onboarding_complete,
           // additionalInfo: user.additionalInfo, // TODO: Add this field to User model in schema.prisma first
           services: (user.services || []).map((s) => ({
             id: s.id,

@@ -95,7 +95,7 @@ model User {
   otpCode       String?
   businessType  String?
 
-  name               String
+  name               String?
   isFreightForwarder Boolean            @default(false)
   companyName        String?
   companyAddress     String?
