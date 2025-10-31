@@ -359,18 +359,13 @@ export class RequestService {
           };
         } else {
           console.log('New chat');
-          // Create new chat
+          // Create new chat without initial message (we'll send system and request messages separately)
           chatResult = await this.chatService.createChat(
             {
               name: chatName,
               otherUserId: trip.user_id,
               tripId: trip.id,
-              messageContent: await this.i18n.translate(
-                'translation.chat.messages.newTripRequest',
-                { lang },
-              ),
-              messageType: MessageType.REQUEST,
-              messageRequestId: result.request.id,
+              // Don't create message here - we'll send system message first, then request message
             },
             userId,
             lang,
@@ -391,27 +386,9 @@ export class RequestService {
           },
         });
 
-        // Send a message in the chat for existing chats
-        // (for new chats, the message was already created in createChat)
+        // Send system message first, then request message (for both new and existing chats)
         try {
-          if (existingChat) {
-            console.log('Existing chat - sending message programmatically');
-            // Send message to notify about the new request
-            await this.chatGateway.sendMessageProgrammatically({
-              chatId: chatResult.chat.id,
-              senderId: userId,
-              content: await this.i18n.translate(
-                'translation.chat.messages.newTripRequest',
-                { lang },
-              ),
-              type: PrismaMessageType.REQUEST,
-              replyToId: undefined,
-              imageUrl: undefined,
-              requestId: result.request.id,
-            });
-          }
-
-          // Send system message for both new and existing chats
+          // Send system message first
           try {
             const systemMessageContent = await this.i18n.translate(
               'translation.chat.messages.systemRequestCreated',
@@ -445,11 +422,34 @@ export class RequestService {
             );
             // Don't fail the entire operation, but log the error
           }
+
+          // Send request message after system message (for both new and existing chats)
+          try {
+            await this.chatGateway.sendMessageProgrammatically({
+              chatId: chatResult.chat.id,
+              senderId: userId,
+              content: await this.i18n.translate(
+                'translation.chat.messages.newTripRequest',
+                { lang },
+              ),
+              type: PrismaMessageType.REQUEST,
+              replyToId: undefined,
+              imageUrl: undefined,
+              requestId: result.request.id,
+            });
+
+            console.log(
+              `Successfully sent request message for new request ${result.request.id} in chat ${chatResult.chat.id}`,
+            );
+          } catch (requestMessageError) {
+            console.error(
+              `Failed to send request message for new request ${result.request.id} in chat ${chatResult.chat.id}:`,
+              requestMessageError,
+            );
+            // Don't fail the entire operation, but log the error
+          }
         } catch (messageError) {
-          console.error(
-            'Failed to send message in existing chat:',
-            messageError,
-          );
+          console.error('Failed to send messages in chat:', messageError);
         }
 
         // Invalidate chat cache and user-specific cache for both users
