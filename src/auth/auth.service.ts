@@ -39,7 +39,7 @@ import {
 
 import { I18nService, I18nContext } from 'nestjs-i18n';
 import * as bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
 import * as dayjs from 'dayjs';
 import jwksClient from 'jwks-rsa';
@@ -177,7 +177,7 @@ export class AuthService {
       const hashedPassword = await bcrypt.hash(password, saltRounds);
 
       const otpCode = randomInt(100_000, 1_000_000);
-      console.log('otp', otpCode);
+
       const otpHash = await bcrypt.hash(String(otpCode), saltRounds);
 
       // Create the user
@@ -537,6 +537,7 @@ export class AuthService {
       picture,
       idToken,
     });
+
     return this.issueTokens(user.user.id);
   }
 
