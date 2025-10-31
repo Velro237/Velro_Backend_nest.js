@@ -518,11 +518,13 @@ export class PaymentService {
 
         // Use the proper endpoint to change status to CONFIRMED
         // For payment success, we use the sender ID since they initiated the payment
+        // Pass from_app: true to allow automatic status change from payment flow
         await this.requestService.changeRequestStatus(
           order.id,
           'CONFIRMED',
           order.user_id, // sender ID (who made the payment)
-          'en'
+          'en',
+          true // from_app: true - this is a system call from payment flow
         );
 
       // Get or create wallet for traveler
