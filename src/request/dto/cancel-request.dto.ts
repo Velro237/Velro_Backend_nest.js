@@ -4,24 +4,33 @@ import { IsEnum, IsOptional, IsString } from 'class-validator';
 export enum CancellationType {
   SENDER_CANCEL = 'SENDER_CANCEL',
   TRAVELER_CANCEL = 'TRAVELER_CANCEL',
-  MUTUAL_CANCEL = 'MUTUAL_CANCEL',
   SYSTEM_ERROR = 'SYSTEM_ERROR',
   FRAUD_DISPUTE = 'FRAUD_DISPUTE',
   TRAVELER_UNRESPONSIVE = 'TRAVELER_UNRESPONSIVE',
 }
 
+export enum PaymentStatusType {
+  PAID = 'paid',
+  UNPAID = 'unpaid',
+}
+
+export enum UnpaidCancellationReason {
+  CHANGED_MY_MIND = 'Changed my mind',
+  FOUND_BETTER_OPTION = 'Found a better option',
+  PLANS_CHANGED = 'Plans changed',
+  OTHER = 'Other',
+}
+
+export enum PaidCancellationReason {
+  EMERGENCY_URGENT_SITUATION = 'Emergency/urgent situation',
+  PLANS_CHANGED = 'Plans changed',
+  FOUND_ANOTHER_OPTION = 'Found another option',
+}
+
 export class CancelRequestDto {
   @ApiProperty({
-    description: 'Type of cancellation',
-    enum: CancellationType,
-    example: CancellationType.SENDER_CANCEL,
-  })
-  @IsEnum(CancellationType)
-  cancellationType: CancellationType;
-
-  @ApiProperty({
-    description: 'Reason for cancellation',
-    example: 'Change of plans',
+    description: 'Reason for cancellation. For unpaid requests: "Changed my mind", "Found a better option", "Plans changed", "Other". For paid requests: "Emergency/urgent situation", "Plans changed", "Found another option"',
+    example: 'Plans changed',
     required: false,
   })
   @IsOptional()
