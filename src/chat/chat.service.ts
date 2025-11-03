@@ -348,22 +348,40 @@ export class ChatService {
 
       const chatSummaries: ChatSummaryDto[] = chats.map((chat) => {
         const lastMsg = chat.messages[0];
+
+        // Ensure data field is properly serialized (convert to JSON if needed)
+        let messageData: Record<string, any> | null = null;
+        if (lastMsg?.data) {
+          try {
+            // If data is already a plain object, use it directly
+            // Otherwise, ensure it's JSON-serializable
+            messageData =
+              typeof lastMsg.data === 'object' &&
+              lastMsg.data !== null &&
+              !Array.isArray(lastMsg.data)
+                ? (lastMsg.data as Record<string, any>)
+                : null;
+          } catch (e) {
+            messageData = null;
+          }
+        }
+
         return {
           id: chat.id,
           name: chat.name,
           lastMessage: lastMsg
             ? {
                 id: lastMsg.id,
-                content: lastMsg.content,
+                content: lastMsg.content || null,
                 type: lastMsg.type,
-                imageUrl: lastMsg.image_url,
-                data: (lastMsg.data as Record<string, any>) || null,
+                imageUrl: lastMsg.image_url || null,
+                data: messageData,
                 createdAt: lastMsg.createdAt,
                 sender: lastMsg.sender
                   ? {
                       id: lastMsg.sender.id,
-                      email: lastMsg.sender.email,
-                      name: lastMsg.sender.name,
+                      email: lastMsg.sender.email || '',
+                      name: lastMsg.sender.name || '',
                     }
                   : null,
               }
