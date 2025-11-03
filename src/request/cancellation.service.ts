@@ -5,7 +5,9 @@ import { StripeService } from '../payment/stripe.service';
 import { WalletService } from '../wallet/wallet.service';
 import { 
   CancelRequestDto, 
-  CancellationType 
+  CancellationType,
+  UnpaidCancellationReason,
+  PaidCancellationReason,
 } from './dto/cancel-request.dto';
 import { RequestStatus, PaymentStatus } from 'generated/prisma';
 
@@ -47,16 +49,34 @@ export class CancellationService {
       throw new NotFoundException('Trip request not found');
     }
 
-    // Validate cancellation permissions
-    await this.validateCancellationPermission(request, userId, cancellationDto.cancellationType);
+    // Determine user role (sender or traveler)
+    const isSender = request.user_id === userId;
+    const isTraveler = request.trip.user_id === userId;
+
+    // Validate user has permission to cancel
+    if (!isSender && !isTraveler) {
+      throw new BadRequestException('You are not authorized to cancel this request');
+    }
+
+    // Determine cancellation type automatically based on user role
+    const cancellationType = isSender 
+      ? CancellationType.SENDER_CANCEL 
+      : CancellationType.TRAVELER_CANCEL;
+
+    // Determine payment status from database
+    const isPaid = request.payment_status === PaymentStatus.SUCCEEDED;
+    const isUnpaid = !request.payment_status || request.payment_status === PaymentStatus.PENDING;
+
+    // Validate cancellation reason based on actual payment status from database
+    this.validateCancellationReason(isPaid, cancellationDto.reason);
 
     // Check if already cancelled
     if (request.status === RequestStatus.CANCELLED) {
       throw new BadRequestException('Request is already cancelled');
     }
 
-    // Process cancellation based on type and payment status
-    const cancellationResult = await this.processCancellation(request, cancellationDto);
+    // Process cancellation based on type and payment status from database
+    const cancellationResult = await this.processCancellation(request, cancellationType, cancellationDto);
 
     // Update request status with cancellation details
     await this.prisma.tripRequest.update({
@@ -64,7 +84,7 @@ export class CancellationService {
       data: {
         status: RequestStatus.CANCELLED,
         cancelled_at: new Date(),
-        cancellation_type: cancellationDto.cancellationType,
+        cancellation_type: cancellationType,
         cancellation_reason: cancellationDto.reason,
         updated_at: new Date(),
       },
@@ -75,81 +95,71 @@ export class CancellationService {
   }
 
   /**
-   * Validate if user can cancel the request
+   * Validate cancellation reason based on payment status from database
    */
-  private async validateCancellationPermission(
-    request: any,
-    userId: string,
-    cancellationType: CancellationType,
-  ) {
-    const isSender = request.user_id === userId;
-    const isTraveler = request.trip.user_id === userId;
+  private validateCancellationReason(isPaid: boolean, reason?: string) {
+    if (!reason) {
+      return; // Reason is optional
+    }
 
-    switch (cancellationType) {
-      case CancellationType.SENDER_CANCEL:
-        if (!isSender) {
-          throw new BadRequestException('Only the sender can cancel their request');
-        }
-        break;
+    const unpaidReasons = Object.values(UnpaidCancellationReason);
+    const paidReasons = Object.values(PaidCancellationReason);
 
-      case CancellationType.TRAVELER_CANCEL:
-        if (!isTraveler) {
-          throw new BadRequestException('Only the traveler can cancel their trip');
-        }
-        break;
-
-      case CancellationType.MUTUAL_CANCEL:
-        if (!isSender && !isTraveler) {
-          throw new BadRequestException('Only sender or traveler can initiate mutual cancellation');
-        }
-        break;
-
-      case CancellationType.SYSTEM_ERROR:
-      case CancellationType.FRAUD_DISPUTE:
-      case CancellationType.TRAVELER_UNRESPONSIVE:
-        // These can be initiated by system/admin
-        break;
-
-      default:
-        throw new BadRequestException('Invalid cancellation type');
+    if (isPaid) {
+      if (!paidReasons.includes(reason as PaidCancellationReason)) {
+        throw new BadRequestException(
+          `Invalid reason for paid cancellation. Allowed reasons: ${paidReasons.join(', ')}`
+        );
+      }
+    } else {
+      if (!unpaidReasons.includes(reason as UnpaidCancellationReason)) {
+        throw new BadRequestException(
+          `Invalid reason for unpaid cancellation. Allowed reasons: ${unpaidReasons.join(', ')}`
+        );
+      }
     }
   }
 
   /**
    * Process cancellation with fee calculations
    */
-  private async processCancellation(request: any, cancellationDto: CancelRequestDto) {
-    const { cancellationType } = cancellationDto;
+  private async processCancellation(request: any, cancellationType: CancellationType, cancellationDto: CancelRequestDto) {
     const deliveryFee = Number(request.cost || 0);
     // Ensure currency is present on request for downstream operations
     if (!request.currency && request.trip?.currency) {
       request.currency = request.trip.currency;
     }
+    
+    // Determine payment status from database
     const paymentStatus = request.payment_status;
+    const isPaid = paymentStatus === PaymentStatus.SUCCEEDED;
+    const isUnpaid = !paymentStatus || paymentStatus === PaymentStatus.PENDING;
 
-    // Case 1: Sender cancels before payment
-    if (cancellationType === CancellationType.SENDER_CANCEL && 
-        (!paymentStatus || paymentStatus === PaymentStatus.PENDING)) {
+    // Case 1: Sender cancels before payment (unpaid)
+    if (cancellationType === CancellationType.SENDER_CANCEL && isUnpaid) {
       return this.handleSenderCancelBeforePayment(request);
     }
 
-    // Case 2: Sender cancels after payment
-    if (cancellationType === CancellationType.SENDER_CANCEL && paymentStatus === PaymentStatus.SUCCEEDED) {
-      return this.handleSenderCancelAfterPayment(request, deliveryFee);
+    // Case 2: Sender cancels after payment (paid)
+    if (cancellationType === CancellationType.SENDER_CANCEL && isPaid) {
+      const currency = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      return this.handleSenderCancelAfterPayment(request, deliveryFee, currency);
     }
 
-    // Case 3: Traveler cancels
-    if (cancellationType === CancellationType.TRAVELER_CANCEL) {
-      return this.handleTravelerCancel(request, deliveryFee);
+    // Case 3: Traveler cancels before payment (unpaid)
+    if (cancellationType === CancellationType.TRAVELER_CANCEL && isUnpaid) {
+      return this.handleTravelerCancelBeforePayment(request);
     }
 
-    // Case 4: Mutual cancellation
-    if (cancellationType === CancellationType.MUTUAL_CANCEL) {
-      return this.handleMutualCancellation(request, deliveryFee);
+    // Case 4: Traveler cancels after payment (paid)
+    if (cancellationType === CancellationType.TRAVELER_CANCEL && isPaid) {
+      const currency = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+      return this.handleTravelerCancelAfterPayment(request, deliveryFee, currency);
     }
 
     // Case 5: System/Error cases
-    return this.handleSystemCancellation(request, deliveryFee, cancellationType);
+    const currency = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
+    return this.handleSystemCancellation(request, deliveryFee, cancellationType, currency);
   }
 
   /**
@@ -173,7 +183,7 @@ export class CancellationService {
   /**
    * Sender cancels after payment - apply cancellation fee
    */
-  private async handleSenderCancelAfterPayment(request: any, deliveryFee: number) {
+  private async handleSenderCancelAfterPayment(request: any, deliveryFee: number, currency: string) {
     this.logger.log(`Sender cancelled after payment for request ${request.id}`);
 
     // Calculate cancellation fee: configurable percentage and minimum
@@ -184,9 +194,6 @@ export class CancellationService {
     cancellationFee = Math.max(cancellationFee, cancellationFeeMin);
 
     const refundAmount = deliveryFee - cancellationFee;
-
-    // Determine currency used for this request
-    const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
 
     // Split cancellation fee: configurable percentages
     const travelerCompensationPercent = Number(this.configService.get<number>('CANCELLATION_TRAVELER_PERCENT'));
@@ -202,7 +209,6 @@ export class CancellationService {
 
     // Release hold from traveler's wallet (remove full held amount)
     try {
-      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
       await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
     } catch (e) {
       this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
@@ -232,10 +238,28 @@ export class CancellationService {
   }
 
   /**
-   * Traveler cancels - full refund to sender
+   * Traveler cancels before payment - no fees, no refunds needed
    */
-  private async handleTravelerCancel(request: any, deliveryFee: number) {
-    this.logger.log(`Traveler cancelled for request ${request.id}`);
+  private async handleTravelerCancelBeforePayment(request: any) {
+    this.logger.log(`Traveler cancelled before payment for request ${request.id}`);
+
+    return {
+      requestId: request.id,
+      cancellationType: CancellationType.TRAVELER_CANCEL,
+      refundAmount: 0,
+      cancellationFee: 0,
+      travelerCompensation: 0,
+      velroFee: 0,
+      status: 'CANCELLED',
+      cancelledAt: new Date(),
+    };
+  }
+
+  /**
+   * Traveler cancels after payment - full refund to sender
+   */
+  private async handleTravelerCancelAfterPayment(request: any, deliveryFee: number, currency: string) {
+    this.logger.log(`Traveler cancelled after payment for request ${request.id}`);
 
     // Full cancellation/refund to sender
     if (request.payment_intent_id) {
@@ -244,13 +268,10 @@ export class CancellationService {
 
     // Release any hold from traveler's wallet
     try {
-      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
       await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
     } catch (e) {
       this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
     }
-
-    const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
 
     return {
       requestId: request.id,
@@ -266,43 +287,9 @@ export class CancellationService {
   }
 
   /**
-   * Mutual cancellation - full refund
-   */
-  private async handleMutualCancellation(request: any, deliveryFee: number) {
-    this.logger.log(`Mutual cancellation for request ${request.id}`);
-
-    // Full cancellation/refund to sender
-    if (request.payment_intent_id) {
-      await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
-    }
-
-    // Release any hold from traveler's wallet
-    try {
-      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
-      await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
-    } catch (e) {
-      this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
-    }
-
-    const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
-
-    return {
-      requestId: request.id,
-      cancellationType: CancellationType.MUTUAL_CANCEL,
-      refundAmount: deliveryFee,
-      cancellationFee: 0,
-      travelerCompensation: 0,
-      velroFee: 0,
-      currency,
-      status: 'CANCELLED',
-      cancelledAt: new Date(),
-    };
-  }
-
-  /**
    * System/Error cancellation - full refund
    */
-  private async handleSystemCancellation(request: any, deliveryFee: number, cancellationType: CancellationType) {
+  private async handleSystemCancellation(request: any, deliveryFee: number, cancellationType: CancellationType, currency: string) {
     this.logger.log(`System cancellation (${cancellationType}) for request ${request.id}`);
 
     // Full cancellation/refund to sender
@@ -312,13 +299,10 @@ export class CancellationService {
 
     // Release any hold from traveler's wallet
     try {
-      const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
       await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
     } catch (e) {
       this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
     }
-
-    const currency: string = (request.currency || request.trip?.currency || 'EUR').toUpperCase();
 
     return {
       requestId: request.id,
