@@ -410,6 +410,7 @@ export class RequestService {
               replyToId: undefined,
               imageUrl: undefined,
               requestId: result.request.id,
+              messageData: { status: result.request.status },
             });
 
             console.log(
@@ -436,6 +437,7 @@ export class RequestService {
               replyToId: undefined,
               imageUrl: undefined,
               requestId: result.request.id,
+              messageData: { status: result.request.status },
             });
 
             console.log(
@@ -1546,6 +1548,7 @@ export class RequestService {
           replyToId: undefined,
           imageUrl: undefined,
           requestId: request.id,
+          messageData: { status: status },
         });
         console.log(
           `Successfully sent system message ${systemMessage?.id} for request ${requestId}`,
@@ -1580,6 +1583,7 @@ export class RequestService {
           replyToId: undefined,
           imageUrl: undefined,
           requestId: request.id,
+          messageData: { status: status },
         });
       } catch (messageError) {
         console.error('Failed to send status change message:', messageError);

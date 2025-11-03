@@ -17,7 +17,7 @@ export class SendPushNotificationDto {
   body: string;
 
   @ApiProperty({
-    description: 'Device token for push notification',
+    description: 'Device token for push notification (FCM token)',
     example: 'fcm_token_here',
   })
   @IsString()

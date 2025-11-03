@@ -143,6 +143,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     imageUrl?: string;
     requestId?: string;
     reviewId?: string;
+    messageData?: Record<string, any>;
   }): Promise<any> {
     try {
       // Create message using chat service
@@ -156,6 +157,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         imageUrl: data.imageUrl,
         requestId: data.requestId,
         reviewId: data.reviewId,
+        messageData: data.messageData,
       });
 
       // Ensure review data is included if this is a REVIEW message

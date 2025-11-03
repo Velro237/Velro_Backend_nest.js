@@ -352,17 +352,6 @@ export class NotificationService {
             channelId: 'default',
           },
         },
-        apns: {
-          headers: {
-            'apns-priority': '10',
-          },
-          payload: {
-            aps: {
-              contentAvailable: true,
-              sound: 'default',
-            },
-          },
-        },
       });
 
       const message = await this.i18n.translate(

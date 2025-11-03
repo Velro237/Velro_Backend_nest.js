@@ -123,6 +123,13 @@ export class MessageResponseDto {
   createdAt: Date;
 
   @ApiProperty({
+    description: 'Additional message data (JSON)',
+    example: { status: 'PENDING' },
+    required: false,
+  })
+  data?: Record<string, any> | null;
+
+  @ApiProperty({
     description: 'Trip data for REQUEST type messages',
     required: false,
   })

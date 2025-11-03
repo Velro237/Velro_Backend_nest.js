@@ -196,6 +196,7 @@ model Message {
   sender_id String
   chat      Chat   @relation(fields: [chat_id], references: [id], onDelete: Cascade)
   sender    User   @relation(fields: [sender_id], references: [id], onDelete: Cascade)
+  data      Json?
 
   content    String? // Text message
   image_url  String? // Optional for media messages

@@ -635,6 +635,7 @@ export class ChatService {
             type: message.type,
             isRead: message.sender_id === userId ? true : message.isRead,
             createdAt: message.createdAt,
+            data: (message.data as Record<string, any>) || null,
             tripData: message.request?.trip
               ? {
                   id: message.request.trip.id,
@@ -795,6 +796,7 @@ export class ChatService {
     imageUrl?: string;
     requestId?: string;
     reviewId?: string;
+    messageData?: Record<string, any>;
   }): Promise<MessageResponseDto> {
     const {
       chatId,
@@ -805,6 +807,7 @@ export class ChatService {
       imageUrl,
       requestId,
       reviewId,
+      messageData,
     } = data;
 
     // Check if user is a member of the chat
@@ -825,6 +828,7 @@ export class ChatService {
             image_url: imageUrl,
             request_id: requestId,
             review_id: reviewId,
+            data: messageData || null,
           },
           include: {
             sender: {
@@ -988,6 +992,7 @@ export class ChatService {
         type: message.type,
         isRead: true, // Messages are always "read" by the sender
         createdAt: message.createdAt,
+        data: ((message as any).data as Record<string, any>) || null,
         tripData: message.request?.trip
           ? {
               id: message.request.trip.id,
@@ -1002,7 +1007,31 @@ export class ChatService {
                 ? {
                     id: message.request.trip.user.id,
                     email: message.request.trip.user.email,
+                    name: message.request.trip.user.name,
                   }
+                : undefined,
+              trip_items: (message.request.trip as any).trip_items
+                ? (message.request.trip as any).trip_items.map((ti: any) => ({
+                    trip_item_id: ti.trip_item_id,
+                    price: ti.price !== undefined ? Number(ti.price) : null,
+                    available_kg:
+                      ti.avalailble_kg !== undefined &&
+                      ti.avalailble_kg !== null
+                        ? Number(ti.avalailble_kg)
+                        : null,
+                    createdAt: ti.created_at,
+                    updatedAt: ti.updated_at,
+                    trip_item: ti.trip_item
+                      ? {
+                          id: ti.trip_item.id,
+                          name: ti.trip_item.name,
+                          description: ti.trip_item.description,
+                          image_id: ti.trip_item.image_id,
+                          createdAt: ti.trip_item.created_at,
+                          updatedAt: ti.trip_item.updated_at,
+                        }
+                      : null,
+                  }))
                 : undefined,
             }
           : undefined,
@@ -1022,17 +1051,37 @@ export class ChatService {
                   )
                 : 0,
               requestItems: message.request.request_items
-                ? message.request.request_items.map((item) => ({
-                    quantity: item.quantity,
-                    specialNotes: item.special_notes,
-                    tripItem: item.trip_item
-                      ? {
-                          id: item.trip_item.id,
-                          name: item.trip_item.name,
-                          description: item.trip_item.description,
-                        }
-                      : undefined,
-                  }))
+                ? (() => {
+                    const tripItems =
+                      (message.request as any).trip?.trip_items || [];
+                    return message.request.request_items.map((item: any) => {
+                      const tripItem = tripItems.find(
+                        (ti: any) => ti.trip_item_id === item.trip_item_id,
+                      );
+                      return {
+                        quantity: item.quantity,
+                        specialNotes: item.special_notes,
+                        createdAt: item.created_at,
+                        updatedAt: item.updated_at,
+                        price: tripItem ? Number(tripItem.price) : null,
+                        available_kg: tripItem
+                          ? tripItem.avalailble_kg
+                            ? Number(tripItem.avalailble_kg)
+                            : null
+                          : null,
+                        tripItem: item.trip_item
+                          ? {
+                              id: item.trip_item.id,
+                              name: item.trip_item.name,
+                              description: item.trip_item.description,
+                              image_id: item.trip_item.image_id,
+                              createdAt: item.trip_item.created_at,
+                              updatedAt: item.trip_item.updated_at,
+                            }
+                          : undefined,
+                      };
+                    });
+                  })()
                 : [],
               user: message.request.user
                 ? {
