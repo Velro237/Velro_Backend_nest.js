@@ -288,11 +288,12 @@ export class TripController {
 
   // Get trips with pagination and country filtering
   @Get('trips')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Get trips with pagination, filtering, search, and country prioritization',
     description:
-      'Retrieve all published trips with optional filter (today/tomorrow/week/all), search, country prioritization, date range filtering, and pagination. Each trip includes from (departure) and to (destination) locations, trip items with pricing and availability, and transport details. Filter options: "today" (trips departing today), "tomorrow" (trips departing tomorrow), "week" (trips departing this week), "all" (all future trips, default). Search by departure (city/country) or destination (city/country). All searches are case-insensitive. Date range: specify departure_date_from and departure_date_to to filter trips by departure date range. When country is specified (without search), trips with matching destination country are shown first, followed by all other trips. When search is used, country prioritization is disabled and results are returned in natural order. Perfect for mobile app infinite scroll.',
+      'Retrieve all published trips with optional filter (today/tomorrow/week/all), search, country prioritization, date range filtering, and pagination. Each trip includes from (departure) and to (destination) locations, trip items with pricing and availability, transport details, and chat_info (if user is a member of a chat for this trip). Filter options: "today" (trips departing today), "tomorrow" (trips departing tomorrow), "week" (trips departing this week), "all" (all future trips, default). Search by departure (city/country) or destination (city/country). All searches are case-insensitive. Date range: specify departure_date_from and departure_date_to to filter trips by departure date range. When country is specified (without search), trips with matching destination country are shown first, followed by all other trips. When search is used, country prioritization is disabled and results are returned in natural order. Perfect for mobile app infinite scroll.',
   })
   @ApiResponse({
     status: 200,
@@ -305,9 +306,10 @@ export class TripController {
   })
   async getTrips(
     @Query() query: GetTripsQueryDto,
+    @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<GetTripsResponseDto> {
-    return this.tripService.getTrips(query, lang);
+    return this.tripService.getTrips(query, user.id, lang);
   }
 
   // Get trip by ID with full details

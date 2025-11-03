@@ -498,20 +498,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       sub: string;
       email?: string;
     };
-    await this.chatService.markMessageRead(
-      user.sub,
-      payload.chatId,
-      payload.messageId,
-    );
 
-    // Update read status in Redis
-    await this.redis.setMessageReadStatus(payload.messageId, user.sub);
-
-    client.to(this.roomName(payload.chatId)).emit('message:read', {
-      chatId: payload.chatId,
-      userId: user.sub,
-      messageId: payload.messageId,
+    // Verify message doesn't belong to sender before marking as read
+    const message = await this.prisma.message.findUnique({
+      where: { id: payload.messageId },
+      select: { sender_id: true },
     });
+
+    // Only mark as read if message exists and user is not the sender
+    if (message && message.sender_id !== user.sub) {
+      await this.chatService.markMessageRead(
+        user.sub,
+        payload.chatId,
+        payload.messageId,
+      );
+
+      // Update read status in Redis (only for receiver, not sender)
+      await this.redis.setMessageReadStatus(payload.messageId, user.sub);
+
+      client.to(this.roomName(payload.chatId)).emit('message:read', {
+        chatId: payload.chatId,
+        userId: user.sub,
+        messageId: payload.messageId,
+      });
+    }
+    // Silently ignore if user is the sender (they can't mark their own messages as read)
   }
 
   // Mark all messages as read

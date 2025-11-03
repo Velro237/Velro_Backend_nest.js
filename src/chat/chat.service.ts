@@ -239,7 +239,7 @@ export class ChatService {
 
       // Try to get from cache first
       const cacheKey = `user:${userId}:chats:${page}:${limit}:${search || ''}`;
-      const cachedResult = await this.redis.getChatCache(cacheKey);
+      const cachedResult = await this.redis.getChatCacheEx(cacheKey);
       if (cachedResult) {
         return cachedResult;
       }
@@ -278,9 +278,14 @@ export class ChatService {
             messages: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: {
-                content: true,
-                createdAt: true,
+              include: {
+                sender: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                  },
+                },
               },
             },
             trip: {
@@ -341,61 +346,80 @@ export class ChatService {
         this.prisma.chat.count({ where: whereClause }),
       ]);
 
-      const chatSummaries: ChatSummaryDto[] = chats.map((chat) => ({
-        id: chat.id,
-        name: chat.name,
-        lastMessage: chat.messages[0]?.content || null,
-        lastMessageAt: chat.messages[0]?.createdAt || null,
-        unreadCount: chat._count.messages,
-        members: chat.members.map((member) => ({
-          id: member.user.id,
-          email: member.user.email,
-          name: member.user.name,
-          role: member.user.role,
-        })),
-        createdAt: chat.createdAt,
-        trip: chat.trip
-          ? {
-              id: chat.trip.id,
-              pickup: chat.trip.pickup,
-              departure: chat.trip.departure,
-              destination: chat.trip.destination,
-              departure_date: chat.trip.departure_date,
-              departure_time: chat.trip.departure_time,
-              currency: chat.trip.currency,
-              airline_id: chat.trip.airline_id,
-              user: chat.trip.user
-                ? {
-                    id: chat.trip.user.id,
-                    email: chat.trip.user.email,
-                  }
-                : undefined,
-            }
-          : undefined,
-        request: chat.request
-          ? {
-              id: chat.request.id,
-              status: chat.request.status,
-              cost: chat.request.cost ? Number(chat.request.cost) : null,
-              currency: chat.request.currency,
-              created_at: chat.request.created_at,
-              availableKgs: chat.request.request_items
-                ? chat.request.request_items.reduce(
-                    (total, item) => total + item.quantity,
-                    0,
-                  )
-                : 0,
-              user: chat.request.user
-                ? {
-                    id: chat.request.user.id,
-                    email: chat.request.user.email,
-                    name: chat.request.user.name,
-                    picture: chat.request.user.picture,
-                  }
-                : undefined,
-            }
-          : undefined,
-      }));
+      const chatSummaries: ChatSummaryDto[] = chats.map((chat) => {
+        const lastMsg = chat.messages[0];
+        return {
+          id: chat.id,
+          name: chat.name,
+          lastMessage: lastMsg
+            ? {
+                id: lastMsg.id,
+                content: lastMsg.content,
+                type: lastMsg.type,
+                imageUrl: lastMsg.image_url,
+                data: (lastMsg.data as Record<string, any>) || null,
+                createdAt: lastMsg.createdAt,
+                sender: lastMsg.sender
+                  ? {
+                      id: lastMsg.sender.id,
+                      email: lastMsg.sender.email,
+                      name: lastMsg.sender.name,
+                    }
+                  : null,
+              }
+            : null,
+          lastMessageAt: lastMsg?.createdAt || null,
+          unreadCount: chat._count.messages,
+          members: chat.members.map((member) => ({
+            id: member.user.id,
+            email: member.user.email,
+            name: member.user.name,
+            role: member.user.role,
+          })),
+          createdAt: chat.createdAt,
+          trip: chat.trip
+            ? {
+                id: chat.trip.id,
+                pickup: chat.trip.pickup,
+                departure: chat.trip.departure,
+                destination: chat.trip.destination,
+                departure_date: chat.trip.departure_date,
+                departure_time: chat.trip.departure_time,
+                currency: chat.trip.currency,
+                airline_id: chat.trip.airline_id,
+                user: chat.trip.user
+                  ? {
+                      id: chat.trip.user.id,
+                      email: chat.trip.user.email,
+                    }
+                  : undefined,
+              }
+            : undefined,
+          request: chat.request
+            ? {
+                id: chat.request.id,
+                status: chat.request.status,
+                cost: chat.request.cost ? Number(chat.request.cost) : null,
+                currency: chat.request.currency,
+                created_at: chat.request.created_at,
+                availableKgs: chat.request.request_items
+                  ? chat.request.request_items.reduce(
+                      (total, item) => total + item.quantity,
+                      0,
+                    )
+                  : 0,
+                user: chat.request.user
+                  ? {
+                      id: chat.request.user.id,
+                      email: chat.request.user.email,
+                      name: chat.request.user.name,
+                      picture: chat.request.user.picture,
+                    }
+                  : undefined,
+              }
+            : undefined,
+        };
+      });
 
       const totalPages = Math.ceil(total / limit);
 
@@ -418,7 +442,7 @@ export class ChatService {
       };
 
       // Cache the result for 5 minutes
-      await this.redis.setChatCache(cacheKey, result, 300);
+      await this.redis.setChatCacheEx(cacheKey, result, 300);
 
       return result;
     } catch (error) {
@@ -488,16 +512,7 @@ export class ChatService {
                     },
                     trip_items: {
                       include: {
-                        trip_item: {
-                          select: {
-                            id: true,
-                            name: true,
-                            description: true,
-                            image_id: true,
-                            created_at: true,
-                            updated_at: true,
-                          },
-                        },
+                        trip_item: true,
                       },
                     },
                   },
@@ -512,16 +527,7 @@ export class ChatService {
                 },
                 request_items: {
                   include: {
-                    trip_item: {
-                      select: {
-                        id: true,
-                        name: true,
-                        description: true,
-                        image_id: true,
-                        created_at: true,
-                        updated_at: true,
-                      },
-                    },
+                    trip_item: true,
                   },
                 },
               },
@@ -650,7 +656,7 @@ export class ChatService {
                     ? {
                         id: message.request.trip.user.id,
                         email: message.request.trip.user.email,
-                        name: (message.request.trip as any).user.name,
+                        name: message.request.trip.user.name,
                       }
                     : undefined,
                   trip_items: (message.request.trip as any).trip_items
@@ -1099,6 +1105,12 @@ export class ChatService {
       // Invalidate cache for this chat
       await this.redis.invalidateChatCache(chatId);
 
+      // Invalidate user chat lists for all chat members (so their chat lists refresh with new last message)
+      const chatMembers = await this.getChatMembers(chatId);
+      for (const member of chatMembers) {
+        await this.redis.invalidateUserCache(member.user_id);
+      }
+
       // Send push notification to other chat members (excluding sender) - non-blocking
       this.sendPushNotificationToChatMembers(chatId, senderId, message).catch(
         (error) => {
@@ -1123,16 +1135,25 @@ export class ChatService {
       throw new ForbiddenException('Not a member of this chat');
     }
 
-    await this.prisma.message.updateMany({
+    // First verify the message exists and doesn't belong to this user
+    const message = await this.prisma.message.findFirst({
       where: {
         id: messageId,
         chat_id: chatId,
         sender_id: { not: userId }, // Don't mark own messages as read
       },
-      data: {
-        isRead: true,
-      },
     });
+
+    // Only mark as read if message exists and doesn't belong to the user
+    if (message) {
+      await this.prisma.message.update({
+        where: { id: messageId },
+        data: {
+          isRead: true,
+        },
+      });
+    }
+    // Silently ignore if message doesn't exist or belongs to user (sender viewing own message)
   }
 
   async markAllMessagesAsRead(userId: string, chatId: string): Promise<void> {
@@ -1142,10 +1163,15 @@ export class ChatService {
       throw new ForbiddenException('Not a member of this chat');
     }
 
+    // Only mark messages as read that:
+    // 1. Belong to this chat
+    // 2. Were sent by OTHER users (not the current user)
+    // 3. Are currently unread
+    // This ensures sender's own messages are never marked as read by them
     await this.prisma.message.updateMany({
       where: {
         chat_id: chatId,
-        sender_id: { not: userId }, // Don't mark own messages as read
+        sender_id: { not: userId }, // Critical: exclude sender's own messages
         isRead: false,
       },
       data: {
@@ -1264,7 +1290,13 @@ export class ChatService {
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
-          include: {
+          select: {
+            id: true,
+            content: true,
+            type: true,
+            image_url: true,
+            data: true,
+            createdAt: true,
             sender: {
               select: {
                 id: true,
@@ -1291,8 +1323,25 @@ export class ChatService {
       return null;
     }
 
+    const lastMsg = chat.messages[0];
     return {
-      lastMessage: chat.messages[0] || null,
+      lastMessage: lastMsg
+        ? {
+            id: lastMsg.id,
+            content: lastMsg.content,
+            type: lastMsg.type,
+            imageUrl: lastMsg.image_url,
+            data: (lastMsg.data as Record<string, any>) || null,
+            createdAt: lastMsg.createdAt,
+            sender: lastMsg.sender
+              ? {
+                  id: lastMsg.sender.id,
+                  email: lastMsg.sender.email,
+                  name: lastMsg.sender.name,
+                }
+              : null,
+          }
+        : null,
       unreadCount: chat._count.messages,
     };
   }

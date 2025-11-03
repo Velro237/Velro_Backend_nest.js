@@ -54,11 +54,35 @@ export class ChatSummaryDto {
   name: string | null;
 
   @ApiProperty({
-    description: 'Last message content',
-    example: 'Hello everyone!',
+    description: 'Last message object with full details',
     required: false,
+    example: {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      content: 'Hello everyone!',
+      type: 'TEXT',
+      imageUrl: null,
+      data: { status: 'PENDING' },
+      createdAt: '2024-01-15T10:30:00.000Z',
+      sender: {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        email: 'user@example.com',
+        name: 'John Doe',
+      },
+    },
   })
-  lastMessage: string | null;
+  lastMessage: {
+    id: string;
+    content: string | null;
+    type: string;
+    imageUrl: string | null;
+    data: Record<string, any> | null;
+    createdAt: Date;
+    sender: {
+      id: string;
+      email: string;
+      name: string;
+    } | null;
+  } | null;
 
   @ApiProperty({
     description: 'Last message timestamp',
