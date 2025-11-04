@@ -686,9 +686,7 @@ export class WalletService {
 
       wallet = await this.prisma.wallet.create({
         data: {
-          user: {
-            connect: { id: userId },
-          },
+          userId,
           available_balance_eur: 0,
           available_balance_usd: 0,
           available_balance_cad: 0,

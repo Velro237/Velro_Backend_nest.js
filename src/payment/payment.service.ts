@@ -88,9 +88,7 @@ export class PaymentService {
       // Create wallet with provided or default currency
       const wallet = await this.prisma.wallet.create({
         data: {
-          user: {
-            connect: { id: userId },
-          },
+          userId,
           // Initialize currency-specific balances to 0
           available_balance_eur: 0,
           available_balance_usd: 0,
@@ -883,9 +881,7 @@ export class PaymentService {
 
       wallet = await this.prisma.wallet.create({
         data: {
-          user: {
-            connect: { id: userId },
-          },
+          userId,
           // Initialize currency-specific balances to 0
           available_balance_eur: 0,
           available_balance_usd: 0,

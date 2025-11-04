@@ -231,9 +231,7 @@ export class AuthService {
       // Create wallet with specified currency
       await this.prisma.wallet.create({
         data: {
-          user: {
-            connect: { id: user.id },
-          },
+          userId: user.id,
           currency: currency,
         },
       });
@@ -937,9 +935,7 @@ export class AuthService {
       // Create wallet
       await this.prisma.wallet.create({
         data: {
-          user: {
-            connect: { id: user.id },
-          },
+          userId: user.id,
           currency: 'XAF',
         },
       });
