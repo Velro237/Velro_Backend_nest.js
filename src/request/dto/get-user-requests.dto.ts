@@ -209,6 +209,22 @@ export class UserRequestDto {
     type: [UserRequestItemDto],
   })
   request_items: UserRequestItemDto[];
+
+  @ApiProperty({
+    description:
+      'Chat information for this request (only if a chat exists for this request)',
+    required: false,
+    example: {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      name: 'Paris to New York',
+      createdAt: '2024-01-15T10:30:00.000Z',
+    },
+  })
+  chat_info?: {
+    id: string;
+    name: string | null;
+    createdAt: Date;
+  } | null;
 }
 
 export class GetUserRequestsResponseDto {

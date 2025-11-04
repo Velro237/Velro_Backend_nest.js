@@ -2117,64 +2117,91 @@ export class TripService {
         (destination && destination.trim() !== '')
       ) {
         try {
-          const searchFilters = [];
-
-          // Search in departure location if departure parameter is provided
-          if (departure && departure.trim() !== '') {
-            searchFilters.push({
-              departure: {
-                path: ['country'],
-                string_contains: departure,
-                mode: 'insensitive',
+          // If both departure and destination are provided, require exact country match on both
+          if (
+            departure &&
+            departure.trim() !== '' &&
+            destination &&
+            destination.trim() !== ''
+          ) {
+            // Require exact country match for both departure and destination
+            baseWhereClause.AND = [
+              {
+                departure: {
+                  path: ['country'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
               },
-            });
-
-            searchFilters.push({
-              departure: {
-                path: ['region'],
-                string_contains: departure,
-                mode: 'insensitive',
+              {
+                destination: {
+                  path: ['country'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
               },
-            });
+            ];
+          } else {
+            // If only one is provided, use OR conditions for flexible search
+            const searchFilters = [];
 
-            searchFilters.push({
-              departure: {
-                path: ['address'],
-                string_contains: departure,
-                mode: 'insensitive',
-              },
-            });
+            // Search in departure location if departure parameter is provided
+            if (departure && departure.trim() !== '') {
+              searchFilters.push({
+                departure: {
+                  path: ['country'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              });
+
+              searchFilters.push({
+                departure: {
+                  path: ['region'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              });
+
+              searchFilters.push({
+                departure: {
+                  path: ['address'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              });
+            }
+
+            // Search in destination location if destination parameter is provided
+            if (destination && destination.trim() !== '') {
+              searchFilters.push({
+                destination: {
+                  path: ['country'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              });
+
+              searchFilters.push({
+                destination: {
+                  path: ['region'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              });
+
+              searchFilters.push({
+                destination: {
+                  path: ['address'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              });
+            }
+
+            // Add OR condition for all search filters
+            baseWhereClause.OR = searchFilters;
           }
-
-          // Search in destination location if destination parameter is provided
-          if (destination && destination.trim() !== '') {
-            searchFilters.push({
-              destination: {
-                path: ['country'],
-                string_contains: destination,
-                mode: 'insensitive',
-              },
-            });
-
-            searchFilters.push({
-              destination: {
-                path: ['region'],
-                string_contains: destination,
-                mode: 'insensitive',
-              },
-            });
-
-            searchFilters.push({
-              destination: {
-                path: ['address'],
-                string_contains: destination,
-                mode: 'insensitive',
-              },
-            });
-          }
-
-          // Add OR condition for all search filters
-          baseWhereClause.OR = searchFilters;
         } catch (error) {
           // If search filter creation fails, log error but continue without search
           console.error('Error creating search filters:', error);

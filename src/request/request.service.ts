@@ -1955,6 +1955,7 @@ export class RequestService {
           message: true,
           created_at: true,
           updated_at: true,
+          chat_id: true,
           user: {
             select: {
               id: true,
@@ -2004,6 +2005,39 @@ export class RequestService {
         },
       });
 
+      // Fetch chat info for requests that have a chat_id
+      const requestIdsWithChat = requests
+        .filter((r) => r.chat_id)
+        .map((r) => r.chat_id!);
+
+      const chats =
+        requestIdsWithChat.length > 0
+          ? await this.prisma.chat.findMany({
+              where: {
+                id: {
+                  in: requestIdsWithChat,
+                },
+              },
+              select: {
+                id: true,
+                name: true,
+                createdAt: true,
+              },
+            })
+          : [];
+
+      // Create a map of chat_id -> chat_info for quick lookup
+      const chatInfoMap = new Map(
+        chats.map((chat) => [
+          chat.id,
+          {
+            id: chat.id,
+            name: chat.name,
+            createdAt: chat.createdAt,
+          },
+        ]),
+      );
+
       // Transform requests
       const transformedRequests = requests.map((request) => ({
         id: request.id,
@@ -2023,6 +2057,9 @@ export class RequestService {
           special_notes: item.special_notes,
           trip_item: item.trip_item,
         })),
+        chat_info: request.chat_id
+          ? chatInfoMap.get(request.chat_id) || null
+          : null,
       }));
 
       const message = await this.i18n.translate(
