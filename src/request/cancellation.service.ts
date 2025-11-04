@@ -459,8 +459,21 @@ export class CancellationService {
     try {
       this.logger.log(`Crediting traveler ${travelerId} with ${currency} ${amount} compensation`);
 
-      // Get or create wallet
-      const wallet = await this.walletService.ensureWallet(travelerId);
+      // Wallet should already exist if payment was made - find it or throw error
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId: travelerId },
+      });
+
+      if (!wallet) {
+        // Wallet should exist if payment was made - this indicates a data integrity issue
+        this.logger.error(
+          `Wallet not found for traveler ${travelerId} during cancellation compensation. ` +
+          `This should not happen if payment was successful.`
+        );
+        throw new NotFoundException(
+          `Traveler wallet not found. This indicates a data integrity issue.`
+        );
+      }
 
       // Resolve balance column by currency
       const { availableColumn } = this.getCurrencyColumns(currency);
@@ -588,8 +601,23 @@ export class CancellationService {
    */
   private async releaseHold(travelerId: string, amount: number, currency: string, requestId: string) {
     if (!amount || amount <= 0) return;
-    // Ensure wallet exists and resolve columns
-    const wallet = await this.walletService.ensureWallet(travelerId);
+    
+    // Wallet should already exist if payment was made - find it or throw error
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: travelerId },
+    });
+
+    if (!wallet) {
+      // Wallet should exist if payment was made - this indicates a data integrity issue
+      this.logger.error(
+        `Wallet not found for traveler ${travelerId} during cancellation. ` +
+        `This should not happen if payment was successful.`
+      );
+      throw new NotFoundException(
+        `Traveler wallet not found. This indicates a data integrity issue.`
+      );
+    }
+
     const { holdColumn } = this.getCurrencyColumns(currency);
 
     // Decrement hold by the full delivery fee
