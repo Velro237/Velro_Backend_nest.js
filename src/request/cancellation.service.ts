@@ -75,10 +75,59 @@ export class CancellationService {
       throw new BadRequestException('Request is already cancelled');
     }
 
-    // Process cancellation based on type and payment status from database
-    const cancellationResult = await this.processCancellation(request, cancellationType, cancellationDto);
+    // IDEMPOTENCY: Check if refund already processed for paid requests
+    if (request.payment_intent_id && request.payment_status === PaymentStatus.SUCCEEDED) {
+      try {
+        const paymentIntent = await this.stripeService.getPaymentIntent(request.payment_intent_id);
+        if (paymentIntent.status === 'succeeded' && paymentIntent.latest_charge) {
+          const charge = await this.stripeService.getStripeInstance().charges.retrieve(
+            paymentIntent.latest_charge as string
+          );
+          // If already fully or partially refunded, check if request status wasn't updated
+          if (charge.amount_refunded > 0) {
+            const refundedAmount = charge.amount_refunded / 100;
+            const totalAmount = charge.amount / 100;
+            this.logger.warn(
+              `Request ${requestId} already has refund: ${refundedAmount}/${totalAmount}. ` +
+              `Status may not have been updated. Checking...`
+            );
+            
+            // If fully refunded, mark as cancelled
+            if (charge.amount_refunded === charge.amount) {
+              await this.prisma.tripRequest.update({
+                where: { id: requestId },
+                data: {
+                  status: RequestStatus.CANCELLED,
+                  cancelled_at: new Date(),
+                  cancellation_type: cancellationType,
+                  cancellation_reason: cancellationDto.reason,
+                  updated_at: new Date(),
+                },
+              });
+              throw new BadRequestException(
+                `Request was already cancelled and fully refunded (${refundedAmount} ${paymentIntent.currency.toUpperCase()})`
+              );
+            }
+            
+            // If partially refunded, throw error
+            throw new BadRequestException(
+              `Request already has a partial refund of ${refundedAmount} ${paymentIntent.currency.toUpperCase()}. ` +
+              `Cannot process another cancellation.`
+            );
+          }
+        }
+      } catch (error) {
+        // If it's our custom error, re-throw it
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
+        // Otherwise, log and continue (might be network issue, proceed with normal flow)
+        this.logger.warn(`Could not check refund status: ${error.message}`);
+      }
+    }
 
-    // Update request status with cancellation details
+    // Update request status to CANCELLED BEFORE processing refund
+    // This prevents duplicate refunds if processCancellation fails after refund
     await this.prisma.tripRequest.update({
       where: { id: requestId },
       data: {
@@ -89,6 +138,10 @@ export class CancellationService {
         updated_at: new Date(),
       },
     });
+
+    // Process cancellation based on type and payment status from database
+    // Status is already CANCELLED, so if this fails, retry will be blocked
+    const cancellationResult = await this.processCancellation(request, cancellationType, cancellationDto);
 
     this.logger.log(`Cancellation completed for request ${requestId}`);
     return cancellationResult;
