@@ -527,8 +527,20 @@ export class PaymentService {
           true // from_app: true - this is a system call from payment flow
         );
 
-      // Get or create wallet for traveler
-      const wallet = await this.ensureWallet(order.trip.user_id);
+      // Wallet should already exist from user registration - find it or throw error
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId: order.trip.user_id },
+      });
+
+      if (!wallet) {
+        this.logger.error(
+          `Wallet not found for traveler ${order.trip.user_id} during payment success. ` +
+          `This should not happen - wallet should be created at user registration.`
+        );
+        throw new NotFoundException(
+          `Traveler wallet not found. This indicates a data integrity issue.`
+        );
+      }
       
       // Get currency from order (this is the actual payment currency from Stripe)
       const paymentCurrency = order.currency || 'EUR';
@@ -858,49 +870,6 @@ export class PaymentService {
         // Default to EUR for unknown currencies
         return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
     }
-  }
-
-  /**
-   * Ensure wallet exists for user
-   */
-  private async ensureWallet(userId: string) {
-    let wallet = await this.prisma.wallet.findUnique({
-      where: { userId },
-    });
-
-    if (!wallet) {
-      // Get the user's first transaction currency to determine wallet currency
-      const firstTransaction = await this.prisma.transaction.findFirst({
-        where: { userId },
-        orderBy: { createdAt: 'asc' },
-        select: { currency: true },
-      });
-
-      // Use the currency from user's first transaction, or null if no transactions yet
-      const walletCurrency = firstTransaction?.currency || null;
-
-      wallet = await this.prisma.wallet.create({
-        data: {
-          userId,
-          // Initialize currency-specific balances to 0
-          available_balance_eur: 0,
-          available_balance_usd: 0,
-          available_balance_cad: 0,
-          available_balance_xaf: 0, // Display only, not processed
-          hold_balance_eur: 0,
-          hold_balance_usd: 0,
-          hold_balance_cad: 0,
-          hold_balance_xaf: 0, // Display only, not processed
-          available_balance: 0,
-          hold_balance: 0,
-          total_balance: 0,
-          state: 'BLOCKED',
-          currency: walletCurrency, // User's actual selection
-        },
-      });
-    }
-
-    return wallet;
   }
 
   /**
