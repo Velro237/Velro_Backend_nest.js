@@ -440,6 +440,26 @@ export class AuthService {
           provider: 'DIDIT',
         },
       });
+
+      // Create empty wallet for new user
+      await this.prisma.wallet.create({
+        data: {
+          userId: user.id,
+          available_balance_eur: 0,
+          available_balance_usd: 0,
+          available_balance_cad: 0,
+          available_balance_xaf: 0,
+          hold_balance_eur: 0,
+          hold_balance_usd: 0,
+          hold_balance_cad: 0,
+          hold_balance_xaf: 0,
+          available_balance: 0.0,
+          hold_balance: 0.0,
+          total_balance: 0.0,
+          state: 'BLOCKED',
+          currency: 'XAF',
+        },
+      });
     }
 
     // Upsert Account
