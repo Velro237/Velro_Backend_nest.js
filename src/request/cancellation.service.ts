@@ -186,18 +186,46 @@ export class CancellationService {
   private async handleSenderCancelAfterPayment(request: any, deliveryFee: number, currency: string) {
     this.logger.log(`Sender cancelled after payment for request ${request.id}`);
 
-    // Calculate cancellation fee: configurable percentage and minimum
-    const cancellationFeePercent = Number(this.configService.get<number>('CANCELLATION_FEE_PERCENT'));
-    const cancellationFeeMin = Number(this.configService.get<number>('CANCELLATION_FEE_MIN'));
+    // Get actual payment amount from Stripe (includes platform fees)
+    let actualPaymentAmount = deliveryFee;
+    if (request.payment_intent_id) {
+      try {
+        const paymentIntent = await this.stripeService.getPaymentIntent(request.payment_intent_id);
+        // PaymentIntent amount is in cents, convert to currency units
+        actualPaymentAmount = paymentIntent.amount / 100;
+        this.logger.log(
+          `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
+          `Delivery fee (traveler price): ${deliveryFee} ${currency}`
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to get PaymentIntent amount, using deliveryFee: ${error.message}`);
+        // Fallback to deliveryFee if we can't get PaymentIntent
+        actualPaymentAmount = deliveryFee;
+      }
+    }
+
+    // Calculate cancellation fee based on DELIVERY FEE (traveler price), not total payment
+    // This is the policy: cancellation fee is % of delivery fee
+    const cancellationFeePercent = Number(this.configService.get<number>('CANCELLATION_FEE_PERCENT')) || 10;
+    const cancellationFeeMin = Number(this.configService.get<number>('CANCELLATION_FEE_MIN')) || 5;
     
     let cancellationFee = (deliveryFee * cancellationFeePercent) / 100;
     cancellationFee = Math.max(cancellationFee, cancellationFeeMin);
 
-    const refundAmount = deliveryFee - cancellationFee;
+    // Refund amount = Actual payment amount - cancellation fee
+    // This ensures we refund the correct amount that was actually charged
+    const refundAmount = actualPaymentAmount - cancellationFee;
+
+    // Validate refund amount is positive
+    if (refundAmount <= 0) {
+      throw new BadRequestException(
+        `Refund amount would be negative. Actual payment: ${actualPaymentAmount}, Cancellation fee: ${cancellationFee}`
+      );
+    }
 
     // Split cancellation fee: configurable percentages
-    const travelerCompensationPercent = Number(this.configService.get<number>('CANCELLATION_TRAVELER_PERCENT'));
-    const velroFeePercent = Number(this.configService.get<number>('CANCELLATION_VELRO_PERCENT'));
+    const travelerCompensationPercent = Number(this.configService.get<number>('CANCELLATION_TRAVELER_PERCENT')) || 70;
+    const velroFeePercent = Number(this.configService.get<number>('CANCELLATION_VELRO_PERCENT')) || 30;
     
     const travelerCompensation = (cancellationFee * travelerCompensationPercent) / 100;
     const velroFee = (cancellationFee * velroFeePercent) / 100;
@@ -261,9 +289,27 @@ export class CancellationService {
   private async handleTravelerCancelAfterPayment(request: any, deliveryFee: number, currency: string) {
     this.logger.log(`Traveler cancelled after payment for request ${request.id}`);
 
-    // Full cancellation/refund to sender
+    // Get actual payment amount from Stripe (includes platform fees)
+    let actualPaymentAmount = deliveryFee;
     if (request.payment_intent_id) {
-      await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
+      try {
+        const paymentIntent = await this.stripeService.getPaymentIntent(request.payment_intent_id);
+        // PaymentIntent amount is in cents, convert to currency units
+        actualPaymentAmount = paymentIntent.amount / 100;
+        this.logger.log(
+          `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
+          `Delivery fee (traveler price): ${deliveryFee} ${currency}`
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to get PaymentIntent amount, using deliveryFee: ${error.message}`);
+        // Fallback to deliveryFee if we can't get PaymentIntent
+        actualPaymentAmount = deliveryFee;
+      }
+    }
+
+    // Full refund of actual payment amount to sender
+    if (request.payment_intent_id) {
+      await this.processStripeCancellationOrRefund(request.payment_intent_id, actualPaymentAmount);
     }
 
     // Release any hold from traveler's wallet
@@ -276,7 +322,7 @@ export class CancellationService {
     return {
       requestId: request.id,
       cancellationType: CancellationType.TRAVELER_CANCEL,
-      refundAmount: deliveryFee,
+      refundAmount: actualPaymentAmount,
       cancellationFee: 0,
       travelerCompensation: 0,
       velroFee: 0,
@@ -292,9 +338,27 @@ export class CancellationService {
   private async handleSystemCancellation(request: any, deliveryFee: number, cancellationType: CancellationType, currency: string) {
     this.logger.log(`System cancellation (${cancellationType}) for request ${request.id}`);
 
-    // Full cancellation/refund to sender
+    // Get actual payment amount from Stripe (includes platform fees)
+    let actualPaymentAmount = deliveryFee;
     if (request.payment_intent_id) {
-      await this.processStripeCancellationOrRefund(request.payment_intent_id, deliveryFee);
+      try {
+        const paymentIntent = await this.stripeService.getPaymentIntent(request.payment_intent_id);
+        // PaymentIntent amount is in cents, convert to currency units
+        actualPaymentAmount = paymentIntent.amount / 100;
+        this.logger.log(
+          `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
+          `Delivery fee (traveler price): ${deliveryFee} ${currency}`
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to get PaymentIntent amount, using deliveryFee: ${error.message}`);
+        // Fallback to deliveryFee if we can't get PaymentIntent
+        actualPaymentAmount = deliveryFee;
+      }
+    }
+
+    // Full refund of actual payment amount to sender
+    if (request.payment_intent_id) {
+      await this.processStripeCancellationOrRefund(request.payment_intent_id, actualPaymentAmount);
     }
 
     // Release any hold from traveler's wallet
@@ -307,7 +371,7 @@ export class CancellationService {
     return {
       requestId: request.id,
       cancellationType,
-      refundAmount: deliveryFee,
+      refundAmount: actualPaymentAmount,
       cancellationFee: 0,
       travelerCompensation: 0,
       velroFee: 0,
