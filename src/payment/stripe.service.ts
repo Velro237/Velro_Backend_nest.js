@@ -520,6 +520,26 @@ async ensureConnectedAccount(params: {
         if (!chargeId) {
           throw new Error('No charge found for captured payment');
         }
+        
+        // Check refundable amount to prevent errors
+        const charge = await this.stripe.charges.retrieve(chargeId);
+        const refundableAmount = (charge.amount - charge.amount_refunded) / 100; // Convert cents to currency units
+        
+        this.logger.log(
+          `Charge ${chargeId}: Total charged: ${charge.amount / 100}, ` +
+          `Already refunded: ${charge.amount_refunded / 100}, ` +
+          `Refundable: ${refundableAmount}, ` +
+          `Requested refund: ${amount}`
+        );
+        
+        // Validate refund amount doesn't exceed refundable amount
+        if (amount > refundableAmount) {
+          throw new Error(
+            `Refund amount (${amount}) exceeds refundable amount (${refundableAmount}). ` +
+            `Total charged: ${charge.amount / 100}, Already refunded: ${charge.amount_refunded / 100}`
+          );
+        }
+        
         const refund = await this.createRefund(chargeId, amount);
         return { type: 'refund', result: refund };
       } else {
