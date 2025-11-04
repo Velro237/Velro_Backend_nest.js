@@ -81,6 +81,15 @@ export class LocationDto {
   @IsString()
   @IsOptional()
   landmark?: string;
+
+  @ApiProperty({
+    description: 'Preferred meetup location or instructions',
+    example: 'Main entrance of the airport terminal',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  preferred_meetup?: string;
 }
 
 // Type for the JSON structure that matches Prisma schema
@@ -92,6 +101,7 @@ export type LocationType = {
   lng?: number;
   lat?: number;
   landmark?: string;
+  preferred_meetup?: string;
 };
 
 @ValidatorConstraint({ name: 'TripDateValidation', async: false })
@@ -189,6 +199,16 @@ export class CreateTripDto {
       },
       lng: { type: 'number', example: -122.4194 },
       lat: { type: 'number', example: 37.7749 },
+      landmark: {
+        type: 'string',
+        example: 'Near Golden Gate Bridge',
+        description: 'Landmark or notable location',
+      },
+      preferred_meetup: {
+        type: 'string',
+        example: 'Main entrance of the airport terminal',
+        description: 'Preferred meetup location or instructions',
+      },
     },
   })
   @IsObject()

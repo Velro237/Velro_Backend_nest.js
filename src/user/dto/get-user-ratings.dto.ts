@@ -68,12 +68,66 @@ export class RatingSummaryDto {
       id: { type: 'string', example: '123e4567-e89b-12d3-a456-426614174001' },
       email: { type: 'string', example: 'giver@example.com' },
       name: { type: 'string', example: 'John Doe', nullable: true },
+      kycRecords: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              example: '123e4567-e89b-12d3-a456-426614174004',
+            },
+            status: {
+              type: 'string',
+              example: 'APPROVED',
+              enum: [
+                'NOT_STARTED',
+                'IN_PROGRESS',
+                'APPROVED',
+                'DECLINED',
+                'KYC_EXPIRED',
+                'IN_REVIEW',
+                'EXPIRED',
+                'ABANDONED',
+              ],
+            },
+            provider: {
+              type: 'string',
+              example: 'DIDIT',
+              enum: ['DIDIT', 'OTHER'],
+            },
+            rejectionReason: {
+              type: 'string',
+              example: 'Document quality insufficient',
+              nullable: true,
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-01-15T10:30:00.000Z',
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-01-15T10:30:00.000Z',
+            },
+          },
+        },
+      },
     },
   })
   giver!: {
     id: string;
     email: string;
     name: string | null;
+    kycRecords: Array<{
+      id: string;
+      status: string;
+      provider: string;
+      rejectionReason: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
   };
 
   @ApiProperty({
@@ -155,6 +209,22 @@ export class RatingSummaryDto {
   created_at!: Date;
 }
 
+export class RatingCountDto {
+  @ApiProperty({
+    description: 'Rating value',
+    example: 2.5,
+    minimum: 1,
+    maximum: 5,
+  })
+  rating!: number;
+
+  @ApiProperty({
+    description: 'Number of people who gave this rating',
+    example: 3,
+  })
+  count!: number;
+}
+
 export class GetUserRatingsResponseDto {
   @ApiProperty({
     description: 'Success message',
@@ -167,6 +237,21 @@ export class GetUserRatingsResponseDto {
     type: [RatingSummaryDto],
   })
   ratings!: RatingSummaryDto[];
+
+  @ApiProperty({
+    description:
+      'Array of rating counts showing how many people rated each rating value',
+    type: [RatingCountDto],
+    example: [
+      { rating: 1, count: 2 },
+      { rating: 2, count: 1 },
+      { rating: 2.5, count: 3 },
+      { rating: 3, count: 5 },
+      { rating: 4, count: 8 },
+      { rating: 5, count: 12 },
+    ],
+  })
+  ratings_count!: RatingCountDto[];
 
   @ApiProperty({
     description: 'Pagination information',

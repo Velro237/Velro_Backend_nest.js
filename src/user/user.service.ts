@@ -1237,6 +1237,16 @@ export class UserService {
                 id: true,
                 email: true,
                 name: true,
+                kycRecords: {
+                  select: {
+                    id: true,
+                    status: true,
+                    provider: true,
+                    rejectionReason: true,
+                    createdAt: true,
+                    updatedAt: true,
+                  },
+                },
               },
             },
             trip: {
@@ -1276,6 +1286,7 @@ export class UserService {
           id: rating.giver.id,
           email: rating.giver.email,
           name: rating.giver.name,
+          kycRecords: rating.giver.kycRecords || [],
         },
         trip: {
           id: rating.trip.id,
@@ -1296,6 +1307,33 @@ export class UserService {
         created_at: rating.created_at,
       }));
 
+      // Calculate rating counts for all ratings received by this user (not just current page)
+      const allRatings = await this.prisma.rating.findMany({
+        where: {
+          receiver_id: userId,
+          ...(rating ? { rating } : {}),
+          ...(trip_id ? { trip_id } : {}),
+        },
+        select: {
+          rating: true,
+        },
+      });
+
+      // Group ratings by value and count them
+      const ratingCountMap = new Map<number, number>();
+      allRatings.forEach((r) => {
+        const currentCount = ratingCountMap.get(r.rating) || 0;
+        ratingCountMap.set(r.rating, currentCount + 1);
+      });
+
+      // Convert to array and sort by rating value
+      const ratings_count = Array.from(ratingCountMap.entries())
+        .map(([rating, count]) => ({
+          rating,
+          count,
+        }))
+        .sort((a, b) => a.rating - b.rating);
+
       const message = await this.i18n.translate(
         'translation.rating.getUserRatingsSuccess',
         { lang },
@@ -1304,6 +1342,7 @@ export class UserService {
       return {
         message,
         ratings: ratingSummaries,
+        ratings_count,
         pagination: {
           page,
           limit,

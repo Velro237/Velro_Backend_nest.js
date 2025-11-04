@@ -1238,7 +1238,7 @@ export function ApiGetUserRatings() {
     ApiOperation({
       summary: 'Get user ratings',
       description:
-        'Retrieve all ratings received by a specific user with pagination and filtering options. Supports filtering by rating value (1-5) and trip ID.',
+        'Retrieve all ratings received by a specific user with pagination and filtering options. Supports filtering by rating value (1-5) and trip ID. Returns an array of rating counts showing how many people rated each rating value.',
     }),
     ApiQuery({
       name: 'page',
@@ -1284,6 +1284,16 @@ export function ApiGetUserRatings() {
                   id: '123e4567-e89b-12d3-a456-426614174001',
                   email: 'giver@example.com',
                   name: 'John Doe',
+                  kycRecords: [
+                    {
+                      id: '123e4567-e89b-12d3-a456-426614174004',
+                      status: 'APPROVED',
+                      provider: 'DIDIT',
+                      rejectionReason: null,
+                      createdAt: '2024-01-15T10:30:00.000Z',
+                      updatedAt: '2024-01-15T10:30:00.000Z',
+                    },
+                  ],
                 },
                 trip: {
                   id: '123e4567-e89b-12d3-a456-426614174002',
@@ -1301,6 +1311,14 @@ export function ApiGetUserRatings() {
                 comment: 'Excellent service! Very punctual and communicative.',
                 created_at: '2024-01-15T10:30:00.000Z',
               },
+            ],
+            ratings_count: [
+              { rating: 1, count: 2 },
+              { rating: 2, count: 1 },
+              { rating: 2.5, count: 3 },
+              { rating: 3, count: 5 },
+              { rating: 4, count: 8 },
+              { rating: 5, count: 12 },
             ],
             pagination: {
               page: 1,
