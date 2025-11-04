@@ -698,6 +698,8 @@ export class ChatService {
                                 image_id: ti.trip_item.image_id,
                                 createdAt: ti.trip_item.created_at,
                                 updatedAt: ti.trip_item.updated_at,
+                                translations:
+                                  (ti.trip_item as any).translations || [],
                               }
                             : null,
                         }),
@@ -751,6 +753,9 @@ export class ChatService {
                                     image_id: item.trip_item.image_id,
                                     createdAt: item.trip_item.created_at,
                                     updatedAt: item.trip_item.updated_at,
+                                    translations:
+                                      (item.trip_item as any).translations ||
+                                      [],
                                   }
                                 : undefined,
                             };
@@ -904,6 +909,14 @@ export class ChatService {
                         name: true,
                         description: true,
                         image_id: true,
+                        translations: {
+                          select: {
+                            id: true,
+                            language: true,
+                            name: true,
+                            description: true,
+                          },
+                        },
                       },
                     },
                   },

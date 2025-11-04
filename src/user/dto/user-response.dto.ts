@@ -59,4 +59,28 @@ export class UserResponseDto {
 
   @ApiProperty({ example: '2025-09-24T21:14:13.000Z' })
   updatedAt!: Date;
+
+  @ApiProperty({
+    example: 4.5,
+    description: 'Average user rating out of 5 (0 if no ratings)',
+  })
+  averageRating!: number;
+
+  @ApiProperty({
+    example: 12,
+    description: 'Total number of ratings received',
+  })
+  totalRatings!: number;
+
+  @ApiProperty({
+    example: 25,
+    description: 'Total number of trips created',
+  })
+  totalTrips!: number;
+
+  @ApiProperty({
+    example: 8,
+    description: 'Total number of requests made',
+  })
+  totalRequests!: number;
 }

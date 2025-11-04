@@ -21,6 +21,14 @@ export class UpdateTripItemResponseDto {
         url: 'https://example.com/images/electronics-updated.jpg',
         alt_text: 'Updated electronics image',
       },
+      translations: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174001',
+          language: 'FR',
+          name: 'Électronique',
+          description: 'Appareils et gadgets électroniques mis à jour',
+        },
+      ],
     },
   })
   tripItem: {
@@ -32,5 +40,11 @@ export class UpdateTripItemResponseDto {
       url: string;
       alt_text?: string;
     };
+    translations?: Array<{
+      id: string;
+      language: string;
+      name: string;
+      description: string | null;
+    }>;
   };
 }

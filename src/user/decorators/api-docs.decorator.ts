@@ -931,12 +931,39 @@ export function ApiFindOneUser() {
   return applyDecorators(
     ApiOperation({
       summary: 'Get user by ID',
-      description: 'Retrieve a specific user by their unique identifier',
+      description:
+        'Retrieve a specific user by their unique identifier. Includes user statistics: average rating (out of 5, 0 if no ratings), total ratings received, total trips created, and total requests made.',
     }),
     ApiResponse({
       status: 200,
-      description: 'User retrieved successfully',
+      description: 'User retrieved successfully with statistics',
       type: UserResponseDto,
+      schema: {
+        example: {
+          id: 'a3f0cfe6-8b8c-4e2f-9a0b-8b9c5c1f3f20',
+          email: 'user@example.com',
+          name: 'Jane Doe',
+          firstName: 'Jane',
+          lastName: 'Doe',
+          phone: '+237690264775',
+          address: 'Messassi',
+          city: 'Yaounde',
+          state: 'Cameroun',
+          zip: 'Zip',
+          isFreightForwarder: 'false',
+          companyName: null,
+          companyAddress: null,
+          picture: 'https://example.com/avatar.png',
+          device_id: 'device_123456789',
+          role: 'USER',
+          createdAt: '2025-09-24T21:14:13.000Z',
+          updatedAt: '2025-09-24T21:14:13.000Z',
+          averageRating: 4.5,
+          totalRatings: 12,
+          totalTrips: 25,
+          totalRequests: 8,
+        },
+      },
     }),
     ApiResponse({
       status: 400,

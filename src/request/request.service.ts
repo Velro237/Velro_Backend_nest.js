@@ -443,6 +443,7 @@ export class RequestService {
               trip_item: {
                 include: {
                   image: true,
+                  translations: true,
                 },
               },
             },
@@ -482,6 +483,7 @@ export class RequestService {
                   trip_item: {
                     include: {
                       image: true,
+                      translations: true,
                     },
                   },
                 },
@@ -716,6 +718,7 @@ export class RequestService {
                 trip_item: {
                   include: {
                     image: true,
+                    translations: true,
                   },
                 },
               },
@@ -776,6 +779,7 @@ export class RequestService {
                   alt_text: item.trip_item.image.alt_text,
                 }
               : undefined,
+            translations: (item.trip_item as any).translations || [],
           },
         })),
         images: request.images.map((image) => ({

@@ -580,34 +580,48 @@ export const ApiCreateTripItem = () =>
     ApiOperation({
       summary: 'Create a new trip item (Admin Only)',
       description:
-        'Create a new trip item for trip categorization. Requires admin privileges.',
+        'Create a new trip item for trip categorization with optional multilingual translations. You can provide translations for name and description in different languages (EN, FR). Requires admin privileges.',
     }),
     ApiBody({
       type: CreateTripItemDto,
-      description: 'Trip item creation data',
+      description: 'Trip item creation data with optional translations',
       examples: {
         electronics: {
-          summary: 'Electronics trip item',
+          summary: 'Electronics trip item with translations',
           value: {
             name: 'Electronics',
             description: 'Electronic devices and gadgets',
-            image: {
-              id: '123e4567-e89b-12d3-a456-426614174000',
-              url: 'https://example.com/images/electronics.jpg',
-              alt_text: 'Electronics image',
-            },
+            image_id: '123e4567-e89b-12d3-a456-426614174000',
+            translations: [
+              {
+                language: 'FR',
+                name: 'Électronique',
+                description: 'Appareils et gadgets électroniques',
+              },
+            ],
           },
         },
         clothing: {
-          summary: 'Clothing trip item',
+          summary: 'Clothing trip item with translations',
           value: {
             name: 'Clothing',
             description: 'Clothes and accessories',
-            image: {
-              id: '123e4567-e89b-12d3-a456-426614174001',
-              url: 'https://example.com/images/clothing.jpg',
-              alt_text: 'Clothing image',
-            },
+            image_id: '123e4567-e89b-12d3-a456-426614174001',
+            translations: [
+              {
+                language: 'FR',
+                name: 'Vêtements',
+                description: 'Vêtements et accessoires',
+              },
+            ],
+          },
+        },
+        electronicsWithoutTranslations: {
+          summary: 'Electronics trip item without translations',
+          value: {
+            name: 'Electronics',
+            description: 'Electronic devices and gadgets',
+            image_id: '123e4567-e89b-12d3-a456-426614174000',
           },
         },
       },
@@ -619,7 +633,7 @@ export const ApiCreateTripItem = () =>
       type: CreateTripItemResponseDto,
       examples: {
         success: {
-          summary: 'Trip item created successfully',
+          summary: 'Trip item created successfully with translations',
           value: {
             message: 'Trip item created successfully',
             tripItem: {
@@ -631,6 +645,14 @@ export const ApiCreateTripItem = () =>
                 url: 'https://example.com/images/electronics.jpg',
                 alt_text: 'Electronics image',
               },
+              translations: [
+                {
+                  id: '123e4567-e89b-12d3-a456-426614174001',
+                  language: 'FR',
+                  name: 'Électronique',
+                  description: 'Appareils et gadgets électroniques',
+                },
+              ],
             },
           },
         },

@@ -243,7 +243,38 @@ export class UserService {
       select: userSelect,
     });
     if (!user) throw new NotFoundException(`User #${id} not found`);
-    return user;
+
+    // Calculate statistics in parallel
+    const [ratings, tripsCount, requestsCount] = await Promise.all([
+      // Get all ratings received by this user
+      this.prisma.rating.findMany({
+        where: { receiver_id: id },
+        select: { rating: true },
+      }),
+      // Count trips created by this user
+      this.prisma.trip.count({
+        where: { user_id: id },
+      }),
+      // Count requests made by this user
+      this.prisma.tripRequest.count({
+        where: { user_id: id },
+      }),
+    ]);
+
+    // Calculate average rating
+    const totalRatings = ratings.length;
+    const averageRating =
+      totalRatings > 0
+        ? ratings.reduce((sum, r) => sum + r.rating, 0) / totalRatings
+        : 0;
+
+    return {
+      ...user,
+      averageRating: Number(averageRating.toFixed(2)),
+      totalRatings,
+      totalTrips: tripsCount,
+      totalRequests: requestsCount,
+    };
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {

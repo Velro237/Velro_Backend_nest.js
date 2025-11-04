@@ -285,6 +285,11 @@ model Image {
   requestLinks TripRequestImage[]
 }
 
+enum Language {
+  EN
+  FR
+}
+
 model TripItem {
   id          String   @id @default(uuid())
   name        String   @unique
@@ -294,9 +299,27 @@ model TripItem {
   updated_at  DateTime @updatedAt
 
   // Relations
+  image           Image?            @relation(fields: [image_id], references: [id], onDelete: SetNull)
   trip_items_list TripItemsList[]
   request_items   TripRequestItem[]
-  image           Image?            @relation(fields: [image_id], references: [id], onDelete: SetNull)
+
+  // ✅ Link to translations
+  translations Translation[]
+}
+
+model Translation {
+  id           String   @id @default(uuid())
+  name         String
+  description  String?
+  language     Language @default(EN)
+  trip_item_id String? // foreign key to TripItem
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tripItem TripItem? @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
+
+  @@unique([trip_item_id, language]) // prevent duplicate language per TripItem
 }
 
 model TripItemsList {

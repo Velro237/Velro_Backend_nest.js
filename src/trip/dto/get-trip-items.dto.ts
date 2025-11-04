@@ -33,6 +33,34 @@ export class GetTripItemsQueryDto {
   limit?: number = 10;
 }
 
+export class TranslationResponseDto {
+  @ApiProperty({
+    description: 'Translation ID',
+    example: '123e4567-e89b-12d3-a456-426614174001',
+  })
+  id: string;
+
+  @ApiProperty({
+    description: 'Language code',
+    enum: ['EN', 'FR'],
+    example: 'EN',
+  })
+  language: string;
+
+  @ApiProperty({
+    description: 'Translated name',
+    example: 'Electronics',
+  })
+  name: string;
+
+  @ApiProperty({
+    description: 'Translated description',
+    example: 'Electronic devices and gadgets',
+    required: false,
+  })
+  description?: string | null;
+}
+
 export class TripItemDto {
   @ApiProperty({
     description: 'Trip item ID',
@@ -41,13 +69,13 @@ export class TripItemDto {
   id: string;
 
   @ApiProperty({
-    description: 'Trip item name',
+    description: 'Trip item name (default language)',
     example: 'Electronics',
   })
   name: string;
 
   @ApiProperty({
-    description: 'Trip item description',
+    description: 'Trip item description (default language)',
     example: 'Electronic devices and gadgets',
     required: false,
   })
@@ -59,6 +87,21 @@ export class TripItemDto {
     required: false,
   })
   image?: TripItemImageDto;
+
+  @ApiProperty({
+    description: 'Translations for name and description in different languages',
+    type: [TranslationResponseDto],
+    required: false,
+    example: [
+      {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        language: 'FR',
+        name: 'Électronique',
+        description: 'Appareils et gadgets électroniques',
+      },
+    ],
+  })
+  translations?: TranslationResponseDto[];
 }
 
 export class GetTripItemsResponseDto {

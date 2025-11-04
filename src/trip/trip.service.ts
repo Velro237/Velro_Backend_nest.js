@@ -1589,25 +1589,54 @@ export class TripService {
     }
 
     try {
-      const { image_id, ...tripItemData } = createTripItemDto;
+      const { image_id, translations, ...tripItemData } = createTripItemDto;
 
-      const tripItem = await this.prisma.tripItem.create({
-        data: {
-          ...tripItemData,
-          image_id: image_id || null,
-        },
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          image: {
-            select: {
-              id: true,
-              url: true,
-              alt_text: true,
+      // Create trip item with translations in a transaction
+      const tripItem = await this.prisma.$transaction(async (prisma) => {
+        // Create the trip item
+        const createdItem = await prisma.tripItem.create({
+          data: {
+            ...tripItemData,
+            image_id: image_id || null,
+          },
+        });
+
+        // Create translations if provided
+        if (translations && translations.length > 0) {
+          await prisma.translation.createMany({
+            data: translations.map((translation) => ({
+              trip_item_id: createdItem.id,
+              language: translation.language,
+              name: translation.name,
+              description: translation.description || null,
+            })),
+          });
+        }
+
+        // Fetch the created item with translations
+        return prisma.tripItem.findUnique({
+          where: { id: createdItem.id },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            image: {
+              select: {
+                id: true,
+                url: true,
+                alt_text: true,
+              },
+            },
+            translations: {
+              select: {
+                id: true,
+                language: true,
+                name: true,
+                description: true,
+              },
             },
           },
-        },
+        });
       });
 
       const message = await this.i18n.translate(
@@ -1622,6 +1651,7 @@ export class TripService {
         tripItem,
       };
     } catch (error) {
+      console.log(error);
       const message = await this.i18n.translate(
         'translation.tripItem.create.failed',
         {
@@ -1673,26 +1703,63 @@ export class TripService {
     }
 
     try {
-      const { image_id, ...tripItemData } = updateTripItemDto;
+      const { image_id, translations, ...tripItemData } = updateTripItemDto;
 
-      const tripItem = await this.prisma.tripItem.update({
-        where: { id: tripItemId },
-        data: {
-          ...tripItemData,
-          image_id: image_id !== undefined ? image_id : undefined,
-        },
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          image: {
-            select: {
-              id: true,
-              url: true,
-              alt_text: true,
+      // Update trip item and translations in a transaction
+      const tripItem = await this.prisma.$transaction(async (prisma) => {
+        // Update the trip item
+        await prisma.tripItem.update({
+          where: { id: tripItemId },
+          data: {
+            ...tripItemData,
+            image_id: image_id !== undefined ? image_id : undefined,
+          },
+        });
+
+        // Handle translations if provided
+        if (translations !== undefined) {
+          // Delete existing translations
+          await prisma.translation.deleteMany({
+            where: { trip_item_id: tripItemId },
+          });
+
+          // Create new translations
+          if (translations.length > 0) {
+            await prisma.translation.createMany({
+              data: translations.map((translation) => ({
+                trip_item_id: tripItemId,
+                language: translation.language,
+                name: translation.name,
+                description: translation.description || null,
+              })),
+            });
+          }
+        }
+
+        // Fetch the updated item with translations
+        return prisma.tripItem.findUnique({
+          where: { id: tripItemId },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            image: {
+              select: {
+                id: true,
+                url: true,
+                alt_text: true,
+              },
+            },
+            translations: {
+              select: {
+                id: true,
+                language: true,
+                name: true,
+                description: true,
+              },
             },
           },
-        },
+        });
       });
 
       const message = await this.i18n.translate(
@@ -1844,6 +1911,14 @@ export class TripService {
                 alt_text: true,
               },
             },
+            translations: {
+              select: {
+                id: true,
+                language: true,
+                name: true,
+                description: true,
+              },
+            },
           },
           orderBy: {
             created_at: 'desc',
@@ -1901,6 +1976,14 @@ export class TripService {
               id: true,
               url: true,
               alt_text: true,
+            },
+          },
+          translations: {
+            select: {
+              id: true,
+              language: true,
+              name: true,
+              description: true,
             },
           },
         },
@@ -2163,6 +2246,14 @@ export class TripService {
                         id: true,
                         url: true,
                         alt_text: true,
+                      },
+                    },
+                    translations: {
+                      select: {
+                        id: true,
+                        language: true,
+                        name: true,
+                        description: true,
                       },
                     },
                   },

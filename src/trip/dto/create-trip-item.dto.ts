@@ -1,9 +1,45 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNotEmpty, IsUrl } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNotEmpty,
+  IsUrl,
+  IsArray,
+  ValidateNested,
+  IsEnum,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class TranslationDto {
+  @ApiProperty({
+    description: 'Language code',
+    enum: ['EN', 'FR'],
+    example: 'EN',
+  })
+  @IsEnum(['EN', 'FR'])
+  language: 'EN' | 'FR';
+
+  @ApiProperty({
+    description: 'Translated name',
+    example: 'Electronics',
+  })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({
+    description: 'Translated description',
+    example: 'Electronic devices and gadgets',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  description?: string;
+}
 
 export class CreateTripItemDto {
   @ApiProperty({
-    description: 'Trip item name',
+    description: 'Trip item name (default language)',
     example: 'Electronics',
     uniqueItems: true,
   })
@@ -12,7 +48,7 @@ export class CreateTripItemDto {
   name: string;
 
   @ApiProperty({
-    description: 'Trip item description',
+    description: 'Trip item description (default language)',
     example: 'Electronic devices and gadgets',
     required: false,
   })
@@ -28,6 +64,24 @@ export class CreateTripItemDto {
   @IsString()
   @IsOptional()
   image_id?: string;
+
+  @ApiProperty({
+    description: 'Translations for name and description in different languages',
+    type: [TranslationDto],
+    required: false,
+    example: [
+      {
+        language: 'FR',
+        name: 'Électronique',
+        description: 'Appareils et gadgets électroniques',
+      },
+    ],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TranslationDto)
+  @IsOptional()
+  translations?: TranslationDto[];
 }
 
 export class CreateTripItemResponseDto {
@@ -48,6 +102,14 @@ export class CreateTripItemResponseDto {
         url: 'https://example.com/images/electronics.jpg',
         alt_text: 'Electronics image',
       },
+      translations: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174001',
+          language: 'FR',
+          name: 'Électronique',
+          description: 'Appareils et gadgets électroniques',
+        },
+      ],
     },
   })
   tripItem: {
@@ -59,5 +121,11 @@ export class CreateTripItemResponseDto {
       url: string;
       alt_text?: string;
     };
+    translations?: Array<{
+      id: string;
+      language: string;
+      name: string;
+      description: string | null;
+    }>;
   };
 }
