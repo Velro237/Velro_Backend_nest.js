@@ -335,41 +335,61 @@ export class PaymentService {
       }
 
       // SECURITY: Calculate amount from order (backend is source of truth)
-      // Get traveler price from order
-      const travelerPrice = Number(order.cost || 0);
-      if (travelerPrice <= 0) {
-        throw new BadRequestException('Invalid order price');
-      }
-
-      // Calculate platform fee (client spec: 7% + €1, min €1.99)
-      const platformFee = this.calculatePlatformCommission(travelerPrice);
-
-      // Calculate total sender pays
-      const senderTotal = travelerPrice + platformFee;
-
       // Get traveler ID from order
       const travelerId = order.trip.user_id;
 
-      // Get currency from order (supports multiple currencies)
-      let currency = order.currency || 'EUR';
+      // IMPORTANT: Use trip currency for Stripe payment (USD/EUR/CAD)
+      // The request cost is stored in user's currency (XAF), but Stripe should charge in trip currency
+      const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
+      const requestCurrency = (order.currency || 'XAF').toUpperCase();
       
-      // Handle XAF conversion - convert to Stripe-supported currency
-      if (currency.toUpperCase() === 'XAF') {
-        // Convert XAF to EUR for Stripe processing
+      // Get traveler price from request (may be in XAF)
+      const requestCost = Number(order.cost || 0);
+      if (requestCost <= 0) {
+        throw new BadRequestException('Invalid order price');
+      }
+
+      // Convert request cost back to trip currency if needed
+      let travelerPrice: number;
+      let currency: string;
+      
+      if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
+        // Request cost is in XAF, convert back to trip currency (USD/EUR/CAD)
         const conversion = this.currencyService.convertCurrency(
-          senderTotal,
+          requestCost,
+          'XAF',
+          tripCurrency
+        );
+        travelerPrice = conversion.convertedAmount;
+        currency = tripCurrency;
+        
+        this.logger.log(
+          `Currency conversion for Stripe: ${requestCost} ${requestCurrency} = ${travelerPrice} ${currency} (rate: ${conversion.exchangeRate})`
+        );
+      } else if (requestCurrency !== 'XAF') {
+        // Request is already in trip currency, use it directly
+        travelerPrice = requestCost;
+        currency = requestCurrency;
+      } else {
+        // Both are XAF, convert to EUR for Stripe
+        const conversion = this.currencyService.convertCurrency(
+          requestCost,
           'XAF',
           'EUR'
         );
+        travelerPrice = conversion.convertedAmount;
+        currency = 'EUR';
         
         this.logger.log(
-          `XAF conversion: ${senderTotal} XAF = ${conversion.convertedAmount} EUR (rate: ${conversion.exchangeRate})`
+          `XAF to EUR conversion for Stripe: ${requestCost} XAF = ${travelerPrice} EUR (rate: ${conversion.exchangeRate})`
         );
-        
-        // Update amounts for Stripe processing
-        currency = 'EUR';
-        // Note: We keep the original XAF amounts in metadata for display
       }
+
+      // Calculate platform fee in trip currency (client spec: 7% + €1, min €1.99)
+      const platformFee = this.calculatePlatformCommission(travelerPrice);
+
+      // Calculate total sender pays in trip currency
+      const senderTotal = travelerPrice + platformFee;
       
       // Validate currency is supported by Stripe (let Stripe handle validation)
       // Stripe will throw an error if currency is not supported
@@ -389,17 +409,12 @@ export class PaymentService {
         senderTotal: senderTotal.toFixed(2),
       };
 
-      // Add XAF conversion info if original currency was XAF
-      if (order.currency?.toUpperCase() === 'XAF') {
-        const conversion = this.currencyService.convertCurrency(
-          senderTotal,
-          'XAF',
-          'EUR'
-        );
-        metadata.originalCurrency = 'XAF';
-        metadata.originalAmount = senderTotal.toFixed(2);
-        metadata.exchangeRate = conversion.exchangeRate.toString();
-        metadata.convertedAmount = conversion.convertedAmount.toFixed(2);
+      // Add conversion info if request currency differs from payment currency
+      if (requestCurrency !== currency) {
+        metadata.requestCurrency = requestCurrency;
+        metadata.requestAmount = requestCost.toFixed(2);
+        metadata.paymentCurrency = currency;
+        metadata.paymentAmount = senderTotal.toFixed(2);
       }
 
       const paymentIntent = await this.stripeService.createPaymentIntent({
@@ -411,12 +426,14 @@ export class PaymentService {
       });
 
       // Update order with payment information
+      // Note: We keep the request currency in the database (XAF), but store payment currency separately if different
       await this.prisma.tripRequest.update({
         where: { id: dto.orderId },
         data: {
           payment_intent_id: paymentIntent.id,
-          currency: currency,
           payment_status: PaymentStatus.PROCESSING,
+          // Don't update request currency - it should remain in user's currency (XAF)
+          // The payment currency is stored in Stripe PaymentIntent metadata
         },
       });
 
@@ -542,8 +559,37 @@ export class PaymentService {
         );
       }
       
-      // Get currency from order (this is the actual payment currency from Stripe)
-      const paymentCurrency = order.currency || 'EUR';
+      // IMPORTANT: Get actual payment currency and amount from Stripe PaymentIntent
+      // The order.currency may be XAF (stored), but payment was made in trip currency (USD/EUR/CAD)
+      const paymentIntent = await this.stripeService.getPaymentIntent(paymentIntentId);
+      const paymentCurrency = paymentIntent.currency.toUpperCase();
+      const totalPaid = paymentIntent.amount / 100; // Convert from cents
+      
+      // Get traveler price from PaymentIntent metadata (if available) or calculate from total
+      let travelerPrice: number;
+      if (paymentIntent.metadata?.travelerPrice) {
+        travelerPrice = Number(paymentIntent.metadata.travelerPrice);
+      } else {
+        // Fallback: Calculate traveler price from total paid - platform fee
+        // This should match what was calculated during payment creation
+        const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
+        const requestCurrency = (order.currency || 'XAF').toUpperCase();
+        const requestCost = Number(order.cost || 0);
+        
+        // Convert request cost back to trip currency (same logic as createPaymentIntent)
+        if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
+          const conversion = this.currencyService.convertCurrency(
+            requestCost,
+            'XAF',
+            tripCurrency
+          );
+          travelerPrice = conversion.convertedAmount;
+        } else {
+          travelerPrice = requestCost;
+        }
+      }
+      
+      const pendingEarnings = travelerPrice;
       
       // Update wallet currency to match the payment currency if it's the first payment
       if (wallet.currency !== paymentCurrency) {
@@ -552,12 +598,6 @@ export class PaymentService {
           data: { currency: paymentCurrency },
         });
       }
-
-      // Client spec: Traveler receives EXACTLY their set price
-      // Sender pays: travelerPrice + platformFee
-      // Platform keeps the fee (Stripe fee comes out of platform's share)
-      const travelerPrice = Number(order.cost || 0);
-      const pendingEarnings = travelerPrice;
 
       // Log the breakdown for tracking
       let stripeFee = 0;
@@ -658,29 +698,54 @@ export class PaymentService {
         isNewAccount = false;
         this.logger.log(`User already has Stripe account: ${accountId}`);
       } else {
-        // Create new Express account with user-provided address (required)
-        const result = await this.stripeService.ensureConnectedAccount({
-          userId: user.id,
-          email: user.email,
-          country: dto.country || await this.detectCountryFromUser(user),
-          street: dto.street,
-          apartment: dto.apartment,
-          city: dto.city,
-          postalCode: dto.postalCode,
-          firstName: user.firstName,
-          lastName: user.lastName,
-        });
+ 
+        // Try to use user's country preference if provided, otherwise use detected country
+        // If that fails or is unsupported, fallback to 'US' for account creation
+        // User can always change their country during Stripe onboarding
+        const preferredCountry = dto.country || await this.detectCountryFromUser(user) || 'US';
+        
+        // Try with preferred country first, fallback to US if it fails
+        let accountCreationCountry = preferredCountry;
+        let result;
+        
+        try {
+          result = await this.stripeService.ensureConnectedAccount({
+            userId: user.id,
+            email: user.email,
+            country: accountCreationCountry,
+            // Address fields NOT provided - user will fill during onboarding
+            firstName: user.firstName,
+            lastName: user.lastName,
+          });
+        } catch (error) {
+          // If preferred country fails (e.g., unsupported), retry with US
+          if (accountCreationCountry !== 'US') {
+            this.logger.warn(
+              `Failed to create account with country ${accountCreationCountry}, retrying with US: ${error.message}`
+            );
+            accountCreationCountry = 'US';
+            result = await this.stripeService.ensureConnectedAccount({
+              userId: user.id,
+              email: user.email,
+              country: accountCreationCountry, // Fallback to US
+              firstName: user.firstName,
+              lastName: user.lastName,
+            });
+          } else {
+            // If US also fails, re-throw the error
+            throw error;
+          }
+        }
 
         accountId = result.accountId;
         isNewAccount = result.isNew;
 
-        // Save account ID to user
-        const detectedCountry = dto.country || await this.detectCountryFromUser(user);
+        // Save account ID to user (country will be updated after onboarding)
         await this.prisma.user.update({
           where: { id: userId },
           data: {
             stripe_account_id: accountId,
-            payout_country: detectedCountry,
+            // payout_country will be set after user completes onboarding
           },
         });
       }

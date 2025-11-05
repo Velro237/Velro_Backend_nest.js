@@ -69,10 +69,10 @@ async ensureConnectedAccount(params: {
   userId: string;
   email: string;
   country: string;
-  street: string;
+  street?: string;
   apartment?: string;
-  city: string;
-  postalCode: string;
+  city?: string;
+  postalCode?: string;
   firstName?: string;
   lastName?: string;
 }): Promise<{ accountId: string; isNew: boolean }> {
@@ -127,43 +127,26 @@ async ensureConnectedAccount(params: {
       throw new BadRequestException('User must have verified phone number in KYC to create Stripe account');
     }
 
-    // Format phone number for Stripe (remove any non-digit characters except +)
-    const formattedPhone = kycPhone.replace(/[^\d+]/g, '');
-    if (!formattedPhone.startsWith('+')) {
-      throw new BadRequestException('Phone number must include country code (e.g., +1234567890)');
-    }
+    // 4. Create Express account
+    // IMPORTANT: Do NOT set country or capabilities - this locks the country field
 
-    // 4. Create Express account with user-provided address
     const account = await this.stripe.accounts.create({
       type: 'express',
-      country: params.country,
+
       email: user.email,
       business_type: 'individual',
       individual: {
         email: user.email,
         first_name: user.firstName,
         last_name: user.lastName,
-        phone: formattedPhone,
-        ...(params.street || params.city || params.postalCode || params.apartment
-          ? {
-              address: {
-                line1: params.street || '',
-                line2: params.apartment || '',
-                city: params.city || '',
-                // state is optional and country-specific; keep empty string
-                state: '',
-                postal_code: params.postalCode || '',
-                country: params.country,
-              },
-            }
-          : {}),
+
         ...(dateOfBirth ? {
           dob: {
             day: dateOfBirth.getDate(),
             month: dateOfBirth.getMonth() + 1,
             year: dateOfBirth.getFullYear(),
           },
-        } : {}),
+        } : {}), // Pre-filled from KYC
         // ID number will be collected during Stripe onboarding if required
       },
       business_profile: {
@@ -172,10 +155,7 @@ async ensureConnectedAccount(params: {
         support_email: user.email,
         name: `${user.firstName} ${user.lastName} - Traveler`,
       },
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true },
-      },
+      // Capabilities NOT set - Stripe will configure them based on country selected during onboarding
       settings: {
         payouts: {
           schedule: { interval: 'daily' },
