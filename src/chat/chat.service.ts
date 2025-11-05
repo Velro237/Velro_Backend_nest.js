@@ -1385,6 +1385,12 @@ export class ChatService {
                 picture: true,
               },
             },
+            trip: {
+              select: {
+                id: true,
+                departure: true,
+              },
+            },
           },
         },
       },
@@ -1395,7 +1401,17 @@ export class ChatService {
     }
 
     return {
-      request: chat.request,
+      request: chat.request
+        ? {
+            id: chat.request.id,
+            status: chat.request.status,
+            cost: chat.request.cost,
+            currency: chat.request.currency,
+            created_at: chat.request.created_at,
+            departure: chat.request.trip?.departure || null,
+            user: chat.request.user,
+          }
+        : null,
       trip: chat.trip,
     };
   }

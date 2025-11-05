@@ -82,6 +82,20 @@ export class GetMessagesResponseDto {
       cost: { type: 'number', example: 50000 },
       currency: { type: 'string', example: 'XAF' },
       created_at: { type: 'string', example: '2024-01-15T10:30:00.000Z' },
+      departure: {
+        type: 'object',
+        nullable: true,
+        additionalProperties: true,
+        description: 'Departure location data from the associated trip',
+        example: {
+          country: 'France',
+          country_code: 'FR',
+          region: 'Île-de-France',
+          address: '123 Main St, Paris',
+          lng: 2.3522,
+          lat: 48.8566,
+        },
+      },
       user: {
         type: 'object',
         properties: {
@@ -106,6 +120,7 @@ export class GetMessagesResponseDto {
     cost: number;
     currency: string;
     created_at: Date;
+    departure?: any;
     user: {
       id: string;
       email: string;

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   InternalServerErrorException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import {
   CreateNotificationDto,
@@ -26,9 +27,13 @@ import { SendEmailDto, SendEmailResponseDto } from './dto/send-email.dto';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import Mailgun from 'mailgun.js';
+import { Expo, ExpoPushMessage } from 'expo-server-sdk';
 
 @Injectable()
 export class NotificationService {
+  private expo = new Expo();
+  private readonly logger = new Logger(NotificationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
@@ -333,7 +338,7 @@ export class NotificationService {
     }
   }
 
-  async sendPushNotification(
+  async sendPushNotificationFirebase(
     notificationDto: SendPushNotificationDto,
     lang: string = 'en',
   ): Promise<SendPushNotificationResponseDto> {
@@ -441,5 +446,56 @@ export class NotificationService {
       );
       throw new InternalServerErrorException(message);
     }
+  }
+
+  async sendPushNotification(
+    notificationDto: SendPushNotificationDto,
+    lang: string = 'en',
+  ): Promise<SendPushNotificationResponseDto> {
+    if (!Expo.isExpoPushToken(notificationDto.deviceId)) {
+      this.logger.error(`Invalid Expo push token: ${notificationDto.deviceId}`);
+      const message = await this.i18n.translate(
+        'translation.notification.push.failed',
+        { lang },
+      );
+      throw new BadRequestException(message);
+    }
+
+    const messages: ExpoPushMessage[] = [
+      {
+        to: notificationDto.deviceId,
+        sound: 'default',
+        title: notificationDto.title,
+        body: notificationDto.body,
+        data: notificationDto.data || {},
+      },
+    ];
+
+    const chunks = this.expo.chunkPushNotifications(messages);
+    const tickets = [];
+
+    for (const chunk of chunks) {
+      try {
+        const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
+        this.logger.log('Push sent:', ticketChunk);
+        tickets.push(...ticketChunk);
+      } catch (error) {
+        this.logger.error('Push send error:', error);
+        const message = await this.i18n.translate(
+          'translation.notification.push.failed',
+          { lang },
+        );
+        throw new InternalServerErrorException(message);
+      }
+    }
+
+    const message = await this.i18n.translate(
+      'translation.notification.push.sent',
+      { lang },
+    );
+
+    return {
+      message,
+    };
   }
 }

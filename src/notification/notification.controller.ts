@@ -125,7 +125,7 @@ export class NotificationController {
         value: {
           title: 'New Trip Alert',
           body: 'A new trip matches your alert criteria',
-          deviceId: 'fcm_token_here',
+          deviceId: 'token here',
           data: {
             request_id: '123e4567-e89b-12d3-a456-426614174001',
             type: 'trip_alert',
