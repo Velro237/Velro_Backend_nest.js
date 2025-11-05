@@ -15,7 +15,11 @@ import { ChatGateway } from '../chat/chat.gateway';
 import { RedisService } from '../redis/redis.service';
 import { WalletService } from '../wallet/wallet.service';
 import { NotificationService } from '../notification/notification.service';
-import { MessageType as PrismaMessageType, UserRole } from 'generated/prisma';
+import {
+  MessageType as PrismaMessageType,
+  UserRole,
+  Currency,
+} from 'generated/prisma';
 import { MessageType } from '../chat/dto/send-message.dto';
 import {
   CreateTripRequestDto,
@@ -75,6 +79,12 @@ export class RequestService {
         trip_items: {
           include: {
             trip_item: true,
+            prices: {
+              select: {
+                currency: true,
+                price: true,
+              },
+            },
           },
         },
       },
@@ -103,9 +113,15 @@ export class RequestService {
       throw new ConflictException(message);
     }
 
-    // Check if user exists
+    // Check if user exists and get their currency
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        currency: true,
+      },
     });
 
     if (!user) {
@@ -117,6 +133,9 @@ export class RequestService {
       );
       throw new NotFoundException(message);
     }
+
+    // Get user's currency (default to XAF if not set)
+    const userCurrency = (user.currency || 'XAF').toUpperCase() as Currency;
 
     // Admins cannot create trip requests
     if (user.role === UserRole.ADMIN) {
@@ -197,20 +216,39 @@ export class RequestService {
     }
 
     try {
-      // Calculate total cost: sum of (quantity × price) for each requested item
+      // Calculate total cost using prices in user's currency
+      // Sum of (quantity × price) for each requested item, using price in user's currency
       let totalCost = 0;
       for (const requestedItem of request_items) {
         const tripItem = trip.trip_items.find(
           (item) => item.trip_item_id === requestedItem.trip_item_id,
         );
         if (tripItem) {
-          totalCost += requestedItem.quantity * Number(tripItem.price);
+          // Find price in user's currency from TripItemsListPrice
+          const priceInUserCurrency = tripItem.prices?.find(
+            (p) => p.currency === userCurrency,
+          );
+
+          if (priceInUserCurrency) {
+            // Use price from TripItemsListPrice in user's currency
+            totalCost +=
+              requestedItem.quantity * Number(priceInUserCurrency.price);
+          } else {
+            // Fallback: if price not found in user currency, use trip currency price and convert
+            const tripCurrencyPrice = Number(tripItem.price);
+            const conversion = this.currencyService.convertCurrency(
+              tripCurrencyPrice,
+              trip.currency as Currency,
+              userCurrency,
+            );
+            totalCost += requestedItem.quantity * conversion.convertedAmount;
+          }
         }
       }
 
       // Create trip request with request items in a transaction
       const result = await this.prisma.$transaction(async (prisma) => {
-        // Create the trip request with calculated cost and currency from trip
+        // Create the trip request with calculated cost in user's currency
         const request = await prisma.tripRequest.create({
           data: {
             trip_id,
@@ -218,7 +256,7 @@ export class RequestService {
             message: requestData.message,
             status: 'PENDING',
             cost: totalCost,
-            currency: trip.currency,
+            currency: userCurrency,
           },
           select: {
             id: true,

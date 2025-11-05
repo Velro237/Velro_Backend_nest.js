@@ -8,6 +8,7 @@ import { RequestModule } from '../request/request.module';
 import { ChatModule } from '../chat/chat.module';
 import { PaymentModule } from '../payment/payment.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { CurrencyModule } from '../currency/currency.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { WalletModule } from '../wallet/wallet.module';
     ChatModule,
     PaymentModule,
     WalletModule,
+    CurrencyModule,
   ],
   controllers: [TripController],
   providers: [TripService],

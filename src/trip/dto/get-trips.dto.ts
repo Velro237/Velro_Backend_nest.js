@@ -189,6 +189,21 @@ export class ModeOfTransportDto {
   description: string;
 }
 
+export class TripItemPriceDto {
+  @ApiProperty({
+    description: 'Currency code',
+    example: 'USD',
+    enum: ['XAF', 'USD', 'EUR', 'CAD'],
+  })
+  currency: string;
+
+  @ApiProperty({
+    description: 'Price in this currency',
+    example: 15.99,
+  })
+  price: number;
+}
+
 export class TripItemListItemDto {
   @ApiProperty({
     description: 'Trip item ID reference',
@@ -197,7 +212,7 @@ export class TripItemListItemDto {
   trip_item_id: string;
 
   @ApiProperty({
-    description: 'Price per kg for this item',
+    description: 'Price per kg for this item (in trip currency)',
     example: 15.99,
   })
   price: number;
@@ -208,6 +223,18 @@ export class TripItemListItemDto {
     required: false,
   })
   available_kg?: number;
+
+  @ApiProperty({
+    description: 'Prices in all supported currencies',
+    type: [TripItemPriceDto],
+    example: [
+      { currency: 'XAF', price: 9600 },
+      { currency: 'USD', price: 15.99 },
+      { currency: 'EUR', price: 14.5 },
+      { currency: 'CAD', price: 21.5 },
+    ],
+  })
+  prices: TripItemPriceDto[];
 
   @ApiProperty({
     description: 'Trip item details',

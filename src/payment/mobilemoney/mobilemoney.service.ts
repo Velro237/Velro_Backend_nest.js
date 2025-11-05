@@ -10,6 +10,7 @@ import { PaymentAction, PaymentCarrier } from '../entitiy/mobilemoney.entity';
 import { I18nService } from 'nestjs-i18n';
 import { RequestService } from '../../request/request.service';
 import { CurrencyService } from '../../currency/currency.service';
+import { Currency } from 'generated/prisma';
 import { MobilemoneyCashoutResponseDto } from '../dto/mobilemoney-cashout.dto';
 import { MobilemoneyDepositResponseDto } from '../dto/mobilemoney-deposit.dto';
 import { MoalaBalanceResponseDto } from '../dto/moala-balance.dto';
@@ -556,9 +557,52 @@ export class MobilemoneyService {
     withdrawalNumberId: string,
     userId: string,
     lang: string = 'en',
+    requestId?: string,
   ): Promise<MobilemoneyDepositResponseDto> {
     try {
       this.validateConfiguration(lang);
+
+      // If requestId is provided, check and update request currency if needed
+      if (requestId) {
+        const request = await this.prisma.tripRequest.findUnique({
+          where: { id: requestId },
+          include: {
+            user: {
+              select: {
+                id: true,
+                currency: true,
+              },
+            },
+          },
+        });
+
+        if (request) {
+          const userCurrency = (request.user.currency || 'XAF').toUpperCase();
+          const requestCurrency = (request.currency || 'XAF').toUpperCase();
+
+          // If request currency is different from user's currency, convert and update
+          if (requestCurrency !== userCurrency) {
+            const conversion = this.currencyService.convertCurrency(
+              Number(request.cost || 0),
+              requestCurrency,
+              userCurrency,
+            );
+
+            // Update request with converted amount and user's currency
+            await this.prisma.tripRequest.update({
+              where: { id: requestId },
+              data: {
+                cost: conversion.convertedAmount,
+                currency: userCurrency as Currency,
+              },
+            });
+
+            this.logger.log(
+              `Updated request ${requestId} currency from ${requestCurrency} to ${userCurrency} with converted amount ${conversion.convertedAmount}`,
+            );
+          }
+        }
+      }
 
       // Get withdrawal number
       const withdrawalNumber = await this.prisma.withdrawalNumber.findUnique({

@@ -1,5 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+export class TripItemPriceDto {
+  @ApiProperty({
+    description: 'Currency code',
+    example: 'USD',
+    enum: ['XAF', 'USD', 'EUR', 'CAD'],
+  })
+  currency: string;
+
+  @ApiProperty({
+    description: 'Price in this currency',
+    example: 15.5,
+  })
+  price: number;
+}
+
 export class TripItemDto {
   @ApiProperty({
     description: 'Trip item ID',
@@ -8,7 +23,7 @@ export class TripItemDto {
   trip_item_id: string;
 
   @ApiProperty({
-    description: 'Price for this trip item',
+    description: 'Price for this trip item (in trip currency)',
     example: 15.5,
   })
   price: number;
@@ -19,6 +34,18 @@ export class TripItemDto {
     required: false,
   })
   available_kg?: number;
+
+  @ApiProperty({
+    description: 'Prices in all supported currencies',
+    type: [TripItemPriceDto],
+    example: [
+      { currency: 'XAF', price: 9300 },
+      { currency: 'USD', price: 15.5 },
+      { currency: 'EUR', price: 14.2 },
+      { currency: 'CAD', price: 21.0 },
+    ],
+  })
+  prices: TripItemPriceDto[];
 
   @ApiProperty({
     description: 'Trip item details',

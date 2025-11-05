@@ -58,7 +58,13 @@ import { RequestService } from '../request/request.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { StripeService } from '../payment/stripe.service';
 import { WalletService } from '../wallet/wallet.service';
-import { UserRole, TripStatus, RequestStatus } from 'generated/prisma/client';
+import { CurrencyService } from '../currency/currency.service';
+import {
+  UserRole,
+  TripStatus,
+  RequestStatus,
+  Currency,
+} from 'generated/prisma/client';
 
 @Injectable()
 export class TripService {
@@ -70,6 +76,7 @@ export class TripService {
     private readonly chatGateway: ChatGateway,
     private readonly stripeService: StripeService,
     private readonly walletService: WalletService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   async createTrip(
@@ -188,7 +195,7 @@ export class TripService {
             maximum_weight_in_kg: tripData.maximum_weight_in_kg || null,
             notes: tripData.notes || null,
             meetup_flexible: tripData.meetup_flexible || false,
-            currency: tripData.currency,
+            currency: tripData.currency as Currency,
           },
           select: {
             id: true,
@@ -212,6 +219,46 @@ export class TripService {
             avalailble_kg: item.available_kg || null,
           })),
         });
+
+        // Convert prices for all supported currencies and create TripItemsListPrice entries
+        const supportedCurrencies: Currency[] = [
+          Currency.XAF,
+          Currency.USD,
+          Currency.EUR,
+          Currency.CAD,
+        ];
+        const userCurrency = tripData.currency as Currency;
+
+        // Prepare all price entries for all currencies
+        const priceEntries: Array<{
+          trip_id: string;
+          trip_item_id: string;
+          currency: Currency;
+          price: number;
+        }> = [];
+
+        for (const item of trip_items) {
+          for (const targetCurrency of supportedCurrencies) {
+            const conversion = this.currencyService.convertCurrency(
+              Number(item.price),
+              userCurrency,
+              targetCurrency,
+            );
+            priceEntries.push({
+              trip_id: trip.id,
+              trip_item_id: item.trip_item_id,
+              currency: targetCurrency,
+              price: conversion.convertedAmount,
+            });
+          }
+        }
+
+        // Create all price entries
+        if (priceEntries.length > 0) {
+          await prisma.tripItemsListPrice.createMany({
+            data: priceEntries,
+          });
+        }
 
         return {
           trip,
@@ -2263,6 +2310,12 @@ export class TripService {
                 trip_item_id: true,
                 price: true,
                 avalailble_kg: true,
+                prices: {
+                  select: {
+                    currency: true,
+                    price: true,
+                  },
+                },
                 trip_item: {
                   select: {
                     id: true,
@@ -2392,6 +2445,12 @@ export class TripService {
           trip_item_id: item.trip_item_id,
           price: Number(item.price),
           available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
+          prices: item.prices
+            ? item.prices.map((p) => ({
+                currency: p.currency,
+                price: Number(p.price),
+              }))
+            : [],
           trip_item: item.trip_item,
         })),
         createdAt: trip.createdAt,
@@ -2482,6 +2541,12 @@ export class TripService {
               trip_item_id: true,
               price: true,
               avalailble_kg: true,
+              prices: {
+                select: {
+                  currency: true,
+                  price: true,
+                },
+              },
               trip_item: {
                 select: {
                   id: true,
@@ -2514,6 +2579,12 @@ export class TripService {
         trip_item_id: item.trip_item_id,
         price: Number(item.price),
         available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
+        prices: item.prices
+          ? item.prices.map((p) => ({
+              currency: p.currency,
+              price: Number(p.price),
+            }))
+          : [],
         trip_item: item.trip_item,
       }));
 
