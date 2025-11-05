@@ -530,7 +530,30 @@ export class ChatService {
                     },
                     trip_items: {
                       include: {
-                        trip_item: true,
+                        trip_item: {
+                          select: {
+                            id: true,
+                            name: true,
+                            description: true,
+                            image_id: true,
+                            created_at: true,
+                            updated_at: true,
+                            translations: {
+                              select: {
+                                id: true,
+                                language: true,
+                                name: true,
+                                description: true,
+                              },
+                            },
+                          },
+                        },
+                        prices: {
+                          select: {
+                            currency: true,
+                            price: true,
+                          },
+                        },
                       },
                     },
                   },
@@ -558,19 +581,10 @@ export class ChatService {
         this.prisma.message.count({ where: { chat_id: chatId } }),
       ]);
 
+      // Transform messages using the same logic as createMessage
       const messageResponses: MessageResponseDto[] = await Promise.all(
         messages.map(async (message) => {
-          let content = message.content;
-
-          // Translate content for REQUEST type messages
-          if (message.type === 'REQUEST') {
-            content = await this.i18n.translate(
-              'translation.chat.messages.newTripRequest',
-              { lang },
-            );
-          }
-
-          // Fetch review data if message type is REVIEW
+          // Fetch review data if message type is REVIEW (same as createMessage)
           let reviewData = undefined;
           if (message.type === 'REVIEW' && message.review_id) {
             try {
@@ -614,6 +628,7 @@ export class ChatService {
                   rating: rating.rating,
                   comment: rating.comment,
                   createdAt: rating.created_at,
+                  updatedAt: rating.updated_at,
                   giver: {
                     id: rating.giver.id,
                     email: rating.giver.email,
@@ -646,6 +661,7 @@ export class ChatService {
             }
           }
 
+          // Use exact same structure as createMessage
           return {
             id: message.id,
             chatId: message.chat_id,
@@ -654,11 +670,12 @@ export class ChatService {
               email: message.sender.email,
               name: message.sender.name,
             },
-            content,
+            content: message.content, // Use original content, not translated
             imageUrl: message.image_url,
             type: message.type,
             isRead: message.sender_id === userId ? true : message.isRead,
             createdAt: message.createdAt,
+            updatedAt: message.createdAt, // Message model doesn't have updatedAt, using createdAt
             data: (message.data as Record<string, any>) || null,
             tripData: message.request?.trip
               ? {
@@ -690,6 +707,12 @@ export class ChatService {
                               : null,
                           createdAt: ti.created_at,
                           updatedAt: ti.updated_at,
+                          prices: ti.prices
+                            ? ti.prices.map((p: any) => ({
+                                currency: p.currency,
+                                price: Number(p.price),
+                              }))
+                            : [],
                           trip_item: ti.trip_item
                             ? {
                                 id: ti.trip_item.id,
@@ -788,6 +811,46 @@ export class ChatService {
       // Get chat request and trip data
       const chatData = await this.getChatWithRequestAndTripData(chatId);
 
+      // Get chat info including members
+      const chat = await this.prisma.chat.findUnique({
+        where: { id: chatId },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          updatedAt: true,
+          members: {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  picture: true,
+                  role: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const chat_info = chat
+        ? {
+            id: chat.id,
+            name: chat.name,
+            createdAt: chat.createdAt,
+            updatedAt: chat.updatedAt,
+            members: chat.members.map((member) => ({
+              id: member.user.id,
+              email: member.user.email,
+              name: member.user.name,
+              picture: member.user.picture,
+              role: member.user.role,
+            })),
+          }
+        : null;
+
       const result = {
         message: message_text,
         messages: messageResponses,
@@ -799,6 +862,7 @@ export class ChatService {
           hasNext: page < totalPages,
           hasPrev: page > 1,
         },
+        chat_info,
         request: chatData?.request || null,
         trip: chatData?.trip || null,
       };
@@ -888,7 +952,30 @@ export class ChatService {
                     },
                     trip_items: {
                       include: {
-                        trip_item: true,
+                        trip_item: {
+                          select: {
+                            id: true,
+                            name: true,
+                            description: true,
+                            image_id: true,
+                            created_at: true,
+                            updated_at: true,
+                            translations: {
+                              select: {
+                                id: true,
+                                language: true,
+                                name: true,
+                                description: true,
+                              },
+                            },
+                          },
+                        },
+                        prices: {
+                          select: {
+                            currency: true,
+                            price: true,
+                          },
+                        },
                       },
                     },
                   },
@@ -981,6 +1068,7 @@ export class ChatService {
               rating: rating.rating,
               comment: rating.comment,
               createdAt: rating.created_at,
+              updatedAt: rating.updated_at,
               giver: {
                 id: rating.giver.id,
                 email: rating.giver.email,
@@ -1029,6 +1117,7 @@ export class ChatService {
         type: message.type,
         isRead: true, // Messages are always "read" by the sender
         createdAt: message.createdAt,
+        updatedAt: message.createdAt, // Message model doesn't have updatedAt, using createdAt
         data: ((message as any).data as Record<string, any>) || null,
         tripData: message.request?.trip
           ? {
@@ -1058,6 +1147,12 @@ export class ChatService {
                         : null,
                     createdAt: ti.created_at,
                     updatedAt: ti.updated_at,
+                    prices: ti.prices
+                      ? ti.prices.map((p: any) => ({
+                          currency: p.currency,
+                          price: Number(p.price),
+                        }))
+                      : [],
                     trip_item: ti.trip_item
                       ? {
                           id: ti.trip_item.id,
@@ -1066,6 +1161,8 @@ export class ChatService {
                           image_id: ti.trip_item.image_id,
                           createdAt: ti.trip_item.created_at,
                           updatedAt: ti.trip_item.updated_at,
+                          translations:
+                            (ti.trip_item as any).translations || [],
                         }
                       : null,
                   }))
@@ -1114,6 +1211,8 @@ export class ChatService {
                               image_id: item.trip_item.image_id,
                               createdAt: item.trip_item.created_at,
                               updatedAt: item.trip_item.updated_at,
+                              translations:
+                                (item.trip_item as any).translations || [],
                             }
                           : undefined,
                       };

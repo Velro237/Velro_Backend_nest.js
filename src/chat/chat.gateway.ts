@@ -210,6 +210,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               rating: rating.rating,
               comment: rating.comment,
               createdAt: rating.created_at,
+              updatedAt: rating.updated_at,
               giver: {
                 id: rating.giver.id,
                 email: rating.giver.email,

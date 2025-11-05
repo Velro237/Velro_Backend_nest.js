@@ -151,4 +151,77 @@ export class GetMessagesResponseDto {
       email: string;
     };
   };
+
+  @ApiProperty({
+    description: 'Chat information including members',
+    type: 'object',
+    nullable: true,
+    properties: {
+      id: { type: 'string', example: '123e4567-e89b-12d3-a456-426614174000' },
+      name: {
+        type: 'string',
+        nullable: true,
+        example: 'Project Discussion',
+      },
+      createdAt: {
+        type: 'string',
+        format: 'date-time',
+        example: '2024-01-15T10:30:00.000Z',
+      },
+      updatedAt: {
+        type: 'string',
+        format: 'date-time',
+        example: '2024-01-15T10:30:00.000Z',
+      },
+      members: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              example: '123e4567-e89b-12d3-a456-426614174001',
+            },
+            email: { type: 'string', example: 'user@example.com' },
+            name: { type: 'string', nullable: true, example: 'John Doe' },
+            picture: {
+              type: 'string',
+              nullable: true,
+              example: 'https://example.com/picture.jpg',
+            },
+            role: { type: 'string', example: 'USER', enum: ['USER', 'ADMIN'] },
+          },
+        },
+        example: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174001',
+            email: 'user1@example.com',
+            name: 'John Doe',
+            picture: 'https://example.com/picture1.jpg',
+            role: 'USER',
+          },
+          {
+            id: '123e4567-e89b-12d3-a456-426614174002',
+            email: 'user2@example.com',
+            name: 'Jane Smith',
+            picture: null,
+            role: 'USER',
+          },
+        ],
+      },
+    },
+  })
+  chat_info?: {
+    id: string;
+    name: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    members: Array<{
+      id: string;
+      email: string;
+      name: string | null;
+      picture: string | null;
+      role: string;
+    }>;
+  } | null;
 }

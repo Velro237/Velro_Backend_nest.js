@@ -123,6 +123,12 @@ export class MessageResponseDto {
   createdAt: Date;
 
   @ApiProperty({
+    description: 'Message last update timestamp',
+    example: '2024-01-15T10:30:00.000Z',
+  })
+  updatedAt: Date;
+
+  @ApiProperty({
     description: 'Additional message data (JSON)',
     example: { status: 'PENDING' },
     required: false,
@@ -187,6 +193,7 @@ export class MessageResponseDto {
     rating: number;
     comment: string | null;
     createdAt: Date;
+    updatedAt: Date;
     giver: {
       id: string;
       email: string;
