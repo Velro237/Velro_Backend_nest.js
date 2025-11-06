@@ -11,7 +11,11 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -42,6 +46,7 @@ import {
   ApiFindOneUser,
   ApiRemoveUser,
   ApiUpdateUser,
+  ApiUpdateProfilePicture,
   ApiCreateReport,
   ApiGetReports,
   ApiCreateRating,
@@ -90,6 +95,20 @@ export class UserController {
   @Patch('profile')
   update(@CurrentUser() user: User, @Body() dto: UpdateUserDto) {
     return this.userService.update(user.id, dto);
+  }
+
+  @Patch('profile/picture')
+  @UseInterceptors(FileInterceptor('picture'))
+  @HttpCode(HttpStatus.OK)
+  @ApiUpdateProfilePicture()
+  async updateProfilePicture(
+    @CurrentUser() user: User,
+    @UploadedFile() picture: any,
+  ) {
+    if (!picture) {
+      throw new BadRequestException('Picture file is required');
+    }
+    return this.userService.updateProfilePicture(user.id, picture);
   }
 
   @ApiRemoveUser()

@@ -61,6 +61,7 @@ export class ChatSummaryDto {
       content: 'Hello everyone!',
       type: 'TEXT',
       imageUrl: null,
+      imageUrls: null,
       data: { status: 'PENDING' },
       createdAt: '2024-01-15T10:30:00.000Z',
       sender: {
@@ -75,6 +76,7 @@ export class ChatSummaryDto {
     content: string | null;
     type: string;
     imageUrl: string | null;
+    imageUrls: string[] | null;
     data: Record<string, any> | null;
     createdAt: Date;
     sender: {

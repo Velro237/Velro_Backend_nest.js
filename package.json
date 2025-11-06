@@ -49,6 +49,7 @@
     "cache-manager-redis-store": "^3.0.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "cloudinary": "^2.8.0",
     "crypto": "^1.0.1",
     "dayjs": "^1.11.18",
     "dotenv-cli": "^10.0.0",

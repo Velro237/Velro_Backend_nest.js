@@ -293,8 +293,8 @@ model Image {
 }
 
 enum Language {
-  EN
-  FR
+  en
+  fr
 }
 
 model TripItem {
@@ -318,7 +318,7 @@ model Translation {
   id           String   @id @default(uuid())
   name         String
   description  String?
-  language     Language @default(EN)
+  language     Language @default(en)
   trip_item_id String? // foreign key to TripItem
 
   created_at DateTime @default(now())

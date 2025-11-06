@@ -18,6 +18,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ImageService } from '../shared/services/image.service';
 
 @WebSocketGateway({
   cors: { origin: '*' }, // restrict in production
@@ -35,6 +36,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
+    private readonly imageService: ImageService,
   ) {}
 
   afterInit(server: Server) {
@@ -440,16 +442,66 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       email?: string;
     };
     try {
+      let imageUrls: string[] = [];
+      let imageUrl: string | undefined = data.imageUrl;
+
+      // Upload images if provided
+      if (data.images && data.images.length > 0) {
+        try {
+          // Upload all images in parallel
+          const uploadPromises = data.images.map((base64Image) =>
+            this.imageService.uploadImage({
+              image: base64Image,
+              folder: 'chat-messages',
+            }),
+          );
+
+          const uploadResults = await Promise.all(uploadPromises);
+          imageUrls = uploadResults.map((result) => result.image.url);
+
+          // Set the first image URL as the primary imageUrl for backward compatibility
+          if (imageUrls.length > 0) {
+            imageUrl = imageUrls[0];
+          }
+        } catch (uploadError) {
+          console.error('Failed to upload images:', uploadError);
+          client.emit('error', {
+            message: 'Failed to upload images',
+            details: uploadError.message,
+          });
+          return;
+        }
+      }
+
+      // Prepare message data with image URLs
+      const messageData: Record<string, any> = {};
+      if (imageUrls.length > 0) {
+        messageData.imageUrls = imageUrls;
+      }
+
+      // Determine message type: if images are provided, set to IMAGE unless explicitly set to another type
+      let messageType: PrismaMessageType = data.type
+        ? (data.type as PrismaMessageType)
+        : PrismaMessageType.TEXT;
+      if ((imageUrls.length > 0 || data.imageUrl) && !data.type) {
+        messageType = PrismaMessageType.IMAGE;
+      }
+
       // persist
       const message = await this.chatService.createMessage({
         chatId: data.chatId,
         senderId: user.sub,
         content: data.content,
-        type: data.type ?? PrismaMessageType.TEXT,
+        type: messageType,
         replyToId: data.replyToId,
-        imageUrl: data.imageUrl,
+        imageUrl: imageUrl,
         requestId: data.requestId,
+        messageData:
+          Object.keys(messageData).length > 0 ? messageData : undefined,
       });
+
+      // Note: createMessage already extracts imageUrls from messageData and includes it in the response
+      // So the message structure matches exactly what getMessages returns
 
       // broadcast to room
       this.server.to(this.roomName(data.chatId)).emit('message:new', message);

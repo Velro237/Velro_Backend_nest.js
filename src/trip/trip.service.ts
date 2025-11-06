@@ -1831,6 +1831,107 @@ export class TripService {
     }
   }
 
+  // Add translation to trip item
+  async addTripItemTranslation(
+    tripItemId: string,
+    translation: {
+      language: 'en' | 'fr';
+      name: string;
+      description?: string;
+    },
+    lang?: string,
+  ) {
+    // Check if trip item exists
+    const existingTripItem = await this.prisma.tripItem.findUnique({
+      where: { id: tripItemId },
+    });
+
+    if (!existingTripItem) {
+      const message = await this.i18n.translate(
+        'translation.tripItem.translation.notFound',
+        {
+          lang,
+          defaultValue: 'Trip item not found',
+        },
+      );
+      throw new NotFoundException(message);
+    }
+
+    try {
+      // Check if translation for this language already exists
+      const existingTranslation = await this.prisma.translation.findFirst({
+        where: {
+          trip_item_id: tripItemId,
+          language: translation.language,
+        },
+      });
+
+      let updatedTripItem;
+
+      if (existingTranslation) {
+        // Update existing translation
+        await this.prisma.translation.update({
+          where: { id: existingTranslation.id },
+          data: {
+            name: translation.name,
+            description: translation.description || null,
+          },
+        });
+      } else {
+        // Create new translation
+        await this.prisma.translation.create({
+          data: {
+            trip_item_id: tripItemId,
+            language: translation.language,
+            name: translation.name,
+            description: translation.description || null,
+          },
+        });
+      }
+
+      // Fetch the updated trip item with all translations
+      updatedTripItem = await this.prisma.tripItem.findUnique({
+        where: { id: tripItemId },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          translations: {
+            select: {
+              id: true,
+              language: true,
+              name: true,
+              description: true,
+            },
+          },
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.tripItem.translation.success',
+        {
+          lang,
+          defaultValue: 'Translation added successfully',
+        },
+      );
+
+      return {
+        message,
+        tripItem: updatedTripItem,
+      };
+    } catch (error) {
+      console.error('Error adding translation:', error);
+      const message = await this.i18n.translate(
+        'translation.tripItem.translation.failed',
+        {
+          lang,
+          defaultValue: 'Failed to add translation',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
   // GET methods for TransportType
   async getAllTransportTypes(
     query: GetTransportTypesQueryDto,

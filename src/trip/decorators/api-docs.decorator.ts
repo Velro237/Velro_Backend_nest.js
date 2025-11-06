@@ -580,7 +580,7 @@ export const ApiCreateTripItem = () =>
     ApiOperation({
       summary: 'Create a new trip item (Admin Only)',
       description:
-        'Create a new trip item for trip categorization with optional multilingual translations. You can provide translations for name and description in different languages (EN, FR). Requires admin privileges.',
+        'Create a new trip item for trip categorization with optional multilingual translations. You can provide translations for name and description in different languages (en, fr). Requires admin privileges.',
     }),
     ApiBody({
       type: CreateTripItemDto,
@@ -594,7 +594,7 @@ export const ApiCreateTripItem = () =>
             image_id: '123e4567-e89b-12d3-a456-426614174000',
             translations: [
               {
-                language: 'FR',
+                language: 'fr',
                 name: 'Électronique',
                 description: 'Appareils et gadgets électroniques',
               },
@@ -648,7 +648,7 @@ export const ApiCreateTripItem = () =>
               translations: [
                 {
                   id: '123e4567-e89b-12d3-a456-426614174001',
-                  language: 'FR',
+                  language: 'fr',
                   name: 'Électronique',
                   description: 'Appareils et gadgets électroniques',
                 },

@@ -13,11 +13,11 @@ import { Type } from 'class-transformer';
 export class TranslationDto {
   @ApiProperty({
     description: 'Language code',
-    enum: ['EN', 'FR'],
-    example: 'EN',
+    enum: ['en', 'fr'],
+    example: 'en',
   })
-  @IsEnum(['EN', 'FR'])
-  language: 'EN' | 'FR';
+  @IsEnum(['en', 'fr'])
+  language: 'en' | 'fr';
 
   @ApiProperty({
     description: 'Translated name',
@@ -71,7 +71,7 @@ export class CreateTripItemDto {
     required: false,
     example: [
       {
-        language: 'FR',
+        language: 'fr',
         name: 'Électronique',
         description: 'Appareils et gadgets électroniques',
       },
@@ -105,7 +105,7 @@ export class CreateTripItemResponseDto {
       translations: [
         {
           id: '123e4567-e89b-12d3-a456-426614174001',
-          language: 'FR',
+          language: 'fr',
           name: 'Électronique',
           description: 'Appareils et gadgets électroniques',
         },

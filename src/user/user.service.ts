@@ -92,12 +92,14 @@ import {
 } from './dto/get-user-ratings.dto';
 import { UserStatsResponseDto } from './dto/user-stats.dto';
 import { I18nService } from 'nestjs-i18n';
+import { ImageService } from '../shared/services/image.service';
 
 @Injectable()
 export class UserService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly imageService: ImageService,
   ) {}
 
   async getMe(userId: string, lang: string = 'en'): Promise<GetMeResponseDto> {
@@ -486,6 +488,79 @@ export class UserService {
       const exists = await this.prisma.user.findUnique({ where: { id } });
       if (!exists) throw new NotFoundException(`User #${id} not found`);
       throw e;
+    }
+  }
+
+  /**
+   * Update user profile picture
+   * @param id - User ID
+   * @param picture - Multer file for profile picture
+   * @returns Updated user with new picture URL
+   */
+  async updateProfilePicture(
+    id: string,
+    picture: {
+      buffer: Buffer;
+      mimetype: string;
+      originalname: string;
+    },
+  ) {
+    // Get current user to check for existing picture
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id },
+      select: { picture: true },
+    });
+
+    if (!currentUser) {
+      throw new NotFoundException(`User #${id} not found`);
+    }
+
+    try {
+      // Upload new picture to Cloudinary
+      const uploadResult = await this.imageService.uploadFile(picture, {
+        folder: 'users',
+        alt_text: `Profile picture for user ${id}`,
+        object_id: id,
+      });
+
+      const newPictureUrl = uploadResult.image.url;
+
+      // Delete old picture from Cloudinary if it exists
+      if (currentUser.picture) {
+        try {
+          // Extract public_id from Cloudinary URL
+          // Cloudinary URLs format: https://res.cloudinary.com/{cloud_name}/image/upload/{version}/{public_id}.{format}
+          const urlParts = currentUser.picture.split('/');
+          const uploadIndex = urlParts.findIndex((part) => part === 'upload');
+
+          if (uploadIndex !== -1 && uploadIndex < urlParts.length - 1) {
+            // Extract public_id (everything after 'upload/' and before the file extension)
+            const pathAfterUpload = urlParts.slice(uploadIndex + 1).join('/');
+            const publicId = pathAfterUpload.replace(/\.[^/.]+$/, ''); // Remove file extension
+
+            // Delete from Cloudinary
+            await this.imageService.deleteImageByPublicId(publicId);
+          }
+        } catch (deleteError: any) {
+          // Log error but don't fail the update if deletion fails
+          console.warn(
+            `Failed to delete old picture from Cloudinary: ${deleteError.message}`,
+          );
+        }
+      }
+
+      // Update user with new picture URL
+      const updatedUser = await this.prisma.user.update({
+        where: { id },
+        data: { picture: newPictureUrl },
+        select: userSelect,
+      });
+
+      return updatedUser;
+    } catch (uploadError: any) {
+      throw new InternalServerErrorException(
+        `Failed to upload picture: ${uploadError.message}`,
+      );
     }
   }
 

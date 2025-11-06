@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsUUID, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsUUID, IsOptional, IsEnum, IsArray } from 'class-validator';
 import { MessageType as PrismaMessageType } from 'generated/prisma';
 
 export enum MessageType {
@@ -44,13 +44,28 @@ export class SendMessageDto {
   replyToId?: string;
 
   @ApiProperty({
-    description: 'Image URL for image messages',
+    description:
+      'Image URL for image messages (legacy, use images array instead)',
     example: 'https://example.com/image.jpg',
     required: false,
   })
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @ApiProperty({
+    description: 'Array of base64 encoded images to upload',
+    type: [String],
+    required: false,
+    example: [
+      'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD...',
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  images?: string[];
 
   @ApiProperty({
     description: 'Request ID to link message to a trip request',
@@ -97,11 +112,22 @@ export class MessageResponseDto {
   content: string | null;
 
   @ApiProperty({
-    description: 'Image URL',
+    description: 'Image URL (legacy, use imageUrls array)',
     example: 'https://example.com/image.jpg',
     required: false,
   })
   imageUrl: string | null;
+
+  @ApiProperty({
+    description: 'Array of uploaded image URLs',
+    type: [String],
+    required: false,
+    example: [
+      'https://res.cloudinary.com/example/image/upload/v1234567890/velro/image1.jpg',
+      'https://res.cloudinary.com/example/image/upload/v1234567890/velro/image2.jpg',
+    ],
+  })
+  imageUrls?: string[];
 
   @ApiProperty({
     description: 'Message type',

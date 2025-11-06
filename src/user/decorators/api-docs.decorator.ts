@@ -6,6 +6,7 @@ import {
   ApiBody,
   ApiExtraModels,
   ApiQuery,
+  ApiConsumes,
 } from '@nestjs/swagger';
 
 // USER DTOs
@@ -1029,6 +1030,54 @@ export function ApiUpdateUser() {
       status: 500,
       description: 'Internal server error',
       schema: InternalErrorSchema('Failed to update user'),
+    }),
+  );
+}
+
+export function ApiUpdateProfilePicture() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Update user profile picture',
+      description:
+        "Update the logged-in user's profile picture. If the user already has a picture, it will be automatically deleted from Cloudinary and replaced with the new one.",
+    }),
+    ApiConsumes('multipart/form-data'),
+    ApiBody({
+      description: 'Profile picture file',
+      schema: {
+        type: 'object',
+        properties: {
+          picture: {
+            type: 'string',
+            format: 'binary',
+            description: 'Profile picture image file',
+          },
+        },
+        required: ['picture'],
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'Profile picture updated successfully',
+      type: UserResponseDto,
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'Bad request - Picture file is required or invalid',
+      schema: BadRequestArraySchema([
+        'Picture file is required',
+        'File must be an image',
+      ]),
+    }),
+    ApiResponse({
+      status: 404,
+      description: 'User not found',
+      schema: NotFoundSchema('User not found'),
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+      schema: InternalErrorSchema('Failed to upload picture'),
     }),
   );
 }

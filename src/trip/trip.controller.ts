@@ -42,6 +42,10 @@ import {
   UpdateTripItemDto,
   UpdateTripItemResponseDto,
 } from './dto/update-trip-item.dto';
+import {
+  AddTripItemTranslationDto,
+  AddTripItemTranslationResponseDto,
+} from './dto/add-trip-item-translation.dto';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -246,6 +250,82 @@ export class TripController {
     @I18nLang() lang: string,
   ): Promise<UpdateTripItemResponseDto> {
     return this.tripService.updateTripItem(tripItemId, updateTripItemDto, lang);
+  }
+
+  @Post('trip-items/:id/translations')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Add or update translation for a trip item',
+    description:
+      'Adds a new translation or updates an existing translation for a trip item. If a translation for the specified language already exists, it will be updated.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip item ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({
+    type: AddTripItemTranslationDto,
+    description: 'Translation data',
+    examples: {
+      french: {
+        summary: 'Add French translation',
+        value: {
+          translation: {
+            language: 'fr',
+            name: 'Électronique',
+            description: 'Appareils et gadgets électroniques',
+          },
+        },
+      },
+      english: {
+        summary: 'Add English translation',
+        value: {
+          translation: {
+            language: 'en',
+            name: 'Electronics',
+            description: 'Electronic devices and gadgets',
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Translation added/updated successfully',
+    type: AddTripItemTranslationResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Validation error',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin privileges required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip item not found',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async addTripItemTranslation(
+    @Param('id') tripItemId: string,
+    @Body() addTranslationDto: AddTripItemTranslationDto,
+    @I18nLang() lang: string,
+  ): Promise<AddTripItemTranslationResponseDto> {
+    return this.tripService.addTripItemTranslation(
+      tripItemId,
+      addTranslationDto.translation,
+      lang,
+    );
   }
 
   // GET endpoints for TransportType

@@ -375,6 +375,7 @@ export class ChatService {
                 content: lastMsg.content || null,
                 type: lastMsg.type,
                 imageUrl: lastMsg.image_url || null,
+                imageUrls: messageData?.imageUrls || null,
                 data: messageData,
                 createdAt: lastMsg.createdAt,
                 sender: lastMsg.sender
@@ -672,6 +673,7 @@ export class ChatService {
             },
             content: message.content, // Use original content, not translated
             imageUrl: message.image_url,
+            imageUrls: (message.data as Record<string, any>)?.imageUrls || null,
             type: message.type,
             isRead: message.sender_id === userId ? true : message.isRead,
             createdAt: message.createdAt,
@@ -1104,6 +1106,11 @@ export class ChatService {
         }
       }
 
+      // Extract imageUrls from data if present
+      const messageData =
+        ((message as any).data as Record<string, any>) || null;
+      const imageUrls = messageData?.imageUrls || null;
+
       const result = {
         id: message.id,
         chatId: message.chat_id,
@@ -1114,11 +1121,12 @@ export class ChatService {
         },
         content: message.content,
         imageUrl: message.image_url,
+        imageUrls: imageUrls,
         type: message.type,
         isRead: true, // Messages are always "read" by the sender
         createdAt: message.createdAt,
         updatedAt: message.createdAt, // Message model doesn't have updatedAt, using createdAt
-        data: ((message as any).data as Record<string, any>) || null,
+        data: messageData,
         tripData: message.request?.trip
           ? {
               id: message.request.trip.id,
@@ -1494,6 +1502,7 @@ export class ChatService {
             content: lastMsg.content,
             type: lastMsg.type,
             imageUrl: lastMsg.image_url,
+            imageUrls: (lastMsg.data as Record<string, any>)?.imageUrls || null,
             data: (lastMsg.data as Record<string, any>) || null,
             createdAt: lastMsg.createdAt,
             sender: lastMsg.sender

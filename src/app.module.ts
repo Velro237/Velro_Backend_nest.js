@@ -18,6 +18,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { PaymentModule } from './payment/payment.module';
 import { WalletModule } from './wallet/wallet.module';
 import { CurrencyModule } from './currency/currency.module';
+import { ImageModule } from './shared/image.module';
 import * as path from 'path';
 
 @Module({
@@ -49,6 +50,7 @@ import * as path from 'path';
     PaymentModule,
     WalletModule,
     CurrencyModule,
+    ImageModule,
   ],
   controllers: [],
   providers: [],
