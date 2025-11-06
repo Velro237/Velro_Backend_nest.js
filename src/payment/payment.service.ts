@@ -838,13 +838,28 @@ export class PaymentService {
         };
       }
 
-      // Get account details from Stripe
+      // Get account details from Stripe with expanded capabilities
       const account = await this.stripeService.getAccountDetails(
         user.stripe_account_id,
       );
 
-      const transfersCapability = account.capabilities?.transfers || 'inactive';
-      const isComplete = transfersCapability === 'active';
+      // Handle capabilities - can be string or object with status
+      const transfersCap = account.capabilities?.transfers;
+      const transfersCapability =
+        typeof transfersCap === 'string'
+          ? transfersCap
+          : (transfersCap as any)?.status || 'inactive';
+
+      const cardPaymentsCap = account.capabilities?.card_payments;
+      const cardPaymentsCapability =
+        typeof cardPaymentsCap === 'string'
+          ? cardPaymentsCap
+          : (cardPaymentsCap as any)?.status || 'inactive';
+
+      const isComplete =
+        account.details_submitted &&
+        transfersCapability === 'active' &&
+        cardPaymentsCapability === 'active';
 
       // Update local database
       await this.prisma.user.update({
@@ -852,6 +867,7 @@ export class PaymentService {
         data: {
           transfers_capability: transfersCapability,
           stripe_onboarding_complete: isComplete,
+          payout_country: account.country,
         },
       });
 
