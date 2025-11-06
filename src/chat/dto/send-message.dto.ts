@@ -18,11 +18,13 @@ export class SendMessageDto {
   chatId: string;
 
   @ApiProperty({
-    description: 'Message content',
+    description: 'Message content (optional if images are provided)',
     example: 'Hello everyone!',
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  content: string;
+  content?: string;
 
   @ApiProperty({
     description: 'Message type',

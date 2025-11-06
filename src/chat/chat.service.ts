@@ -885,7 +885,7 @@ export class ChatService {
   async createMessage(data: {
     chatId: string;
     senderId: string;
-    content: string;
+    content: string | null;
     type: PrismaMessageType;
     replyToId?: string;
     imageUrl?: string;
@@ -1107,9 +1107,9 @@ export class ChatService {
       }
 
       // Extract imageUrls from data if present
-      const messageData =
+      const messageDataFromDb =
         ((message as any).data as Record<string, any>) || null;
-      const imageUrls = messageData?.imageUrls || null;
+      const imageUrls = messageDataFromDb?.imageUrls || null;
 
       const result = {
         id: message.id,
@@ -1126,7 +1126,7 @@ export class ChatService {
         isRead: true, // Messages are always "read" by the sender
         createdAt: message.createdAt,
         updatedAt: message.createdAt, // Message model doesn't have updatedAt, using createdAt
-        data: messageData,
+        data: messageDataFromDb,
         tripData: message.request?.trip
           ? {
               id: message.request.trip.id,
@@ -1257,8 +1257,18 @@ export class ChatService {
       );
 
       return result;
-    } catch (error) {
-      throw new InternalServerErrorException('Failed to create message');
+    } catch (error: any) {
+      console.error('Error in createMessage:', error);
+      // Log the actual error for debugging
+      if (error?.message) {
+        console.error('Error details:', error.message);
+      }
+      if (error?.stack) {
+        console.error('Error stack:', error.stack);
+      }
+      throw new InternalServerErrorException(
+        `Failed to create message: ${error?.message || 'Unknown error'}`,
+      );
     }
   }
 

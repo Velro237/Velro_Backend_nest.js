@@ -442,12 +442,63 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       email?: string;
     };
     try {
+      // Validate that at least content or images are provided
+      const hasContent = data.content && data.content.trim().length > 0;
+      const hasImages = data.images && data.images.length > 0;
+      const hasImageUrl = !!data.imageUrl;
+
+      if (!hasContent && !hasImages && !hasImageUrl) {
+        client.emit('error', {
+          message: 'Message must have content or at least one image',
+          details: 'Either content or images must be provided',
+        });
+        return;
+      }
+
+      // Validate image count limit (max 10 images per message)
+      const MAX_IMAGES = 10;
+      if (data.images && data.images.length > MAX_IMAGES) {
+        client.emit('error', {
+          message: 'Too many images',
+          details: `Maximum ${MAX_IMAGES} images allowed per message`,
+        });
+        return;
+      }
+
       let imageUrls: string[] = [];
       let imageUrl: string | undefined = data.imageUrl;
 
       // Upload images if provided
       if (data.images && data.images.length > 0) {
         try {
+          // Validate base64 format and size (rough estimate: 1MB per image)
+          const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB per image
+          for (const base64Image of data.images) {
+            // Check if it's a valid base64 data URL
+            if (
+              !base64Image.startsWith('data:image/') &&
+              !base64Image.startsWith('data:application/')
+            ) {
+              client.emit('error', {
+                message: 'Invalid image format',
+                details:
+                  'Images must be base64 encoded data URLs (data:image/... or data:application/...)',
+              });
+              return;
+            }
+
+            // Estimate size from base64 string (base64 is ~33% larger than binary)
+            const base64Length = base64Image.length;
+            const estimatedSize = (base64Length * 3) / 4;
+            if (estimatedSize > MAX_IMAGE_SIZE_BYTES) {
+              client.emit('error', {
+                message: 'Image too large',
+                details: `Each image must be less than ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB`,
+              });
+              return;
+            }
+          }
+
           // Upload all images in parallel
           const uploadPromises = data.images.map((base64Image) =>
             this.imageService.uploadImage({
@@ -463,11 +514,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           if (imageUrls.length > 0) {
             imageUrl = imageUrls[0];
           }
-        } catch (uploadError) {
+        } catch (uploadError: any) {
           console.error('Failed to upload images:', uploadError);
           client.emit('error', {
             message: 'Failed to upload images',
-            details: uploadError.message,
+            details:
+              uploadError.message || 'An error occurred while uploading images',
           });
           return;
         }
@@ -479,19 +531,50 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         messageData.imageUrls = imageUrls;
       }
 
-      // Determine message type: if images are provided, set to IMAGE unless explicitly set to another type
-      let messageType: PrismaMessageType = data.type
-        ? (data.type as PrismaMessageType)
-        : PrismaMessageType.TEXT;
-      if ((imageUrls.length > 0 || data.imageUrl) && !data.type) {
-        messageType = PrismaMessageType.IMAGE;
+      // Determine message type:
+      // 1. If explicitly set to REQUEST or PAYMENT, respect that
+      // 2. If images are provided, force IMAGE type (unless it's REQUEST or PAYMENT)
+      // 3. Otherwise, use provided type or default to TEXT
+      let messageType: PrismaMessageType = PrismaMessageType.TEXT;
+
+      if (data.type) {
+        const providedType = data.type as PrismaMessageType;
+        // Special types (REQUEST, PAYMENT) take precedence
+        if (
+          providedType === PrismaMessageType.REQUEST ||
+          providedType === PrismaMessageType.PAYMENT
+        ) {
+          messageType = providedType;
+        } else if (imageUrls.length > 0 || data.imageUrl) {
+          // If images are present, override to IMAGE (unless it's a special type)
+          messageType = PrismaMessageType.IMAGE;
+        } else {
+          messageType = providedType;
+        }
+      } else {
+        // No type provided: set to IMAGE if images exist, otherwise TEXT
+        if (imageUrls.length > 0 || data.imageUrl) {
+          messageType = PrismaMessageType.IMAGE;
+        }
+      }
+
+      // Normalize content: use null if not provided (schema allows nullable content)
+      const content = data.content?.trim() || null;
+
+      // Validate that we have either content or images
+      if (!content && imageUrls.length === 0 && !imageUrl) {
+        client.emit('error', {
+          message: 'Message must have content or at least one image',
+          details: 'Either content or images must be provided',
+        });
+        return;
       }
 
       // persist
       const message = await this.chatService.createMessage({
         chatId: data.chatId,
         senderId: user.sub,
-        content: data.content,
+        content: content,
         type: messageType,
         replyToId: data.replyToId,
         imageUrl: imageUrl,
@@ -508,10 +591,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Optionally: ack to sender with the saved message (id, timestamps)
       client.emit('message:ack', message);
-    } catch (err) {
+    } catch (err: any) {
+      console.error('Error in handleSendMessage:', err);
       client.emit('error', {
         message: 'Could not send message',
-        details: err.message,
+        details: err.message || 'An unexpected error occurred',
       });
     }
   }
