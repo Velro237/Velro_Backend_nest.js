@@ -46,16 +46,6 @@ export class SendMessageDto {
   replyToId?: string;
 
   @ApiProperty({
-    description:
-      'Image URL for image messages (legacy, use images array instead)',
-    example: 'https://example.com/image.jpg',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  imageUrl?: string;
-
-  @ApiProperty({
     description: 'Array of base64 encoded images to upload',
     type: [String],
     required: false,
@@ -114,13 +104,6 @@ export class MessageResponseDto {
   content: string | null;
 
   @ApiProperty({
-    description: 'Image URL (legacy, use imageUrls array)',
-    example: 'https://example.com/image.jpg',
-    required: false,
-  })
-  imageUrl: string | null;
-
-  @ApiProperty({
     description: 'Array of uploaded image URLs',
     type: [String],
     required: false,
@@ -129,7 +112,7 @@ export class MessageResponseDto {
       'https://res.cloudinary.com/example/image/upload/v1234567890/velro/image2.jpg',
     ],
   })
-  imageUrls?: string[];
+  imageUrls?: string[] | null;
 
   @ApiProperty({
     description: 'Message type',

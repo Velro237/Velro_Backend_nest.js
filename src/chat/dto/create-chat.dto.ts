@@ -61,15 +61,6 @@ export class CreateChatDto {
   messageReplyToId?: string;
 
   @ApiProperty({
-    description: 'Image URL for image messages',
-    example: 'https://example.com/image.jpg',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  messageImageUrl?: string;
-
-  @ApiProperty({
     description: 'Request ID to link message to a trip request',
     example: '123e4567-e89b-12d3-a456-426614174000',
     required: false,

@@ -135,6 +135,36 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return `chat:${chatId}`;
   }
 
+  /**
+   * Update image object_ids to use message ID
+   * @param imageUrls - Array of image URLs
+   * @param messageId - Message ID to use as object_id
+   */
+  private async updateImageObjectIds(
+    imageUrls: string[],
+    messageId: string,
+  ): Promise<void> {
+    try {
+      // Find images by URL and update their object_id to message ID
+      await Promise.all(
+        imageUrls.map(async (url) => {
+          const image = await this.prisma.image.findFirst({
+            where: { url },
+          });
+          if (image) {
+            await this.prisma.image.update({
+              where: { id: image.id },
+              data: { object_id: messageId },
+            });
+          }
+        }),
+      );
+    } catch (error) {
+      console.error('Error updating image object_ids:', error);
+      throw error;
+    }
+  }
+
   // Method to send message programmatically (without WebSocket client)
   async sendMessageProgrammatically(data: {
     chatId: string;
@@ -142,7 +172,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     content: string;
     type?: any;
     replyToId?: string;
-    imageUrl?: string;
     requestId?: string;
     reviewId?: string;
     messageData?: Record<string, any>;
@@ -156,7 +185,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         content: data.content,
         type: data.type ?? PrismaMessageType.TEXT,
         replyToId: data.replyToId,
-        imageUrl: data.imageUrl,
         requestId: data.requestId,
         reviewId: data.reviewId,
         messageData: data.messageData,
@@ -445,9 +473,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Validate that at least content or images are provided
       const hasContent = data.content && data.content.trim().length > 0;
       const hasImages = data.images && data.images.length > 0;
-      const hasImageUrl = !!data.imageUrl;
 
-      if (!hasContent && !hasImages && !hasImageUrl) {
+      if (!hasContent && !hasImages) {
         client.emit('error', {
           message: 'Message must have content or at least one image',
           details: 'Either content or images must be provided',
@@ -466,7 +493,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       let imageUrls: string[] = [];
-      let imageUrl: string | undefined = data.imageUrl;
 
       // Upload images if provided
       if (data.images && data.images.length > 0) {
@@ -499,21 +525,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             }
           }
 
-          // Upload all images in parallel
+          // Upload all images in parallel with chat ID as object_id
           const uploadPromises = data.images.map((base64Image) =>
             this.imageService.uploadImage({
               image: base64Image,
               folder: 'chat-messages',
+              object_id: data.chatId, // Use chat ID as object_id
             }),
           );
 
           const uploadResults = await Promise.all(uploadPromises);
           imageUrls = uploadResults.map((result) => result.image.url);
-
-          // Set the first image URL as the primary imageUrl for backward compatibility
-          if (imageUrls.length > 0) {
-            imageUrl = imageUrls[0];
-          }
         } catch (uploadError: any) {
           console.error('Failed to upload images:', uploadError);
           client.emit('error', {
@@ -545,7 +567,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           providedType === PrismaMessageType.PAYMENT
         ) {
           messageType = providedType;
-        } else if (imageUrls.length > 0 || data.imageUrl) {
+        } else if (imageUrls.length > 0) {
           // If images are present, override to IMAGE (unless it's a special type)
           messageType = PrismaMessageType.IMAGE;
         } else {
@@ -553,7 +575,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       } else {
         // No type provided: set to IMAGE if images exist, otherwise TEXT
-        if (imageUrls.length > 0 || data.imageUrl) {
+        if (imageUrls.length > 0) {
           messageType = PrismaMessageType.IMAGE;
         }
       }
@@ -562,7 +584,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const content = data.content?.trim() || null;
 
       // Validate that we have either content or images
-      if (!content && imageUrls.length === 0 && !imageUrl) {
+      if (!content && imageUrls.length === 0) {
         client.emit('error', {
           message: 'Message must have content or at least one image',
           details: 'Either content or images must be provided',
@@ -577,11 +599,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         content: content,
         type: messageType,
         replyToId: data.replyToId,
-        imageUrl: imageUrl,
         requestId: data.requestId,
         messageData:
           Object.keys(messageData).length > 0 ? messageData : undefined,
       });
+
+      // Update images to use message ID as object_id (non-blocking)
+      if (imageUrls.length > 0 && message.id) {
+        // Extract image IDs from URLs (they're stored in the database)
+        // We'll update them to use the message ID instead of chat ID
+        this.updateImageObjectIds(imageUrls, message.id).catch((error) => {
+          console.error('Failed to update image object_ids:', error);
+          // Non-blocking - don't fail the message creation
+        });
+      }
 
       // Note: createMessage already extracts imageUrls from messageData and includes it in the response
       // So the message structure matches exactly what getMessages returns

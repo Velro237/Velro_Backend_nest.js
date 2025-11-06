@@ -47,7 +47,6 @@ export class ChatService {
       messageContent,
       messageType,
       messageReplyToId,
-      messageImageUrl,
       messageRequestId,
     } = createChatDto;
 
@@ -141,7 +140,6 @@ export class ChatService {
                 chat_id: newChat.id,
                 sender_id: userId,
                 reply_to_id: null, // Initial message in a new chat cannot be a reply
-                image_url: messageImageUrl || null,
                 request_id: messageRequestId || null,
               },
               include: {
@@ -374,7 +372,6 @@ export class ChatService {
                 id: lastMsg.id,
                 content: lastMsg.content || null,
                 type: lastMsg.type,
-                imageUrl: lastMsg.image_url || null,
                 imageUrls: messageData?.imageUrls || null,
                 data: messageData,
                 createdAt: lastMsg.createdAt,
@@ -672,7 +669,6 @@ export class ChatService {
               name: message.sender.name,
             },
             content: message.content, // Use original content, not translated
-            imageUrl: message.image_url,
             imageUrls: (message.data as Record<string, any>)?.imageUrls || null,
             type: message.type,
             isRead: message.sender_id === userId ? true : message.isRead,
@@ -888,7 +884,6 @@ export class ChatService {
     content: string | null;
     type: PrismaMessageType;
     replyToId?: string;
-    imageUrl?: string;
     requestId?: string;
     reviewId?: string;
     messageData?: Record<string, any>;
@@ -899,7 +894,6 @@ export class ChatService {
       content,
       type,
       replyToId,
-      imageUrl,
       requestId,
       reviewId,
       messageData,
@@ -920,7 +914,6 @@ export class ChatService {
             sender_id: senderId,
             content,
             type,
-            image_url: imageUrl,
             request_id: requestId,
             review_id: reviewId,
             data: messageData || null,
@@ -1120,7 +1113,6 @@ export class ChatService {
           name: message.sender.name,
         },
         content: message.content,
-        imageUrl: message.image_url,
         imageUrls: imageUrls,
         type: message.type,
         isRead: true, // Messages are always "read" by the sender
@@ -1511,7 +1503,6 @@ export class ChatService {
             id: lastMsg.id,
             content: lastMsg.content,
             type: lastMsg.type,
-            imageUrl: lastMsg.image_url,
             imageUrls: (lastMsg.data as Record<string, any>)?.imageUrls || null,
             data: (lastMsg.data as Record<string, any>) || null,
             createdAt: lastMsg.createdAt,
