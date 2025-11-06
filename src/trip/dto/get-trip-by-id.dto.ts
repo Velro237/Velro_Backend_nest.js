@@ -296,6 +296,22 @@ export class TripDetailsDto {
     example: 50.0,
   })
   total_kg: number;
+
+  @ApiProperty({
+    description:
+      'Chat information for this trip (only if user is a member of a chat associated with this trip)',
+    required: false,
+    example: {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      name: 'Paris to New York',
+      createdAt: '2024-01-15T10:30:00.000Z',
+    },
+  })
+  chat_info?: {
+    id: string;
+    name: string | null;
+    createdAt: Date;
+  } | null;
 }
 
 export class GetTripByIdResponseDto {

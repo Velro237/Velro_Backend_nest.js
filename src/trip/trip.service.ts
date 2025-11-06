@@ -2591,6 +2591,7 @@ export class TripService {
   // Get trip by ID with full details
   async getTripById(
     tripId: string,
+    userId: string,
     lang?: string,
   ): Promise<GetTripByIdResponseDto> {
     try {
@@ -2724,6 +2725,31 @@ export class TripService {
       // Calculate available_kg
       const available_kg = total_kg - booked_kg;
 
+      // Fetch chat info if user is a member of a chat for this trip
+      const userChat = await this.prisma.chat.findFirst({
+        where: {
+          trip_id: tripId,
+          members: {
+            some: {
+              user_id: userId,
+            },
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+        },
+      });
+
+      const chat_info = userChat
+        ? {
+            id: userChat.id,
+            name: userChat.name,
+            createdAt: userChat.createdAt,
+          }
+        : null;
+
       const message = await this.i18n.translate(
         'translation.trip.getById.success',
         { lang },
@@ -2759,7 +2785,8 @@ export class TripService {
           booked_kg: Number(booked_kg.toFixed(2)),
           available_kg: Number(available_kg.toFixed(2)),
           total_kg: Number(total_kg.toFixed(2)),
-        },
+          chat_info: chat_info || undefined,
+        } as any,
       };
     } catch (error) {
       console.error('Error getting trip item by id:', error);

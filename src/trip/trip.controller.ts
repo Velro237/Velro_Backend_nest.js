@@ -424,9 +424,10 @@ export class TripController {
   })
   async getTripById(
     @Param('id') tripId: string,
+    @CurrentUser() user: User,
     @I18nLang() lang: string,
   ): Promise<GetTripByIdResponseDto> {
-    return this.tripService.getTripById(tripId, lang);
+    return this.tripService.getTripById(tripId, user.id, lang);
   }
 
   // Get user's trips
