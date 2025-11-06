@@ -189,11 +189,15 @@ export class CreateUserDto {
 
   @ApiPropertyOptional({
     example: 'en',
-    description: 'Preferred language code (e.g., en, fr)',
+    description: 'Preferred language code',
+    enum: ['en', 'fr'],
   })
   @IsOptional()
   @IsString()
-  lang?: string;
+  @IsEnum(['en', 'fr'], {
+    message: 'Language must be either "en" or "fr"',
+  })
+  lang?: 'en' | 'fr';
 
   @ApiPropertyOptional({
     example: 'XAF',

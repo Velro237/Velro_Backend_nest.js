@@ -1578,6 +1578,7 @@ export class RequestService {
             email: true,
             name: true,
             device_id: true,
+            lang: true,
           },
         });
 
@@ -1590,10 +1591,13 @@ export class RequestService {
           (request.trip.destination as any)?.country ||
           'Unknown';
 
+        // Use requester's language for notification
+        const requesterLang = requester?.lang || 'en';
+
         const notificationTitle = await this.i18n.translate(
           'translation.notification.requestStatusChanged.title',
           {
-            lang,
+            lang: requesterLang,
             defaultValue: 'Request Status Updated',
           },
         );
@@ -1601,7 +1605,7 @@ export class RequestService {
         const notificationMessage = await this.i18n.translate(
           `translation.notification.requestStatusChanged.${status.toLowerCase()}`,
           {
-            lang,
+            lang: requesterLang,
             defaultValue:
               'Your trip request status has been changed to {status}',
             args: {
@@ -1868,6 +1872,13 @@ export class RequestService {
     deviceId?: string,
   ): Promise<void> {
     try {
+      // Get recipient user's language preference
+      const recipient = await this.prisma.user.findUnique({
+        where: { id: recipientUserId },
+        select: { id: true, lang: true },
+      });
+      const recipientLang = recipient?.lang || 'en';
+
       // Create notification in database
       await this.notificationService.createNotification(
         {
@@ -1877,17 +1888,20 @@ export class RequestService {
           type: 'REQUEST',
           data: requestData,
         },
-        'en',
+        recipientLang,
       );
 
       // Send push notification if user has device_id
       if (deviceId) {
-        await this.notificationService.sendPushNotification({
-          deviceId,
-          title,
-          body: message,
-          data: requestData,
-        });
+        await this.notificationService.sendPushNotification(
+          {
+            deviceId,
+            title,
+            body: message,
+            data: requestData,
+          },
+          recipientLang,
+        );
       }
     } catch (error) {
       console.error('Failed to create/send notification:', error);

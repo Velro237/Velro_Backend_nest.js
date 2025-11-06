@@ -162,6 +162,19 @@ export class PendingSignupDto {
   @Type(() => CompanyServiceDto)
   @IsOptional()
   services?: CompanyServiceDto[];
+
+  @ApiProperty({
+    description: 'User preferred language',
+    example: 'en',
+    enum: ['en', 'fr'],
+    required: false,
+  })
+  @IsString()
+  @IsEnum(['en', 'fr'], {
+    message: 'Language must be either "en" or "fr"',
+  })
+  @IsOptional()
+  lang?: 'en' | 'fr';
 }
 
 export class PendingSignupResponseDto {

@@ -205,17 +205,24 @@ export class SchedulerService {
    */
   private async createAlertNotification(alert: any, trip: any): Promise<void> {
     try {
+      // Get alert user's language preference
+      const alertUser = await this.prisma.user.findUnique({
+        where: { id: alert.user_id },
+        select: { id: true, lang: true },
+      });
+      const userLang = alertUser?.lang || 'en';
+
       const title = await this.i18n.translate(
         'translation.notification.alertMatch.title',
         {
-          lang: 'en', // Default to English for now
+          lang: userLang,
         },
       );
 
       const message = await this.i18n.translate(
         'translation.notification.alertMatch.message',
         {
-          lang: 'en', // Default to English for now
+          lang: userLang,
           args: {
             tripCreator: trip.user.name || 'Unknown',
             departure:
@@ -243,26 +250,31 @@ export class SchedulerService {
             departureTime: trip.departure_time,
           },
         },
-        'en',
+        userLang,
       );
 
       // Send push notification if user has device_id
       if (alert.user.device_id) {
-        await this.notificationService.sendPushNotification({
-          deviceId: alert.user.device_id,
-          title,
-          body: message,
-          data: {
-            tripId: trip.id,
-            alertId: alert.id,
-            type: 'ALERT',
-            departure:
-              trip.departure?.city || trip.departure?.country || 'Unknown',
-            destination:
-              trip.destination?.city || trip.destination?.country || 'Unknown',
-            departureDate: trip.departure_date.toISOString(),
+        await this.notificationService.sendPushNotification(
+          {
+            deviceId: alert.user.device_id,
+            title,
+            body: message,
+            data: {
+              tripId: trip.id,
+              alertId: alert.id,
+              type: 'ALERT',
+              departure:
+                trip.departure?.city || trip.departure?.country || 'Unknown',
+              destination:
+                trip.destination?.city ||
+                trip.destination?.country ||
+                'Unknown',
+              departureDate: trip.departure_date.toISOString(),
+            },
           },
-        });
+          userLang,
+        );
       }
 
       // Send email notification
@@ -296,7 +308,7 @@ export class SchedulerService {
                 </div>
               `,
             },
-            'en',
+            userLang,
           );
 
           this.logger.log(

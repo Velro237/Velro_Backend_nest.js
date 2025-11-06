@@ -8,9 +8,17 @@ import { WalletModule } from '../wallet/wallet.module';
 import { MobilemoneyService } from './mobilemoney/mobilemoney.service';
 import { RequestModule } from '../request/request.module';
 import { CurrencyModule } from '../currency/currency.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, ConfigModule, forwardRef(() => WalletModule), forwardRef(() => RequestModule), CurrencyModule],
+  imports: [
+    PrismaModule,
+    ConfigModule,
+    forwardRef(() => WalletModule),
+    forwardRef(() => RequestModule),
+    CurrencyModule,
+    NotificationModule,
+  ],
   controllers: [PaymentController],
   providers: [PaymentService, StripeService, MobilemoneyService],
   exports: [PaymentService, StripeService],

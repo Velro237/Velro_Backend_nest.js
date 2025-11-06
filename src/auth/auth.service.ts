@@ -236,6 +236,9 @@ export class AuthService {
         },
       });
 
+      // Use the lang parameter from signup (user's preferred language)
+      const userLang = lang || 'en';
+
       const emailDto: SendEmailDto = {
         to: user.email,
         subject: 'Welcome to Velro',
@@ -243,7 +246,7 @@ export class AuthService {
         html: `<h1> Your verification code is: <strong>${otpCode}</strong></h1>`,
       };
 
-      await this.sendEmail(emailDto, 'en');
+      await this.sendEmail(emailDto, userLang);
 
       const message = await this.i18n.translate(
         'translation.auth.signup.success',
@@ -423,6 +426,9 @@ export class AuthService {
         },
       });
 
+      // Get user's language preference (default to 'en' for new OAuth users)
+      const userLang = user.lang || 'en';
+
       const emailDto: SendEmailDto = {
         to: user.email,
         subject: 'Welcome to Velro',
@@ -430,7 +436,7 @@ export class AuthService {
         html: `<h1> Your verification code is: <strong>${otpCode}</strong></h1>`,
       };
 
-      await this.sendEmail(emailDto, 'en');
+      await this.sendEmail(emailDto, userLang);
 
       // Create initial UserKYC record with NOT_STARTED status for OAuth users
       await this.prisma.userKYC.create({
@@ -665,7 +671,11 @@ export class AuthService {
       companyAddress,
       cities = [],
       services = [],
+      lang: userLang,
     } = pendingSignupDto;
+
+    // Use lang from DTO or fallback to request lang parameter, then to 'en'
+    const finalLang = userLang || lang || 'en';
 
     // Check if email already exists in User table
     const existingUser = await this.prisma.user.findUnique({
@@ -676,7 +686,7 @@ export class AuthService {
       const message = await this.i18n.translate(
         'translation.auth.signup.emailExists',
         {
-          lang,
+          lang: finalLang,
           defaultValue: 'Email already exists',
         },
       );
@@ -689,7 +699,7 @@ export class AuthService {
         const message = await this.i18n.translate(
           'translation.auth.signup.companyRequired',
           {
-            lang,
+            lang: finalLang,
             defaultValue:
               'Company name and address are required for freight forwarders',
           },
@@ -701,7 +711,7 @@ export class AuthService {
         const message = await this.i18n.translate(
           'translation.auth.signup.citiesRequired',
           {
-            lang,
+            lang: finalLang,
             defaultValue:
               'At least one city is required for freight forwarders',
           },
@@ -713,7 +723,7 @@ export class AuthService {
         const message = await this.i18n.translate(
           'translation.auth.signup.servicesRequired',
           {
-            lang,
+            lang: finalLang,
             defaultValue:
               'At least one service is required for freight forwarders',
           },
@@ -728,7 +738,7 @@ export class AuthService {
         email,
         'SIGNUP',
         phone,
-        lang,
+        finalLang,
       );
 
       // Create pending user
@@ -746,6 +756,7 @@ export class AuthService {
           isFreightForwarder,
           otp_id: otpResult.email, // We'll store the OTP ID here
           expiresAt: otpResult.expiresAt,
+          lang: finalLang,
         },
       });
 
@@ -784,7 +795,7 @@ export class AuthService {
       const message = await this.i18n.translate(
         'translation.auth.pendingSignup.success',
         {
-          lang,
+          lang: finalLang,
           defaultValue:
             'Pending user created successfully. Please check your email for OTP.',
         },
@@ -801,7 +812,7 @@ export class AuthService {
       const message = await this.i18n.translate(
         'translation.auth.pendingSignup.failed',
         {
-          lang,
+          lang: finalLang,
           defaultValue: 'Failed to create pending user',
         },
       );
@@ -1056,7 +1067,7 @@ export class AuthService {
     // Check if user exists
     const user = await this.prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, name: true },
+      select: { id: true, email: true, name: true, lang: true },
     });
 
     if (!user) {
@@ -1071,12 +1082,15 @@ export class AuthService {
     }
 
     try {
+      // Use user's language preference for OTP email
+      const userLang = user.lang || lang || 'en';
+
       // Use OTP service to create and send OTP
       const otpResult = await this.otpService.createAndSendOtp(
         user.email,
         'FORGOT_PASSWORD',
         undefined,
-        lang,
+        userLang,
       );
 
       const message = await this.i18n.translate(

@@ -167,6 +167,12 @@ export class UserInfoDto {
     enum: ['USER', 'ADMIN'],
   })
   role: string;
+
+  @ApiProperty({
+    description: 'Whether the user is a freight forwarder',
+    example: false,
+  })
+  isFreightForwarder: boolean;
 }
 
 export class ModeOfTransportDto {

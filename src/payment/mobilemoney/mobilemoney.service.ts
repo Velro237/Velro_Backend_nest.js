@@ -11,6 +11,7 @@ import { I18nService } from 'nestjs-i18n';
 import { RequestService } from '../../request/request.service';
 import { CurrencyService } from '../../currency/currency.service';
 import { Currency } from 'generated/prisma';
+import { NotificationService } from '../../notification/notification.service';
 import { MobilemoneyCashoutResponseDto } from '../dto/mobilemoney-cashout.dto';
 import { MobilemoneyDepositResponseDto } from '../dto/mobilemoney-deposit.dto';
 import { MoalaBalanceResponseDto } from '../dto/moala-balance.dto';
@@ -39,6 +40,7 @@ export class MobilemoneyService {
     private readonly prisma: PrismaService,
     private readonly requestService: RequestService,
     private readonly currencyService: CurrencyService,
+    private readonly notificationService: NotificationService,
   ) {
     this.baseUri = this.configService.get<string>('MOALA_URL');
     this.appKey = this.configService.get<string>('MOALA_API_KEY');
@@ -1074,7 +1076,7 @@ export class MobilemoneyService {
         }
 
         // Create a credit transaction for the trip creator
-        await this.prisma.transaction.create({
+        const creditTransaction = await this.prisma.transaction.create({
           data: {
             userId: tripCreator.id,
             wallet_id: tripCreator.wallet.id,
@@ -1105,6 +1107,103 @@ export class MobilemoneyService {
         this.logger.log(
           `Credited ${netAmount} ${transaction.currency} to trip creator ${tripCreator.id} for transaction ${transaction.id}`,
         );
+
+        // Send push notifications to both users
+        try {
+          // Get payer (user who made the payment) with language preference
+          const payer = await this.prisma.user.findUnique({
+            where: { id: transaction.userId },
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              device_id: true,
+              lang: true,
+            },
+          });
+
+          // Get trip creator with language preference (already have tripCreator but need lang)
+          const tripCreatorWithLang = await this.prisma.user.findUnique({
+            where: { id: tripCreator.id },
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              device_id: true,
+              lang: true,
+            },
+          });
+
+          // Prepare notification data
+          const notificationData = {
+            transaction_id: creditTransaction.id,
+            request_id: transaction.request_id,
+            trip_id: transaction.trip_id,
+          };
+
+          // Send notification to payer (successfully paid)
+          if (payer?.device_id) {
+            const payerLang = payer.lang || 'en';
+            const payerTitle = await this.i18n.translate(
+              'translation.notification.payment.success.title',
+              {
+                lang: payerLang,
+                defaultValue: 'Payment Successful',
+              },
+            );
+            const payerMessage = await this.i18n.translate(
+              'translation.notification.payment.success.message',
+              {
+                lang: payerLang,
+                defaultValue: 'Your payment has been successfully processed',
+              },
+            );
+
+            await this.notificationService.sendPushNotification(
+              {
+                deviceId: payer.device_id,
+                title: payerTitle,
+                body: payerMessage,
+                data: notificationData,
+              },
+              payerLang,
+            );
+          }
+
+          // Send notification to trip creator (received payment)
+          if (tripCreatorWithLang?.device_id) {
+            const tripCreatorLang = tripCreatorWithLang.lang || 'en';
+            const tripCreatorTitle = await this.i18n.translate(
+              'translation.notification.payment.received.title',
+              {
+                lang: tripCreatorLang,
+                defaultValue: 'Payment Received',
+              },
+            );
+            const tripCreatorMessage = await this.i18n.translate(
+              'translation.notification.payment.received.message',
+              {
+                lang: tripCreatorLang,
+                defaultValue: 'You have received payment for your trip',
+              },
+            );
+
+            await this.notificationService.sendPushNotification(
+              {
+                deviceId: tripCreatorWithLang.device_id,
+                title: tripCreatorTitle,
+                body: tripCreatorMessage,
+                data: notificationData,
+              },
+              tripCreatorLang,
+            );
+          }
+        } catch (notificationError) {
+          this.logger.error(
+            `Failed to send push notifications: ${notificationError.message}`,
+          );
+          // Don't fail the payment processing if notifications fail
+        }
       }
 
       return {

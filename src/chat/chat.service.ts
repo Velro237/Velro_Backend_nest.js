@@ -1357,11 +1357,13 @@ export class ChatService {
           select: {
             id: true,
             pickup: true,
+            departure: true,
             destination: true,
             departure_date: true,
             departure_time: true,
             currency: true,
             airline_id: true,
+            updatedAt: true,
             user: {
               select: {
                 id: true,
@@ -1377,6 +1379,7 @@ export class ChatService {
             cost: true,
             currency: true,
             created_at: true,
+            updated_at: true,
             user: {
               select: {
                 id: true,
@@ -1408,11 +1411,25 @@ export class ChatService {
             cost: chat.request.cost,
             currency: chat.request.currency,
             created_at: chat.request.created_at,
+            updated_at: chat.request.updated_at,
             departure: chat.request.trip?.departure || null,
             user: chat.request.user,
           }
         : null,
-      trip: chat.trip,
+      trip: chat.trip
+        ? {
+            id: chat.trip.id,
+            pickup: chat.trip.pickup,
+            departure: chat.trip.departure,
+            destination: chat.trip.destination,
+            departure_date: chat.trip.departure_date,
+            departure_time: chat.trip.departure_time,
+            currency: chat.trip.currency,
+            airline_id: chat.trip.airline_id,
+            updated_at: chat.trip.updatedAt,
+            user: chat.trip.user,
+          }
+        : null,
     };
   }
 
@@ -1539,28 +1556,53 @@ export class ChatService {
       // Send push notification to each other member
       for (const member of otherMembers) {
         try {
-          // Get user's device_id for push notification
+          // Get user's device_id and language for push notification
           const user = await this.prisma.user.findUnique({
             where: { id: member.user_id },
-            select: { id: true, device_id: true, name: true },
+            select: { id: true, device_id: true, name: true, lang: true },
           });
 
           if (!user || !user.device_id) continue;
 
-          // Send push notification
+          // Get user's language preference
+          const userLang = user.lang || 'en';
 
-          await this.notificationService.sendPushNotification({
-            deviceId: user.device_id,
-            title: `New message from ${sender.name || sender.email}`,
-            body: message.content || 'New message received',
-            data: {
-              chatId,
-              messageId: message.id,
-              senderId: sender.id,
-              senderName: sender.name || sender.email,
-              type: 'CHAT_MESSAGE',
+          // Translate notification title and body to user's language
+          const notificationTitle = await this.i18n.translate(
+            'translation.notification.chat.newMessage.title',
+            {
+              lang: userLang,
+              defaultValue: `New message from ${sender.name || sender.email}`,
+              args: {
+                senderName: sender.name || sender.email,
+              },
             },
-          });
+          );
+
+          const notificationBody = await this.i18n.translate(
+            'translation.notification.chat.newMessage.body',
+            {
+              lang: userLang,
+              defaultValue: message.content || 'New message received',
+            },
+          );
+
+          // Send push notification
+          await this.notificationService.sendPushNotification(
+            {
+              deviceId: user.device_id,
+              title: notificationTitle,
+              body: notificationBody,
+              data: {
+                chatId,
+                messageId: message.id,
+                senderId: sender.id,
+                senderName: sender.name || sender.email,
+                type: 'CHAT_MESSAGE',
+              },
+            },
+            userLang,
+          );
         } catch (error) {
           // Log error but don't fail the message creation
           console.error(

@@ -2303,6 +2303,7 @@ export class TripService {
                 id: true,
                 email: true,
                 role: true,
+                isFreightForwarder: true,
               },
             },
             trip_items: {
@@ -2423,6 +2424,7 @@ export class TripService {
               id: trip.user.id,
               email: trip.user.email,
               role: trip.user.role,
+              isFreightForwarder: trip.user.isFreightForwarder,
             }
           : null,
         departure_date: trip.departure_date,
