@@ -210,7 +210,10 @@ async ensureConnectedAccount(params: {
    */
   async getAccountDetails(accountId: string): Promise<Stripe.Account> {
     try {
-      return await this.stripe.accounts.retrieve(accountId);
+      // Expand capabilities and requirements to get full status information
+      return await this.stripe.accounts.retrieve(accountId, {
+        expand: ['capabilities', 'requirements'],
+      });
     } catch (error) {
       this.logger.error('Failed to retrieve account:', error);
       throw new BadRequestException(`Failed to retrieve account: ${error.message}`);

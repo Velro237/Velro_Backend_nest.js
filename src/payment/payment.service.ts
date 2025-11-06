@@ -856,10 +856,34 @@ export class PaymentService {
           ? cardPaymentsCap
           : (cardPaymentsCap as any)?.status || 'inactive';
 
+      // PRODUCTION-READY LOGIC:
+      // canWithdraw: Based on transfers capability (what actually enables payouts)
+      // If transfers is 'active', Stripe allows payouts even if identity verification is pending
+      // Identity verification may pause payouts later, but if active now, withdrawals work
+      const canWithdraw = transfersCapability === 'active';
+
+      // isComplete: Stricter check - all requirements met (for UI display of "fully verified")
       const isComplete =
-        account.details_submitted &&
+        account.details_submitted === true &&
         transfersCapability === 'active' &&
         cardPaymentsCapability === 'active';
+
+      // Check for pending requirements (for better user feedback)
+      const requirements = (account as any).requirements;
+      const currentlyDue = requirements?.currently_due || [];
+      const pastDue = requirements?.past_due || [];
+      const hasPendingRequirements = currentlyDue.length > 0 || pastDue.length > 0;
+
+      // Log for debugging
+      this.logger.log(
+        `Connect status check for user ${userId}: ` +
+          `details_submitted=${account.details_submitted}, ` +
+          `transfers=${transfersCapability}, ` +
+          `card_payments=${cardPaymentsCapability}, ` +
+          `canWithdraw=${canWithdraw}, ` +
+          `isComplete=${isComplete}, ` +
+          `pending_requirements=${hasPendingRequirements}`,
+      );
 
       // Update local database
       await this.prisma.user.update({
@@ -874,7 +898,7 @@ export class PaymentService {
       return {
         isComplete,
         transfersCapability,
-        canWithdraw: isComplete,
+        canWithdraw: canWithdraw, // Based on transfers capability (production-ready)
         accountId: user.stripe_account_id,
       };
     } catch (error) {
