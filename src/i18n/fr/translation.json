@@ -220,6 +220,12 @@
       "title": "Correspondance d'alerte de voyage trouvée",
       "message": "Un nouveau voyage correspondant à vos critères d'alerte a été trouvé ! Créateur du voyage : {tripCreator}, Itinéraire : {departure} vers {destination}, Date de départ : {departureDate}"
     },
+    "chat": {
+      "newMessage": {
+        "title": "Nouveau message de {senderName}",
+        "body": "{message}"
+      }
+    },
     "userNotFound": "Utilisateur non trouvé",
     "notFound": "Notification non trouvée"
   },

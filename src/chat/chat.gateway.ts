@@ -19,6 +19,8 @@ import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImageService } from '../shared/services/image.service';
+import { NotificationService } from '../notification/notification.service';
+import { I18nService } from 'nestjs-i18n';
 
 @WebSocketGateway({
   cors: { origin: '*' }, // restrict in production
@@ -37,6 +39,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
     private readonly imageService: ImageService,
+    private readonly notificationService: NotificationService,
+    private readonly i18n: I18nService,
   ) {}
 
   afterInit(server: Server) {
@@ -622,6 +626,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Optionally: ack to sender with the saved message (id, timestamps)
       client.emit('message:ack', message);
+
+      // Send push notifications to other chat members (non-blocking)
+      this.sendPushNotificationToChatMembers(
+        data.chatId,
+        user.sub,
+        message,
+      ).catch((error) => {
+        console.error('Failed to send push notifications:', error);
+        // Don't fail the message creation if notifications fail
+      });
     } catch (err: any) {
       console.error('Error in handleSendMessage:', err);
       client.emit('error', {
@@ -775,6 +789,112 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         message: 'Could not notify user added to chat',
         details: error.message,
       });
+    }
+  }
+
+  /**
+   * Send push notification to other chat members when a message is sent
+   * This method is designed to be non-blocking and should be called without await
+   * to ensure chat functionality is not delayed by notification failures
+   */
+  private async sendPushNotificationToChatMembers(
+    chatId: string,
+    senderId: string,
+    message: any,
+  ): Promise<void> {
+    try {
+      // Get all chat members except the sender
+      const chatMembers = await this.chatService.getChatMembers(chatId);
+      const otherMembers = chatMembers.filter(
+        (member) => member.user_id !== senderId,
+      );
+
+      // Get sender information for the notification
+      const sender = await this.prisma.user.findUnique({
+        where: { id: senderId },
+        select: { id: true, name: true, email: true },
+      });
+
+      if (!sender) return;
+
+      // Send push notification to each other member
+      for (const member of otherMembers) {
+        try {
+          // Get user's device_id and language for push notification
+          const user = await this.prisma.user.findUnique({
+            where: { id: member.user_id },
+            select: { id: true, device_id: true, name: true, lang: true },
+          });
+
+          if (!user || !user.device_id) continue;
+
+          // Get user's language preference
+          const userLang = user.lang || 'en';
+
+          // Prepare message content for notification
+          let messageContent = message.content || '';
+          if (message.imageUrls && message.imageUrls.length > 0) {
+            messageContent = messageContent
+              ? `${messageContent} [${message.imageUrls.length} image(s)]`
+              : `[${message.imageUrls.length} image(s)]`;
+          }
+          if (!messageContent) {
+            messageContent = 'New message';
+          }
+
+          // Translate notification title and body to user's language
+          const notificationTitle = await this.i18n.translate(
+            'translation.notification.chat.newMessage.title',
+            {
+              lang: userLang,
+              defaultValue: `New message from ${sender.name || sender.email}`,
+              args: {
+                senderName: sender.name || sender.email,
+              },
+            },
+          );
+
+          const notificationBody = await this.i18n.translate(
+            'translation.notification.chat.newMessage.body',
+            {
+              lang: userLang,
+              defaultValue: messageContent,
+              args: {
+                message: messageContent,
+              },
+            },
+          );
+
+          // Send push notification
+          await this.notificationService.sendPushNotification(
+            {
+              deviceId: user.device_id,
+              title: notificationTitle,
+              body: notificationBody,
+              data: {
+                chatId,
+                messageId: message.id,
+                senderId: sender.id,
+                senderName: sender.name || sender.email,
+                type: 'CHAT_MESSAGE',
+              },
+            },
+            userLang,
+          );
+        } catch (error) {
+          // Log error but don't fail the message creation
+          console.error(
+            `Failed to send push notification to user ${member.user_id}:`,
+            error,
+          );
+        }
+      }
+    } catch (error) {
+      // Log error but don't fail the message creation
+      console.error(
+        `Failed to send push notifications for chat ${chatId}:`,
+        error,
+      );
     }
   }
 }

@@ -219,6 +219,12 @@
       "title": "Trip Alert Match Found",
       "message": "A new trip matching your alert criteria has been found! Trip creator: {tripCreator}, Route: {departure} to {destination}, Departure date: {departureDate}"
     },
+    "chat": {
+      "newMessage": {
+        "title": "New message from {senderName}",
+        "body": "{message}"
+      }
+    },
     "userNotFound": "User not found",
     "notFound": "Notification not found"
   },
