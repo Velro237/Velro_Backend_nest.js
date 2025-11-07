@@ -168,19 +168,19 @@ export class RequestController {
     return this.requestService.getRequestById(requestId, lang);
   }
 
-  @Patch('trip/:id')
-  @ApiUpdateTripRequest()
-  async updateTripRequest(
-    @Param('id') requestId: string,
-    @Body() updateTripRequestDto: UpdateTripRequestDto,
-    @I18nLang() lang: string,
-  ): Promise<UpdateTripRequestResponseDto> {
-    return this.requestService.updateTripRequest(
-      requestId,
-      updateTripRequestDto,
-      lang,
-    );
-  }
+  // @Patch('trip/:id')
+  // @ApiUpdateTripRequest()
+  // async updateTripRequest(
+  //   @Param('id') requestId: string,
+  //   @Body() updateTripRequestDto: UpdateTripRequestDto,
+  //   @I18nLang() lang: string,
+  // ): Promise<UpdateTripRequestResponseDto> {
+  //   return this.requestService.updateTripRequest(
+  //     requestId,
+  //     updateTripRequestDto,
+  //     lang,
+  //   );
+  // }
 
   @Patch('status')
   @HttpCode(HttpStatus.OK)
