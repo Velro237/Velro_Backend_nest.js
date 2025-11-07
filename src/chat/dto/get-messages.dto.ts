@@ -113,6 +113,75 @@ export class GetMessagesResponseDto {
           },
         },
       },
+      availableKgs: {
+        type: 'number',
+        example: 3,
+        description:
+          'Total quantity requested across all items (sum of request items)',
+      },
+      requestItems: {
+        type: 'array',
+        description: 'Items requested in this chat request',
+        items: {
+          type: 'object',
+          properties: {
+            trip_item_id: {
+              type: 'string',
+              example: '123e4567-e89b-12d3-a456-426614174010',
+            },
+            quantity: { type: 'number', example: 2 },
+            special_notes: {
+              type: 'string',
+              nullable: true,
+              example: 'Handle with care',
+            },
+            created_at: {
+              type: 'string',
+              example: '2024-01-15T10:30:00.000Z',
+            },
+            updated_at: {
+              type: 'string',
+              example: '2024-01-16T10:30:00.000Z',
+            },
+            price: {
+              type: 'number',
+              nullable: true,
+              example: 45,
+            },
+            available_kg: {
+              type: 'number',
+              nullable: true,
+              example: 5,
+            },
+            trip_item: {
+              type: 'object',
+              nullable: true,
+              properties: {
+                id: {
+                  type: 'string',
+                  example: '123e4567-e89b-12d3-a456-426614174020',
+                },
+                name: { type: 'string', example: 'Electronics' },
+                description: {
+                  type: 'string',
+                  nullable: true,
+                  example: 'Electronic devices and gadgets',
+                },
+                image_id: {
+                  type: 'string',
+                  nullable: true,
+                  example: 'img_123',
+                },
+              },
+            },
+          },
+        },
+      },
+      message: {
+        type: 'string',
+        nullable: true,
+        example: 'Please confirm availability before accepting',
+      },
     },
   })
   request?: {
@@ -123,12 +192,29 @@ export class GetMessagesResponseDto {
     created_at: Date;
     updated_at: Date;
     departure?: any;
+    message?: string | null;
     user: {
       id: string;
       email: string;
       name: string;
       picture?: string;
     };
+    availableKgs: number;
+    requestItems: Array<{
+      trip_item_id: string;
+      quantity: number;
+      special_notes?: string | null;
+      created_at: Date;
+      updated_at: Date;
+      price: number | null;
+      available_kg: number | null;
+      trip_item?: {
+        id: string;
+        name: string;
+        description?: string | null;
+        image_id?: string | null;
+      };
+    }>;
   };
 
   @ApiProperty({

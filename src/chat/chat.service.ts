@@ -1380,16 +1380,27 @@ export class ChatService {
                 email: true,
               },
             },
+            trip_items: {
+              select: {
+                trip_item_id: true,
+                price: true,
+                avalailble_kg: true,
+                trip_item: {
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    image_id: true,
+                    created_at: true,
+                    updated_at: true,
+                  },
+                },
+              },
+            },
           },
         },
         request: {
-          select: {
-            id: true,
-            status: true,
-            cost: true,
-            currency: true,
-            created_at: true,
-            updated_at: true,
+          include: {
             user: {
               select: {
                 id: true,
@@ -1402,6 +1413,27 @@ export class ChatService {
               select: {
                 id: true,
                 departure: true,
+                trip_items: {
+                  select: {
+                    trip_item_id: true,
+                    price: true,
+                    avalailble_kg: true,
+                  },
+                },
+              },
+            },
+            request_items: {
+              include: {
+                trip_item: {
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    image_id: true,
+                    created_at: true,
+                    updated_at: true,
+                  },
+                },
               },
             },
           },
@@ -1413,31 +1445,76 @@ export class ChatService {
       return null;
     }
 
+    const chatWithData = chat as any;
+
     return {
-      request: chat.request
-        ? {
-            id: chat.request.id,
-            status: chat.request.status,
-            cost: chat.request.cost,
-            currency: chat.request.currency,
-            created_at: chat.request.created_at,
-            updated_at: chat.request.updated_at,
-            departure: chat.request.trip?.departure || null,
-            user: chat.request.user,
-          }
+      request: chatWithData.request
+        ? (() => {
+            const tripItems = chatWithData.request.trip?.trip_items || [];
+            const requestItems =
+              chatWithData.request.request_items?.map((item: any) => {
+                const tripItem = tripItems.find(
+                  (ti) => ti.trip_item_id === item.trip_item_id,
+                );
+
+                return {
+                  trip_item_id: item.trip_item_id,
+                  quantity: item.quantity,
+                  special_notes: item.special_notes,
+                  created_at: item.created_at,
+                  updated_at: item.updated_at,
+                  price:
+                    tripItem?.price !== undefined
+                      ? Number(tripItem.price)
+                      : null,
+                  available_kg:
+                    tripItem?.avalailble_kg !== undefined &&
+                    tripItem?.avalailble_kg !== null
+                      ? Number(tripItem.avalailble_kg)
+                      : null,
+                  trip_item: item.trip_item
+                    ? {
+                        id: item.trip_item.id,
+                        name: item.trip_item.name,
+                        description: item.trip_item.description,
+                        image_id: item.trip_item.image_id,
+                        created_at: item.trip_item.created_at,
+                        updated_at: item.trip_item.updated_at,
+                      }
+                    : undefined,
+                };
+              }) || [];
+
+            return {
+              id: chatWithData.request.id,
+              status: chatWithData.request.status,
+              cost: chatWithData.request.cost,
+              currency: chatWithData.request.currency,
+              created_at: chatWithData.request.created_at,
+              updated_at: chatWithData.request.updated_at,
+              departure: chatWithData.request.trip?.departure || null,
+              message: chatWithData.request.message || null,
+              user: chatWithData.request.user,
+              availableKgs: requestItems.reduce(
+                (total, item) => total + item.quantity,
+                0,
+              ),
+              requestItems,
+            };
+          })()
         : null,
-      trip: chat.trip
+      trip: chatWithData.trip
         ? {
-            id: chat.trip.id,
-            pickup: chat.trip.pickup,
-            departure: chat.trip.departure,
-            destination: chat.trip.destination,
-            departure_date: chat.trip.departure_date,
-            departure_time: chat.trip.departure_time,
-            currency: chat.trip.currency,
-            airline_id: chat.trip.airline_id,
-            updated_at: chat.trip.updatedAt,
-            user: chat.trip.user,
+            id: chatWithData.trip.id,
+            pickup: chatWithData.trip.pickup,
+            departure: chatWithData.trip.departure,
+            destination: chatWithData.trip.destination,
+            departure_date: chatWithData.trip.departure_date,
+            departure_time: chatWithData.trip.departure_time,
+            currency: chatWithData.trip.currency,
+            airline_id: chatWithData.trip.airline_id,
+            updated_at: chatWithData.trip.updatedAt,
+            user: chatWithData.trip.user,
           }
         : null,
     };
