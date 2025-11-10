@@ -12,6 +12,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -71,15 +72,18 @@ export class AuthController {
     private readonly otpService: OtpService,
   ) {}
 
-  // @Post('signup')
-  // @HttpCode(HttpStatus.CREATED)
-  // @ApiSignup()
-  // async signup(
-  //   @Body() signupDto: SignupDto,
-  //   @I18nLang() lang: string,
-  // ): Promise<SignupResponseDto> {
-  //   return this.authService.signup(signupDto, lang);
-  // }
+  @Post('signup')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiSignup()
+  async signup(
+    @Body() signupDto: SignupDto,
+    @I18nLang() lang: string,
+  ): Promise<SignupResponseDto> {
+    if (process.env.NODE_ENV === 'production') {
+      throw new NotFoundException();
+    }
+    return this.authService.signup(signupDto, lang);
+  }
 
   @Patch('verify-otp/:id')
   @HttpCode(HttpStatus.OK)
