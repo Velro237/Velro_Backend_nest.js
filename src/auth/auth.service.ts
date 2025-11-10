@@ -381,17 +381,21 @@ export class AuthService {
   }
 
   // Crée/relie le user à partir d’un profile OAuth (Google/Apple via Passport)
-  async upsertUserFromOAuth(oauth: {
-    provider: 'GOOGLE' | 'APPLE';
-    providerAccountId: string;
-    email: string | null;
-    name: string | null;
-    picture: string | null;
-    accessToken?: string | null;
-    refreshToken?: string | null;
-    idToken?: string | null; // Apple
-  }) {
+  async upsertUserFromOAuth(
+    oauth: {
+      provider: 'GOOGLE' | 'APPLE';
+      providerAccountId: string;
+      email: string | null;
+      name: string | null;
+      picture: string | null;
+      accessToken?: string | null;
+      refreshToken?: string | null;
+      idToken?: string | null; // Apple
+    },
+    options: { skipOtpEmail?: boolean } = {},
+  ) {
     const provider = oauth.provider;
+    const { skipOtpEmail = false } = options;
 
     // Si on a un email, on tente de relier à un user existant
     let user = oauth.email
@@ -414,8 +418,14 @@ export class AuthService {
 
     if (!user) {
       const saltRounds = 10;
-      const otpCode = randomInt(100_000, 1_000_000);
-      const otpHash = await bcrypt.hash(String(otpCode), saltRounds);
+      let otpHash: string | null = null;
+      let otpCode: string | null = null;
+
+      if (!skipOtpEmail) {
+        otpCode = String(randomInt(100_000, 1_000_000));
+        otpHash = await bcrypt.hash(otpCode, saltRounds);
+      }
+
       user = await this.prisma.user.create({
         data: {
           email: oauth.email,
@@ -426,17 +436,19 @@ export class AuthService {
         },
       });
 
-      // Get user's language preference (default to 'en' for new OAuth users)
-      const userLang = user.lang || 'en';
+      if (!skipOtpEmail && otpCode && user.email) {
+        // Get user's language preference (default to 'en' for new OAuth users)
+        const userLang = user.lang || 'en';
 
-      const emailDto: SendEmailDto = {
-        to: user.email,
-        subject: 'Welcome to Velro',
-        text: 'Thank you for joining Velro! We are excited to have you on board.',
-        html: `<h1> Your verification code is: <strong>${otpCode}</strong></h1>`,
-      };
+        const emailDto: SendEmailDto = {
+          to: user.email,
+          subject: 'Welcome to Velro',
+          text: 'Thank you for joining Velro! We are excited to have you on board.',
+          html: `<h1> Your verification code is: <strong>${otpCode}</strong></h1>`,
+        };
 
-      await this.sendEmail(emailDto, userLang);
+        await this.sendEmail(emailDto, userLang);
+      }
 
       // Create initial UserKYC record with NOT_STARTED status for OAuth users
       await this.prisma.userKYC.create({
@@ -556,14 +568,19 @@ export class AuthService {
     const picture = decoded.picture || null;
 
     if (!sub) throw new BadRequestException('Invalid Google id_token');
-    const user = await this.upsertUserFromOAuth({
-      provider: 'GOOGLE',
-      providerAccountId: sub,
-      email,
-      name,
-      picture,
-      idToken,
-    });
+    const user = await this.upsertUserFromOAuth(
+      {
+        provider: 'GOOGLE',
+        providerAccountId: sub,
+        email,
+        name,
+        picture,
+        idToken,
+      },
+      {
+        skipOtpEmail: true,
+      },
+    );
 
     return this.issueTokens(user.user.id);
   }
@@ -640,14 +657,19 @@ export class AuthService {
       }
     }
 
-    const user = await this.upsertUserFromOAuth({
-      provider: 'APPLE',
-      providerAccountId: sub,
-      email,
-      name, // Use extracted name if available, otherwise null
-      picture: null,
-      idToken,
-    });
+    const user = await this.upsertUserFromOAuth(
+      {
+        provider: 'APPLE',
+        providerAccountId: sub,
+        email,
+        name, // Use extracted name if available, otherwise null
+        picture: null,
+        idToken,
+      },
+      {
+        skipOtpEmail: true,
+      },
+    );
 
     return this.issueTokens(user.user.id);
   }
