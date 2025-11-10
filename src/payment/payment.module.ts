@@ -9,6 +9,7 @@ import { MobilemoneyService } from './mobilemoney/mobilemoney.service';
 import { RequestModule } from '../request/request.module';
 import { CurrencyModule } from '../currency/currency.module';
 import { NotificationModule } from '../notification/notification.module';
+import { BankTransferService } from './bank-transfer/bank-transfer.service';
 
 @Module({
   imports: [
@@ -20,7 +21,12 @@ import { NotificationModule } from '../notification/notification.module';
     NotificationModule,
   ],
   controllers: [PaymentController],
-  providers: [PaymentService, StripeService, MobilemoneyService],
-  exports: [PaymentService, StripeService],
+  providers: [
+    PaymentService,
+    StripeService,
+    MobilemoneyService,
+    BankTransferService,
+  ],
+  exports: [PaymentService, StripeService, BankTransferService],
 })
 export class PaymentModule {}
