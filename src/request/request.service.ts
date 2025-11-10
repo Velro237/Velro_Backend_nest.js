@@ -1139,13 +1139,16 @@ export class RequestService {
     from_app: boolean = false,
   ): Promise<any> {
     // Disallow manual setting of CONFIRMED; it must be set by the payment flow
-    if (!from_app && status === 'CONFIRMED') {
+    if (
+      (!from_app && status === 'CONFIRMED') ||
+      (!from_app && status === 'REVIEWED')
+    ) {
       const message = await this.i18n.translate(
         'translation.request.status.confirmedOnlyByPayment',
         {
           lang,
           defaultValue:
-            'CONFIRMED status can only be set automatically after successful payment',
+            'CONFIRMED and REVIEWED status can only be set automatically ',
         },
       );
       throw new BadRequestException(message);
@@ -2267,38 +2270,54 @@ export class RequestService {
         },
       });
 
-      // Send a REVIEW message in the chat if chat exists
-      if (request.chat_id) {
-        try {
-          // Get the review message content
-          const reviewContent = await this.i18n.translate(
-            'translation.chat.messages.reviewSubmitted',
-            {
-              lang,
-              args: {
-                rating: rating.toString(),
-              },
-              defaultValue: `Rating submitted: ${rating}/5`,
-            },
-          );
-
-          // Send review message with review_id
-          await this.chatGateway.sendMessageProgrammatically({
-            chatId: request.chat_id,
-            senderId: userId,
-            content: reviewContent,
-            type: PrismaMessageType.REVIEW,
-            requestId: undefined,
-            reviewId: newRating.id,
-          });
-
-          // Invalidate chat cache
-          await this.redis.invalidateChatCache(request.chat_id);
-        } catch (messageError) {
-          console.error('Failed to send review message in chat:', messageError);
-          // Don't throw - rating was created successfully
-        }
+      // Update request status to REVIEWED using existing status change workflow
+      try {
+        await this.changeRequestStatus(
+          requestId,
+          'REVIEWED',
+          userId,
+          lang,
+          true,
+        );
+      } catch (statusError) {
+        console.error(
+          'Failed to update request status to REVIEWED after rating:',
+          statusError,
+        );
       }
+
+      // // Send a REVIEW message in the chat if chat exists
+      // if (request.chat_id) {
+      //   try {
+      //     // Get the review message content
+      //     const reviewContent = await this.i18n.translate(
+      //       'translation.chat.messages.reviewSubmitted',
+      //       {
+      //         lang,
+      //         args: {
+      //           rating: rating.toString(),
+      //         },
+      //         defaultValue: `Rating submitted: ${rating}/5`,
+      //       },
+      //     );
+
+      //     // Send review message with review_id
+      //     await this.chatGateway.sendMessageProgrammatically({
+      //       chatId: request.chat_id,
+      //       senderId: userId,
+      //       content: reviewContent,
+      //       type: PrismaMessageType.REVIEW,
+      //       requestId: undefined,
+      //       reviewId: newRating.id,
+      //     });
+
+      //     // Invalidate chat cache
+      //     await this.redis.invalidateChatCache(request.chat_id);
+      //   } catch (messageError) {
+      //     console.error('Failed to send review message in chat:', messageError);
+      //     // Don't throw - rating was created successfully
+      //   }
+      // }
 
       const message = await this.i18n.translate(
         'translation.request.rate.success',

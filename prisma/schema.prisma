@@ -469,6 +469,7 @@ enum RequestStatus {
   IN_TRANSIT //when travel date and time arrives
   PENDING_DELIVERY //traveller mark as delivered but not confirmed by user
   DELIVERED //when the user confirm package is delivered by the traveler
+  REVIEWED //when the user review the request
 }
 
 enum ReportType {

@@ -59,12 +59,15 @@ import { ChatGateway } from '../chat/chat.gateway';
 import { StripeService } from '../payment/stripe.service';
 import { WalletService } from '../wallet/wallet.service';
 import { CurrencyService } from '../currency/currency.service';
+import { ImageService } from '../shared/services/image.service';
 import {
   UserRole,
   TripStatus,
   RequestStatus,
   Currency,
+  Language,
 } from 'generated/prisma/client';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class TripService {
@@ -77,6 +80,7 @@ export class TripService {
     private readonly stripeService: StripeService,
     private readonly walletService: WalletService,
     private readonly currencyService: CurrencyService,
+    private readonly imageService: ImageService,
   ) {}
 
   async createTrip(
@@ -1618,7 +1622,12 @@ export class TripService {
   // TripItem methods
   async createTripItem(
     createTripItemDto: CreateTripItemDto,
-    lang?: string,
+    lang: string = 'en',
+    imageFile?: {
+      buffer: Buffer;
+      mimetype: string;
+      originalname: string;
+    },
   ): Promise<CreateTripItemResponseDto> {
     // Check if trip item with this name already exists
     const existingTripItem = await this.prisma.tripItem.findUnique({
@@ -1636,24 +1645,59 @@ export class TripService {
     }
 
     try {
-      const { image_id, translations, ...tripItemData } = createTripItemDto;
+      if ('image' in createTripItemDto) {
+        delete (createTripItemDto as any).image;
+      }
+
+      let translationsArray: Array<{
+        language: string;
+        name: string;
+        description?: string | null;
+      }> = [];
+
+      if (createTripItemDto.translations) {
+        try {
+          const parsed = JSON.parse(createTripItemDto.translations);
+          if (!Array.isArray(parsed)) {
+            throw new Error('Translations must be an array');
+          }
+          translationsArray = parsed;
+        } catch (error) {
+          throw new BadRequestException('Invalid translations JSON format');
+        }
+      }
+
+      const tripItemId = randomUUID();
+      let imageId: string | null = null;
+
+      if (imageFile) {
+        const uploadResult = await this.imageService.uploadFile(imageFile, {
+          folder: 'trip-items',
+          alt_text: createTripItemDto.name,
+          object_id: tripItemId,
+        });
+        imageId = uploadResult.image.id;
+      }
+
+      const { translations, ...tripItemData } = createTripItemDto as any;
 
       // Create trip item with translations in a transaction
       const tripItem = await this.prisma.$transaction(async (prisma) => {
         // Create the trip item
         const createdItem = await prisma.tripItem.create({
           data: {
+            id: tripItemId,
             ...tripItemData,
-            image_id: image_id || null,
-          },
+            image_id: imageId,
+          } as any,
         });
 
         // Create translations if provided
-        if (translations && translations.length > 0) {
+        if (translationsArray.length > 0) {
           await prisma.translation.createMany({
-            data: translations.map((translation) => ({
+            data: translationsArray.map((translation) => ({
               trip_item_id: createdItem.id,
-              language: translation.language,
+              language: translation.language as Language,
               name: translation.name,
               description: translation.description || null,
             })),
@@ -1712,7 +1756,7 @@ export class TripService {
   async updateTripItem(
     tripItemId: string,
     updateTripItemDto: UpdateTripItemDto,
-    lang?: string,
+    lang: string = 'en',
   ): Promise<UpdateTripItemResponseDto> {
     // Check if trip item exists
     const existingTripItem = await this.prisma.tripItem.findUnique({
@@ -1750,7 +1794,35 @@ export class TripService {
     }
 
     try {
-      const { image_id, translations, ...tripItemData } = updateTripItemDto;
+      if ('image' in updateTripItemDto) {
+        delete (updateTripItemDto as any).image;
+      }
+
+      let translationsArray:
+        | Array<{
+            language: string;
+            name: string;
+            description?: string | null;
+          }>
+        | undefined = undefined;
+
+      if (updateTripItemDto.translations !== undefined) {
+        if (updateTripItemDto.translations === null) {
+          translationsArray = [];
+        } else if (typeof updateTripItemDto.translations === 'string') {
+          try {
+            const parsed = JSON.parse(updateTripItemDto.translations);
+            if (!Array.isArray(parsed)) {
+              throw new Error('Translations must be an array');
+            }
+            translationsArray = parsed;
+          } catch (error) {
+            throw new BadRequestException('Invalid translations JSON format');
+          }
+        }
+      }
+
+      const { translations, ...tripItemData } = updateTripItemDto as any;
 
       // Update trip item and translations in a transaction
       const tripItem = await this.prisma.$transaction(async (prisma) => {
@@ -1759,23 +1831,26 @@ export class TripService {
           where: { id: tripItemId },
           data: {
             ...tripItemData,
-            image_id: image_id !== undefined ? image_id : undefined,
-          },
+            image_id:
+              updateTripItemDto.image_id !== undefined
+                ? updateTripItemDto.image_id
+                : undefined,
+          } as any,
         });
 
         // Handle translations if provided
-        if (translations !== undefined) {
+        if (translationsArray !== undefined) {
           // Delete existing translations
           await prisma.translation.deleteMany({
             where: { trip_item_id: tripItemId },
           });
 
           // Create new translations
-          if (translations.length > 0) {
+          if (translationsArray.length > 0) {
             await prisma.translation.createMany({
-              data: translations.map((translation) => ({
+              data: translationsArray.map((translation) => ({
                 trip_item_id: tripItemId,
-                language: translation.language,
+                language: translation.language as Language,
                 name: translation.name,
                 description: translation.description || null,
               })),
@@ -1882,7 +1957,7 @@ export class TripService {
         await this.prisma.translation.create({
           data: {
             trip_item_id: tripItemId,
-            language: translation.language,
+            language: translation.language as Language,
             name: translation.name,
             description: translation.description || null,
           },

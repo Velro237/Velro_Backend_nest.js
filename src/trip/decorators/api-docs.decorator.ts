@@ -583,47 +583,38 @@ export const ApiCreateTripItem = () =>
         'Create a new trip item for trip categorization with optional multilingual translations. You can provide translations for name and description in different languages (en, fr). Requires admin privileges.',
     }),
     ApiBody({
-      type: CreateTripItemDto,
-      description: 'Trip item creation data with optional translations',
-      examples: {
-        electronics: {
-          summary: 'Electronics trip item with translations',
-          value: {
-            name: 'Electronics',
-            description: 'Electronic devices and gadgets',
-            image_id: '123e4567-e89b-12d3-a456-426614174000',
-            translations: [
+      description:
+        'Trip item creation data with optional translations. When using multipart/form-data, include name/description fields and attach the image file via the "image" field. For translations, provide a JSON array string.',
+      schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', example: 'Electronics' },
+          description: {
+            type: 'string',
+            example: 'Electronic devices and gadgets',
+          },
+          translations: {
+            oneOf: [
               {
-                language: 'fr',
-                name: 'Électronique',
-                description: 'Appareils et gadgets électroniques',
+                type: 'array',
+                items: {
+                  $ref: '#/components/schemas/TranslationDto',
+                },
+              },
+              {
+                type: 'string',
+                description:
+                  'JSON array of translations. Example: [{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
               },
             ],
           },
-        },
-        clothing: {
-          summary: 'Clothing trip item with translations',
-          value: {
-            name: 'Clothing',
-            description: 'Clothes and accessories',
-            image_id: '123e4567-e89b-12d3-a456-426614174001',
-            translations: [
-              {
-                language: 'FR',
-                name: 'Vêtements',
-                description: 'Vêtements et accessoires',
-              },
-            ],
+          image: {
+            type: 'string',
+            format: 'binary',
+            description: 'Image file for the trip item',
           },
         },
-        electronicsWithoutTranslations: {
-          summary: 'Electronics trip item without translations',
-          value: {
-            name: 'Electronics',
-            description: 'Electronic devices and gadgets',
-            image_id: '123e4567-e89b-12d3-a456-426614174000',
-          },
-        },
+        required: ['name'],
       },
     }),
     ApiResponse({
