@@ -368,7 +368,6 @@ export class TripController {
 
   // Get trips with pagination and country filtering
   @Get('trips')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Get trips with pagination, filtering, search, and country prioritization',
@@ -386,10 +385,10 @@ export class TripController {
   })
   async getTrips(
     @Query() query: GetTripsQueryDto,
-    @CurrentUser() user: User,
+    @CurrentUser() user: User | null,
     @I18nLang() lang: string,
   ): Promise<GetTripsResponseDto> {
-    return this.tripService.getTrips(query, user.id, lang);
+    return this.tripService.getTrips(query, user?.id, lang);
   }
 
   // Get trip by ID with full details

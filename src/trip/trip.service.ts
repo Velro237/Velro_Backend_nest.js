@@ -2175,7 +2175,7 @@ export class TripService {
   // Get trips with pagination and country filtering
   async getTrips(
     query: GetTripsQueryDto,
-    userId: string,
+    userId?: string,
     lang?: string,
   ): Promise<GetTripsResponseDto> {
     try {
@@ -2484,38 +2484,44 @@ export class TripService {
         trips = [...countryTrips, ...otherTrips];
       }
 
-      // Fetch chat info for all trips where user is a member
-      const tripIds = trips.map((trip) => trip.id);
-      const userChats = await this.prisma.chat.findMany({
-        where: {
-          trip_id: {
-            in: tripIds,
-          },
-          members: {
-            some: {
-              user_id: userId,
+      // Fetch chat info for all trips where user is a member (when userId provided)
+      const chatInfoMap = new Map<
+        string,
+        { id: string; name: string | null; createdAt: Date }
+      >();
+      if (userId) {
+        const tripIds = trips.map((trip) => trip.id);
+        if (tripIds.length > 0) {
+          const userChats = await this.prisma.chat.findMany({
+            where: {
+              trip_id: {
+                in: tripIds,
+              },
+              members: {
+                some: {
+                  user_id: userId,
+                },
+              },
             },
-          },
-        },
-        select: {
-          id: true,
-          name: true,
-          createdAt: true,
-          trip_id: true,
-        },
-      });
+            select: {
+              id: true,
+              name: true,
+              createdAt: true,
+              trip_id: true,
+            },
+          });
 
-      // Create a map of trip_id -> chat_info for quick lookup
-      const chatInfoMap = new Map(
-        userChats.map((chat) => [
-          chat.trip_id!,
-          {
-            id: chat.id,
-            name: chat.name,
-            createdAt: chat.createdAt,
-          },
-        ]),
-      );
+          userChats.forEach((chat) => {
+            if (chat.trip_id) {
+              chatInfoMap.set(chat.trip_id, {
+                id: chat.id,
+                name: chat.name,
+                createdAt: chat.createdAt,
+              });
+            }
+          });
+        }
+      }
 
       // Transform trips to summary format
       const tripSummaries = trips.map((trip) => ({
