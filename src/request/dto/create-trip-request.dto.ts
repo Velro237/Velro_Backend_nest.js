@@ -305,4 +305,13 @@ export class CreateTripRequestResponseDto {
       alt_text?: string;
     }[];
   };
+
+  @ApiProperty({
+    description:
+      'Average response time (in seconds) for the trip owner in the associated chat. Null when insufficient data.',
+    example: 42.5,
+    required: false,
+    nullable: true,
+  })
+  average_request_response_time?: number | null;
 }

@@ -799,6 +799,40 @@ export class ChatService {
         }),
       );
 
+      // Calculate average response time per member
+      const responseTimeMap = new Map<
+        string,
+        { total: number; count: number }
+      >();
+      const sortedMessages = [...messages].sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+      );
+
+      let previousMessage: (typeof messages)[number] | null = null;
+      for (const msg of sortedMessages) {
+        if (previousMessage && previousMessage.sender_id !== msg.sender_id) {
+          const delta =
+            msg.createdAt.getTime() - previousMessage.createdAt.getTime();
+          if (delta >= 0) {
+            const entry = responseTimeMap.get(msg.sender_id) || {
+              total: 0,
+              count: 0,
+            };
+            entry.total += delta;
+            entry.count += 1;
+            responseTimeMap.set(msg.sender_id, entry);
+          }
+        }
+        previousMessage = msg;
+      }
+
+      const averageResponseTimes = new Map<string, number>();
+      for (const [userId, { total, count }] of responseTimeMap.entries()) {
+        if (count > 0) {
+          averageResponseTimes.set(userId, total / count);
+        }
+      }
+
       const totalPages = Math.ceil(total / limit);
 
       const message_text = await this.i18n.translate(
@@ -845,6 +879,11 @@ export class ChatService {
               name: member.user.name,
               picture: member.user.picture,
               role: member.user.role,
+              average_message_response_time: averageResponseTimes.has(
+                member.user.id,
+              )
+                ? averageResponseTimes.get(member.user.id)! / 1000
+                : null,
             })),
           }
         : null;

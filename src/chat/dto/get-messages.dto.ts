@@ -310,6 +310,13 @@ export class GetMessagesResponseDto {
               example: 'https://example.com/picture.jpg',
             },
             role: { type: 'string', example: 'USER', enum: ['USER', 'ADMIN'] },
+            average_message_response_time: {
+              type: 'number',
+              nullable: true,
+              description:
+                'Average time in seconds it takes for this member to respond after the previous message sent by another member',
+              example: 45.3,
+            },
           },
         },
         example: [
@@ -342,6 +349,7 @@ export class GetMessagesResponseDto {
       name: string | null;
       picture: string | null;
       role: string;
+      average_message_response_time: number | null;
     }>;
   } | null;
 }

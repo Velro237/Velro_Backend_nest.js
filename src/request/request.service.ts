@@ -640,6 +640,40 @@ export class RequestService {
         },
       );
 
+      let averageRequestResponseTime: number | null = null;
+      if (chatId) {
+        const chatMessages = await this.prisma.message.findMany({
+          where: { chat_id: chatId },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            sender_id: true,
+            createdAt: true,
+          },
+        });
+
+        const responseTimes: number[] = [];
+        let previousMessage: { sender_id: string; createdAt: Date } | null =
+          null;
+        for (const msg of chatMessages) {
+          if (previousMessage && previousMessage.sender_id !== msg.sender_id) {
+            if (msg.sender_id === trip.user_id) {
+              const delta =
+                msg.createdAt.getTime() - previousMessage.createdAt.getTime();
+              if (delta >= 0) {
+                responseTimes.push(delta);
+              }
+            }
+          }
+          previousMessage = msg;
+        }
+
+        if (responseTimes.length > 0) {
+          const sum = responseTimes.reduce((acc, curr) => acc + curr, 0);
+          averageRequestResponseTime = sum / responseTimes.length / 1000;
+        }
+      }
+
       return {
         message,
         request: {
@@ -701,6 +735,7 @@ export class RequestService {
           }),
           images: result.images,
         },
+        average_request_response_time: averageRequestResponseTime,
       };
     } catch (error) {
       const message = await this.i18n.translate(
