@@ -604,6 +604,7 @@ export class RequestService {
             destination: fullRequest.trip.destination,
             departure_date: fullRequest.trip.departure_date,
             departure_time: fullRequest.trip.departure_time,
+            currency: fullRequest.trip.currency,
             trip_items: fullRequest.trip.trip_items.map((ti) => ({
               trip_item_id: ti.trip_item_id,
               price: Number(ti.price),
@@ -1217,7 +1218,16 @@ export class RequestService {
             },
           },
           trip: {
-            include: {
+            select: {
+              id: true,
+              user_id: true,
+              departure: true,
+              destination: true,
+              departure_date: true,
+              departure_time: true,
+              arrival_date: true,
+              arrival_time: true,
+              currency: true,
               user: true,
               trip_items: {
                 include: {
@@ -1716,6 +1726,7 @@ export class RequestService {
                   }
                 : null,
             })),
+            currency: request.trip.currency,
           },
         };
 
