@@ -604,6 +604,7 @@ export class RequestService {
             destination: fullRequest.trip.destination,
             departure_date: fullRequest.trip.departure_date,
             departure_time: fullRequest.trip.departure_time,
+            currency: fullRequest.trip.currency,
             trip_items: fullRequest.trip.trip_items.map((ti) => ({
               trip_item_id: ti.trip_item_id,
               price: Number(ti.price),
@@ -639,6 +640,40 @@ export class RequestService {
           lang,
         },
       );
+
+      let averageRequestResponseTime: number | null = null;
+      if (chatId) {
+        const chatMessages = await this.prisma.message.findMany({
+          where: { chat_id: chatId },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            sender_id: true,
+            createdAt: true,
+          },
+        });
+
+        const responseTimes: number[] = [];
+        let previousMessage: { sender_id: string; createdAt: Date } | null =
+          null;
+        for (const msg of chatMessages) {
+          if (previousMessage && previousMessage.sender_id !== msg.sender_id) {
+            if (msg.sender_id === trip.user_id) {
+              const delta =
+                msg.createdAt.getTime() - previousMessage.createdAt.getTime();
+              if (delta >= 0) {
+                responseTimes.push(delta);
+              }
+            }
+          }
+          previousMessage = msg;
+        }
+
+        if (responseTimes.length > 0) {
+          const sum = responseTimes.reduce((acc, curr) => acc + curr, 0);
+          averageRequestResponseTime = sum / responseTimes.length / 1000;
+        }
+      }
 
       return {
         message,
@@ -701,6 +736,7 @@ export class RequestService {
           }),
           images: result.images,
         },
+        average_request_response_time: averageRequestResponseTime,
       };
     } catch (error) {
       const message = await this.i18n.translate(
@@ -1139,13 +1175,16 @@ export class RequestService {
     from_app: boolean = false,
   ): Promise<any> {
     // Disallow manual setting of CONFIRMED; it must be set by the payment flow
-    if (!from_app && status === 'CONFIRMED') {
+    if (
+      (!from_app && status === 'CONFIRMED') ||
+      (!from_app && status === 'REVIEWED')
+    ) {
       const message = await this.i18n.translate(
         'translation.request.status.confirmedOnlyByPayment',
         {
           lang,
           defaultValue:
-            'CONFIRMED status can only be set automatically after successful payment',
+            'CONFIRMED and REVIEWED status can only be set automatically ',
         },
       );
       throw new BadRequestException(message);
@@ -1179,7 +1218,16 @@ export class RequestService {
             },
           },
           trip: {
-            include: {
+            select: {
+              id: true,
+              user_id: true,
+              departure: true,
+              destination: true,
+              departure_date: true,
+              departure_time: true,
+              arrival_date: true,
+              arrival_time: true,
+              currency: true,
               user: true,
               trip_items: {
                 include: {
@@ -1475,17 +1523,8 @@ export class RequestService {
           break;
 
         case 'CANCELLED':
-          // Sender can cancel at any time, traveler can only cancel if PENDING
-          if (isSender) {
-            // Sender can cancel at any time - no restriction
-          } else if (isTraveler) {
-            // Traveler can only cancel if PENDING
-            if (currentStatus !== 'PENDING') {
-              throw new BadRequestException(
-                'Traveler can only cancel PENDING requests',
-              );
-            }
-          } else {
+          // Sender or traveler can cancel; no status restrictions
+          if (!isSender && !isTraveler) {
             throw new BadRequestException(
               'Only sender or traveler can cancel requests',
             );
@@ -1678,8 +1717,52 @@ export class RequestService {
                   }
                 : null,
             })),
+            currency: request.trip.currency,
           },
         };
+
+        // Delete all existing notifications for this user concerning this request
+        // before creating a new one
+        try {
+          // Find all REQUEST notifications for this user
+          const existingNotifications = await this.prisma.notification.findMany(
+            {
+              where: {
+                user_id: request.user_id,
+                type: 'REQUEST',
+              },
+              select: {
+                id: true,
+                data: true,
+              },
+            },
+          );
+
+          // Filter notifications that match this request ID
+          const matchingNotificationIds = existingNotifications
+            .filter((notification) => {
+              const notificationData = notification.data as any;
+              return notificationData?.id === request.id;
+            })
+            .map((notification) => notification.id);
+
+          // Delete matching notifications
+          if (matchingNotificationIds.length > 0) {
+            await this.prisma.notification.deleteMany({
+              where: {
+                id: {
+                  in: matchingNotificationIds,
+                },
+              },
+            });
+          }
+        } catch (deleteError) {
+          console.error(
+            'Failed to delete existing notifications:',
+            deleteError,
+          );
+          // Continue with creating new notification even if deletion fails
+        }
 
         await this.createRequestNotification(
           request.user_id,
@@ -1919,6 +2002,17 @@ export class RequestService {
         requestId,
         cancelRequestDto,
         userId,
+        {
+          changeStatus: async (status) => {
+            await this.changeRequestStatus(
+              requestId,
+              status,
+              userId,
+              lang,
+              true,
+            );
+          },
+        },
       );
 
       const message = await this.i18n.translate(
@@ -2267,38 +2361,54 @@ export class RequestService {
         },
       });
 
-      // Send a REVIEW message in the chat if chat exists
-      if (request.chat_id) {
-        try {
-          // Get the review message content
-          const reviewContent = await this.i18n.translate(
-            'translation.chat.messages.reviewSubmitted',
-            {
-              lang,
-              args: {
-                rating: rating.toString(),
-              },
-              defaultValue: `Rating submitted: ${rating}/5`,
-            },
-          );
-
-          // Send review message with review_id
-          await this.chatGateway.sendMessageProgrammatically({
-            chatId: request.chat_id,
-            senderId: userId,
-            content: reviewContent,
-            type: PrismaMessageType.REVIEW,
-            requestId: undefined,
-            reviewId: newRating.id,
-          });
-
-          // Invalidate chat cache
-          await this.redis.invalidateChatCache(request.chat_id);
-        } catch (messageError) {
-          console.error('Failed to send review message in chat:', messageError);
-          // Don't throw - rating was created successfully
-        }
+      // Update request status to REVIEWED using existing status change workflow
+      try {
+        await this.changeRequestStatus(
+          requestId,
+          'REVIEWED',
+          userId,
+          lang,
+          true,
+        );
+      } catch (statusError) {
+        console.error(
+          'Failed to update request status to REVIEWED after rating:',
+          statusError,
+        );
       }
+
+      // // Send a REVIEW message in the chat if chat exists
+      // if (request.chat_id) {
+      //   try {
+      //     // Get the review message content
+      //     const reviewContent = await this.i18n.translate(
+      //       'translation.chat.messages.reviewSubmitted',
+      //       {
+      //         lang,
+      //         args: {
+      //           rating: rating.toString(),
+      //         },
+      //         defaultValue: `Rating submitted: ${rating}/5`,
+      //       },
+      //     );
+
+      //     // Send review message with review_id
+      //     await this.chatGateway.sendMessageProgrammatically({
+      //       chatId: request.chat_id,
+      //       senderId: userId,
+      //       content: reviewContent,
+      //       type: PrismaMessageType.REVIEW,
+      //       requestId: undefined,
+      //       reviewId: newRating.id,
+      //     });
+
+      //     // Invalidate chat cache
+      //     await this.redis.invalidateChatCache(request.chat_id);
+      //   } catch (messageError) {
+      //     console.error('Failed to send review message in chat:', messageError);
+      //     // Don't throw - rating was created successfully
+      //   }
+      // }
 
       const message = await this.i18n.translate(
         'translation.request.rate.success',

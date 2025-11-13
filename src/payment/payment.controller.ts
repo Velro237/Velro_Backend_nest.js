@@ -14,6 +14,7 @@ import {
   Req,
   BadRequestException,
   Param,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,6 +24,7 @@ import {
   ApiExtraModels,
   ApiBody,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
 import { StripeService } from './stripe.service';
@@ -70,17 +72,28 @@ import { MobilemoneyService } from './mobilemoney/mobilemoney.service';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { ConfigService } from '@nestjs/config';
 import { WalletService } from '../wallet/wallet.service';
+import { BankTransferService } from './bank-transfer/bank-transfer.service';
+import {
+  CreateBankTransferPaymentDto,
+  BankTransferInitResponseDto,
+  GetFundingInstructionsDto,
+  FundingInstructionsResponseDto,
+  ReconcilePaymentDto,
+  CustomerBalanceResponseDto,
+} from './bank-transfer/dto/bank-transfer.dto';
 import {
   CreateWithdrawalNumberDto,
   UpdateWithdrawalNumberDto,
   WithdrawalNumberDto,
   WithdrawalNumberListDto,
   DeleteWithdrawalNumberResponseDto,
+  GetWithdrawalNumbersQueryDto,
 } from './dto/withdrawal-number.dto';
 import {
   MobilemoneyKycDto,
   MobilemoneyKycResponseDto,
 } from './dto/mobilemoney-kyc.dto';
+import { MobilemoneyCheckTransactionResponseDto } from './dto/mobilemoney-check-transaction.dto';
 
 @ApiTags('Payments')
 @ApiBearerAuth('JWT-auth')
@@ -96,6 +109,8 @@ import {
   MoalaBalanceResponseDto,
   MobilemoneyKycDto,
   MobilemoneyKycResponseDto,
+  MobilemoneyCheckTransactionResponseDto,
+  GetWithdrawalNumbersQueryDto,
 )
 @Controller('payments')
 @UseGuards(JwtAuthGuard)
@@ -106,6 +121,7 @@ export class PaymentController {
     private readonly configService: ConfigService,
     private readonly walletService: WalletService,
     private readonly mobilemoneyService: MobilemoneyService,
+    private readonly bankTransferService: BankTransferService,
   ) {}
 
   @Post('wallet/initialize')
@@ -231,6 +247,45 @@ export class PaymentController {
     return {
       data: result,
       message: 'KYC check completed successfully',
+    };
+  }
+
+  @Get('mobilemoney/partner/status/:partnerid')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check transaction status by partner ID',
+    description:
+      'Check the status of a mobile money transaction using the partner ID (provider transaction ID).',
+  })
+  @ApiParam({
+    name: 'partnerid',
+    description: 'Partner/Provider transaction ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Transaction status retrieved successfully',
+    type: MobilemoneyCheckTransactionResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid partner ID',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error - Failed to check transaction status',
+  })
+  async checkTransactionStatus(
+    @Param('partnerid') partnerId: string,
+    @I18nLang() lang: string,
+  ): Promise<MobilemoneyCheckTransactionResponseDto> {
+    const result = await this.mobilemoneyService.checkTransaction(
+      partnerId,
+      lang,
+    );
+    return {
+      data: result,
+      message: 'Transaction status retrieved successfully',
     };
   }
 
@@ -362,6 +417,13 @@ export class PaymentController {
         case 'charge.dispute.created':
           console.log('Dispute created:', event.data.object.id);
           // TODO: Freeze wallet or reverse transfer
+          break;
+
+        // Bank transfer events
+        case 'customer_cash_balance_transaction.created':
+          await this.bankTransferService.handleCustomerBalanceTransactionCreated(
+            event.data.object,
+          );
           break;
 
         default:
@@ -526,7 +588,16 @@ export class PaymentController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get user withdrawal numbers',
-    description: 'Retrieve all withdrawal numbers for the authenticated user',
+    description:
+      'Retrieve all withdrawal numbers for the authenticated user. Optionally filter by carrier (MTN, ORANGE, or ALL). Defaults to ALL if no filter is provided.',
+  })
+  @ApiQuery({
+    name: 'carrier',
+    required: false,
+    enum: ['MTN', 'ORANGE', 'ALL'],
+    description:
+      'Filter by carrier (MTN, ORANGE, or ALL). Defaults to ALL if not provided',
+    example: 'MTN',
   })
   @ApiResponse({
     status: 200,
@@ -535,9 +606,11 @@ export class PaymentController {
   })
   async getUserWithdrawalNumbers(
     @CurrentUser() user: User,
+    @Query() query: GetWithdrawalNumbersQueryDto,
   ): Promise<{ withdrawalNumbers: WithdrawalNumberDto[] }> {
+    const carrier = query.carrier || 'ALL';
     const withdrawalNumbers =
-      await this.mobilemoneyService.getUserWithdrawalNumbers(user.id);
+      await this.mobilemoneyService.getUserWithdrawalNumbers(user.id, carrier);
     return { withdrawalNumbers };
   }
 
@@ -614,5 +687,141 @@ export class PaymentController {
     @CurrentUser() user: User,
   ): Promise<DeleteWithdrawalNumberResponseDto> {
     return this.mobilemoneyService.deleteWithdrawalNumber(id, user.id);
+  }
+
+  // ============================================
+  // Bank Transfer Endpoints
+  // ============================================
+
+  @Post('bank-transfer/init')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create PaymentIntent for bank transfer',
+    description:
+      'Initializes a bank transfer payment for an order and returns funding instructions.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Bank transfer PaymentIntent created successfully',
+    type: BankTransferInitResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid order or payment data' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Order does not belong to user',
+  })
+  @ApiResponse({ status: 404, description: 'Order not found' })
+  async initBankTransferPayment(
+    @Body() dto: CreateBankTransferPaymentDto,
+    @Request() req: any,
+  ): Promise<BankTransferInitResponseDto> {
+    return this.bankTransferService.initBankTransferPayment(
+      dto.orderId,
+      req.user.id,
+    );
+  }
+
+  @Post('bank-transfer/funding-instructions')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get bank transfer funding instructions',
+    description:
+      'Returns virtual bank account details for the customer to send money to via bank transfer',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Funding instructions retrieved successfully',
+    type: FundingInstructionsResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid customer ID or currency',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Customer not found',
+  })
+  async getFundingInstructions(
+    @Body() dto: GetFundingInstructionsDto,
+  ): Promise<FundingInstructionsResponseDto> {
+    return this.bankTransferService.retrieveFundingInstructions(
+      dto.customerId,
+      dto.currency,
+    );
+  }
+
+  @Post('bank-transfer/reconcile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reconcile payment from customer balance',
+    description:
+      'Applies funds from customer balance to a PaymentIntent. Use this after customer has sent bank transfer funds.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Payment reconciled successfully',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Insufficient balance or invalid PaymentIntent',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'PaymentIntent not found',
+  })
+  async reconcilePayment(
+    @Body() dto: ReconcilePaymentDto,
+  ): Promise<{ success: boolean; paymentIntentId: string }> {
+    const paymentIntent =
+      await this.bankTransferService.reconcilePaymentFromBalance(
+        dto.paymentIntentId,
+        dto.amount,
+      );
+
+    return {
+      success: true,
+      paymentIntentId: paymentIntent.id,
+    };
+  }
+
+  @Get('bank-transfer/balance/:customerId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get customer balance',
+    description:
+      'Returns the current balance in customer balance for a customer',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Customer balance retrieved successfully',
+    type: CustomerBalanceResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid customer ID',
+  })
+  @ApiParam({
+    name: 'customerId',
+    description: 'Stripe customer ID',
+    example: 'cus_1234567890',
+  })
+  async getCustomerBalance(
+    @Param('customerId') customerId: string,
+  ): Promise<CustomerBalanceResponseDto> {
+    const cashBalance =
+      await this.bankTransferService.getCustomerBalance(customerId);
+
+    // Transform available balance from Stripe format
+    const available: Record<string, number> = {};
+    if (cashBalance.available) {
+      Object.entries(cashBalance.available).forEach(([currency, amount]) => {
+        available[currency] = (amount as number) / 100; // Convert from cents
+      });
+    }
+
+    return {
+      available,
+      customerId,
+    };
   }
 }

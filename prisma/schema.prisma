@@ -180,7 +180,8 @@ model ChatMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  joinedAt DateTime @default(now())
+  joinedAt  DateTime  @default(now())
+  last_seen DateTime? // Last time user viewed this chat
 
   // Relations
   chat Chat @relation(fields: [chat_id], references: [id], onDelete: Cascade)
@@ -469,6 +470,7 @@ enum RequestStatus {
   IN_TRANSIT //when travel date and time arrives
   PENDING_DELIVERY //traveller mark as delivered but not confirmed by user
   DELIVERED //when the user confirm package is delivered by the traveler
+  REVIEWED //when the user review the request
 }
 
 enum ReportType {

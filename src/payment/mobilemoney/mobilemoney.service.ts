@@ -1467,12 +1467,21 @@ export class MobilemoneyService {
    */
   async getUserWithdrawalNumbers(
     userId: string,
+    carrier?: 'MTN' | 'ORANGE' | 'ALL',
   ): Promise<
     Array<{ id: string; number: string; carrier: string; name: string }>
   > {
     try {
+      // Build where clause with optional carrier filter
+      const whereClause: any = { user_id: userId };
+
+      // Filter by carrier if provided and not 'ALL'
+      if (carrier && carrier !== 'ALL') {
+        whereClause.carrier = carrier;
+      }
+
       const withdrawalNumbers = await this.prisma.withdrawalNumber.findMany({
-        where: { user_id: userId },
+        where: whereClause,
         select: {
           id: true,
           number: true,

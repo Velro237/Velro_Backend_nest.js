@@ -11,6 +11,9 @@ import {
   HttpStatus,
   UseGuards,
   Request,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,6 +23,7 @@ import {
   ApiResponse,
   ApiParam,
   ApiBearerAuth,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { TripService } from './trip.service';
 import { CreateTripDto, CreateTripResponseDto } from './dto/create-trip.dto';
@@ -37,6 +41,7 @@ import {
 import {
   CreateTripItemDto,
   CreateTripItemResponseDto,
+  TranslationDto,
 } from './dto/create-trip-item.dto';
 import {
   UpdateTripItemDto,
@@ -49,6 +54,7 @@ import {
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiCreateTrip,
   ApiUpdateTrip,
@@ -123,6 +129,7 @@ import { TripItemImageDto, TripItemDetailsDto } from '../shared/dto/common.dto';
   TripItemImageDto,
   TripItemDetailsDto,
   TripItemListItemDto,
+  TranslationDto,
 )
 @Controller('trip')
 export class TripController {
@@ -234,11 +241,23 @@ export class TripController {
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(JwtAuthGuard, AdminGuard)
   @ApiCreateTripItem()
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('image'))
   async createTripItem(
     @Body() createTripItemDto: CreateTripItemDto,
     @I18nLang() lang: string,
+    @UploadedFile()
+    image?: {
+      buffer: Buffer;
+      mimetype: string;
+      originalname: string;
+    },
   ): Promise<CreateTripItemResponseDto> {
-    return this.tripService.createTripItem(createTripItemDto, lang);
+    if ('image' in createTripItemDto) {
+      delete (createTripItemDto as any).image;
+    }
+
+    return this.tripService.createTripItem(createTripItemDto, lang, image);
   }
 
   @Patch('trip-items/:id')

@@ -1,20 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsNotEmpty,
-  IsUrl,
-  IsArray,
-  ValidateNested,
-  IsEnum,
-} from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsString, IsOptional, IsNotEmpty, IsEnum } from 'class-validator';
+import { Transform, Expose } from 'class-transformer';
 
 export class TranslationDto {
   @ApiProperty({
     description: 'Language code',
     enum: ['en', 'fr'],
     example: 'en',
+  })
+  @Expose()
+  @Transform(({ value, obj }) => {
+    const input = value ?? obj?.lang;
+    if (typeof input === 'string') {
+      return input.toLowerCase();
+    }
+    return input;
   })
   @IsEnum(['en', 'fr'])
   language: 'en' | 'fr';
@@ -23,6 +23,7 @@ export class TranslationDto {
     description: 'Translated name',
     example: 'Electronics',
   })
+  @Expose()
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -32,6 +33,7 @@ export class TranslationDto {
     example: 'Electronic devices and gadgets',
     required: false,
   })
+  @Expose()
   @IsString()
   @IsOptional()
   description?: string;
@@ -66,22 +68,23 @@ export class CreateTripItemDto {
   image_id?: string;
 
   @ApiProperty({
-    description: 'Translations for name and description in different languages',
-    type: [TranslationDto],
+    description: 'Trip item image file (multipart/form-data field)',
+    type: 'string',
+    format: 'binary',
     required: false,
-    example: [
-      {
-        language: 'fr',
-        name: 'Électronique',
-        description: 'Appareils et gadgets électroniques',
-      },
-    ],
   })
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => TranslationDto)
   @IsOptional()
-  translations?: TranslationDto[];
+  image?: any;
+
+  @ApiProperty({
+    description:
+      'Translations JSON string. Example: [{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
+    type: 'string',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  translations?: string;
 }
 
 export class CreateTripItemResponseDto {
