@@ -1523,17 +1523,8 @@ export class RequestService {
           break;
 
         case 'CANCELLED':
-          // Sender can cancel at any time, traveler can only cancel if PENDING
-          if (isSender) {
-            // Sender can cancel at any time - no restriction
-          } else if (isTraveler) {
-            // Traveler can only cancel if PENDING
-            if (currentStatus !== 'PENDING') {
-              throw new BadRequestException(
-                'Traveler can only cancel PENDING requests',
-              );
-            }
-          } else {
+          // Sender or traveler can cancel; no status restrictions
+          if (!isSender && !isTraveler) {
             throw new BadRequestException(
               'Only sender or traveler can cancel requests',
             );
@@ -2011,6 +2002,17 @@ export class RequestService {
         requestId,
         cancelRequestDto,
         userId,
+        {
+          changeStatus: async (status) => {
+            await this.changeRequestStatus(
+              requestId,
+              status,
+              userId,
+              lang,
+              true,
+            );
+          },
+        },
       );
 
       const message = await this.i18n.translate(
