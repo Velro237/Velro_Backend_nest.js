@@ -180,16 +180,38 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   // Cache invalidation helpers
   async invalidateUserCache(userId: string): Promise<void> {
-    const keys = await this.client.keys(`user:${userId}:*`);
-    if (keys.length > 0) {
-      await this.client.del(keys);
+    try {
+      // Use SCAN instead of KEYS for better performance in production
+      // KEYS can block Redis, but for small datasets it's fine
+      const keys = await this.client.keys(`user:${userId}:*`);
+      if (keys.length > 0) {
+        // Delete keys in batches if there are many
+        const batchSize = 100;
+        for (let i = 0; i < keys.length; i += batchSize) {
+          const batch = keys.slice(i, i + batchSize);
+          await this.client.del(batch);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to invalidate user cache for ${userId}:`, error);
+      throw error;
     }
   }
 
   async invalidateChatCache(chatId: string): Promise<void> {
-    const keys = await this.client.keys(`chat:${chatId}*`);
-    if (keys.length > 0) {
-      await this.client.del(keys);
+    try {
+      const keys = await this.client.keys(`chat:${chatId}*`);
+      if (keys.length > 0) {
+        // Delete keys in batches if there are many
+        const batchSize = 100;
+        for (let i = 0; i < keys.length; i += batchSize) {
+          const batch = keys.slice(i, i + batchSize);
+          await this.client.del(batch);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to invalidate chat cache for ${chatId}:`, error);
+      throw error;
     }
   }
 

@@ -457,8 +457,9 @@ export class ChatService {
         },
       };
 
-      // Cache the result for 5 minutes
-      await this.redis.setChatCacheEx(cacheKey, result, 300);
+      // Cache the result for 1 minute (shorter TTL for more real-time updates)
+      // Cache will be invalidated when messages are read or new messages are created
+      await this.redis.setChatCacheEx(cacheKey, result, 60);
 
       return result;
     } catch (error) {
@@ -671,7 +672,7 @@ export class ChatService {
             content: message.content, // Use original content, not translated
             imageUrls: (message.data as Record<string, any>)?.imageUrls || null,
             type: message.type,
-            isRead: message.sender_id === userId ? true : message.isRead,
+            isRead: message.isRead, // Show actual read status for all users (sender sees if receiver read it)
             createdAt: message.createdAt,
             updatedAt: message.createdAt, // Message model doesn't have updatedAt, using createdAt
             data: (message.data as Record<string, any>) || null,
@@ -843,7 +844,68 @@ export class ChatService {
       // Get chat request and trip data
       const chatData = await this.getChatWithRequestAndTripData(chatId);
 
-      // Get chat info including members
+      // Update last_seen for the current user when they get messages
+      // Also mark all messages as read if user is viewing the first page (most recent messages)
+      // This ensures that when a user opens a chat, all messages are marked as read
+      try {
+        await this.prisma.chatMember.updateMany({
+          where: {
+            chat_id: chatId,
+            user_id: userId,
+          },
+          data: {
+            last_seen: new Date(),
+          },
+        });
+
+        // If user is viewing the first page (most recent messages), mark all messages as read
+        // This simulates the user viewing/opening the chat
+        if (page === 1) {
+          // Mark all unread messages from other users as read
+          const unreadCount = await this.prisma.message.count({
+            where: {
+              chat_id: chatId,
+              sender_id: { not: userId },
+              isRead: false,
+            },
+          });
+
+          // Only mark as read if there are unread messages
+          if (unreadCount > 0) {
+            await this.prisma.message.updateMany({
+              where: {
+                chat_id: chatId,
+                sender_id: { not: userId },
+                isRead: false,
+              },
+              data: {
+                isRead: true,
+              },
+            });
+
+            // Invalidate user's chat list cache so unread count updates immediately
+            try {
+              await this.redis.invalidateUserCache(userId);
+              // Also invalidate chat cache for this specific chat
+              await this.redis.invalidateChatCache(chatId);
+            } catch (cacheError) {
+              console.error(
+                'Failed to invalidate cache after marking messages as read:',
+                cacheError,
+              );
+              // Continue even if cache invalidation fails
+            }
+          }
+        }
+      } catch (error) {
+        console.error(
+          'Failed to update last_seen or mark messages as read:',
+          error,
+        );
+        // Continue even if update fails
+      }
+
+      // Get chat info including members with last_seen
       const chat = await this.prisma.chat.findUnique({
         where: { id: chatId },
         select: {
@@ -853,6 +915,7 @@ export class ChatService {
           updatedAt: true,
           members: {
             select: {
+              last_seen: true,
               user: {
                 select: {
                   id: true,
@@ -879,6 +942,7 @@ export class ChatService {
               name: member.user.name,
               picture: member.user.picture,
               role: member.user.role,
+              last_seen: member.last_seen,
               average_message_response_time: averageResponseTimes.has(
                 member.user.id,
               )
@@ -1154,7 +1218,7 @@ export class ChatService {
         content: message.content,
         imageUrls: imageUrls,
         type: message.type,
-        isRead: true, // Messages are always "read" by the sender
+        isRead: false, // New messages are unread by recipients (sender will see it as read in getMessages)
         createdAt: message.createdAt,
         updatedAt: message.createdAt, // Message model doesn't have updatedAt, using createdAt
         data: messageDataFromDb,
@@ -1275,9 +1339,18 @@ export class ChatService {
       await this.redis.invalidateChatCache(chatId);
 
       // Invalidate user chat lists for all chat members (so their chat lists refresh with new last message)
+      // This ensures chat list shows updated last message and unread count immediately
       const chatMembers = await this.getChatMembers(chatId);
       for (const member of chatMembers) {
-        await this.redis.invalidateUserCache(member.user_id);
+        try {
+          await this.redis.invalidateUserCache(member.user_id);
+        } catch (error) {
+          console.error(
+            `Failed to invalidate cache for user ${member.user_id}:`,
+            error,
+          );
+          // Continue even if cache invalidation fails for one user
+        }
       }
 
       // Send push notification to other chat members (excluding sender) - non-blocking
@@ -1331,6 +1404,19 @@ export class ChatService {
           isRead: true,
         },
       });
+
+      // Invalidate user's chat list cache so unread count updates immediately
+      try {
+        await this.redis.invalidateUserCache(userId);
+        // Also invalidate chat cache for this specific chat
+        await this.redis.invalidateChatCache(chatId);
+      } catch (error) {
+        console.error(
+          'Failed to invalidate cache after marking message as read:',
+          error,
+        );
+        // Continue even if cache invalidation fails
+      }
     }
     // Silently ignore if message doesn't exist or belongs to user (sender viewing own message)
   }
@@ -1357,6 +1443,19 @@ export class ChatService {
         isRead: true,
       },
     });
+
+    // Invalidate user's chat list cache so unread count updates immediately
+    try {
+      await this.redis.invalidateUserCache(userId);
+      // Also invalidate chat cache for this specific chat
+      await this.redis.invalidateChatCache(chatId);
+    } catch (error) {
+      console.error(
+        'Failed to invalidate cache after marking all messages as read:',
+        error,
+      );
+      // Continue even if cache invalidation fails
+    }
   }
 
   async isUserMemberOfChat(userId: string, chatId: string): Promise<boolean> {

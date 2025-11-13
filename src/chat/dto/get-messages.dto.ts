@@ -310,6 +310,13 @@ export class GetMessagesResponseDto {
               example: 'https://example.com/picture.jpg',
             },
             role: { type: 'string', example: 'USER', enum: ['USER', 'ADMIN'] },
+            last_seen: {
+              type: 'string',
+              format: 'date-time',
+              nullable: true,
+              description: 'Last time this member viewed the chat',
+              example: '2024-01-15T10:30:00.000Z',
+            },
             average_message_response_time: {
               type: 'number',
               nullable: true,
@@ -326,6 +333,7 @@ export class GetMessagesResponseDto {
             name: 'John Doe',
             picture: 'https://example.com/picture1.jpg',
             role: 'USER',
+            last_seen: '2024-01-15T10:30:00.000Z',
           },
           {
             id: '123e4567-e89b-12d3-a456-426614174002',
@@ -333,6 +341,7 @@ export class GetMessagesResponseDto {
             name: 'Jane Smith',
             picture: null,
             role: 'USER',
+            last_seen: '2024-01-15T09:15:00.000Z',
           },
         ],
       },
@@ -349,6 +358,7 @@ export class GetMessagesResponseDto {
       name: string | null;
       picture: string | null;
       role: string;
+      last_seen: Date | null;
       average_message_response_time: number | null;
     }>;
   } | null;

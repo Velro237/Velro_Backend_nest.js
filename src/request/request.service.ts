@@ -1730,6 +1730,49 @@ export class RequestService {
           },
         };
 
+        // Delete all existing notifications for this user concerning this request
+        // before creating a new one
+        try {
+          // Find all REQUEST notifications for this user
+          const existingNotifications = await this.prisma.notification.findMany(
+            {
+              where: {
+                user_id: request.user_id,
+                type: 'REQUEST',
+              },
+              select: {
+                id: true,
+                data: true,
+              },
+            },
+          );
+
+          // Filter notifications that match this request ID
+          const matchingNotificationIds = existingNotifications
+            .filter((notification) => {
+              const notificationData = notification.data as any;
+              return notificationData?.id === request.id;
+            })
+            .map((notification) => notification.id);
+
+          // Delete matching notifications
+          if (matchingNotificationIds.length > 0) {
+            await this.prisma.notification.deleteMany({
+              where: {
+                id: {
+                  in: matchingNotificationIds,
+                },
+              },
+            });
+          }
+        } catch (deleteError) {
+          console.error(
+            'Failed to delete existing notifications:',
+            deleteError,
+          );
+          // Continue with creating new notification even if deletion fails
+        }
+
         await this.createRequestNotification(
           request.user_id,
           notificationTitle,

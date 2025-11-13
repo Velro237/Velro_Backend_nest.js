@@ -180,7 +180,8 @@ model ChatMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  joinedAt DateTime @default(now())
+  joinedAt  DateTime  @default(now())
+  last_seen DateTime? // Last time user viewed this chat
 
   // Relations
   chat Chat @relation(fields: [chat_id], references: [id], onDelete: Cascade)
