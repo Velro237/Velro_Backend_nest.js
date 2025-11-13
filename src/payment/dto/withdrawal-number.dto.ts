@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, MinLength } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  MinLength,
+  IsOptional,
+  IsIn,
+} from 'class-validator';
 
 export class CreateWithdrawalNumberDto {
   @ApiProperty({
@@ -90,4 +96,19 @@ export class DeleteWithdrawalNumberResponseDto {
     example: 'Withdrawal number deleted successfully',
   })
   message: string;
+}
+
+export class GetWithdrawalNumbersQueryDto {
+  @ApiProperty({
+    description:
+      'Filter by carrier (MTN, ORANGE, or ALL). Defaults to ALL if not provided',
+    example: 'MTN',
+    enum: ['MTN', 'ORANGE', 'ALL'],
+    required: false,
+    default: 'ALL',
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['MTN', 'ORANGE', 'ALL'])
+  carrier?: 'MTN' | 'ORANGE' | 'ALL' = 'ALL';
 }

@@ -2962,7 +2962,7 @@ export class TripService {
             created_at: true,
           },
           orderBy: {
-            created_at: 'desc',
+            name: 'asc',
           },
           skip,
           take: limit,
