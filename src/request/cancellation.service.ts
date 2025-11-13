@@ -29,7 +29,11 @@ export class CancellationService {
     requestId: string,
     cancellationDto: CancelRequestDto,
     userId: string,
+    options?: {
+      changeStatus?: (status: RequestStatus) => Promise<void>;
+    },
   ) {
+    const changeStatus = options?.changeStatus;
     this.logger.log(`Processing cancellation for request ${requestId}`);
 
     // Get request with all related data
@@ -94,10 +98,14 @@ export class CancellationService {
             
             // If fully refunded, mark as cancelled
             if (charge.amount_refunded === charge.amount) {
+              if (changeStatus) {
+                await changeStatus(RequestStatus.CANCELLED);
+                request.status = RequestStatus.CANCELLED;
+              }
               await this.prisma.tripRequest.update({
                 where: { id: requestId },
                 data: {
-                  status: RequestStatus.CANCELLED,
+                  ...(changeStatus ? {} : { status: RequestStatus.CANCELLED }),
                   cancelled_at: new Date(),
                   cancellation_type: cancellationType,
                   cancellation_reason: cancellationDto.reason,
@@ -128,16 +136,30 @@ export class CancellationService {
 
     // Update request status to CANCELLED BEFORE processing refund
     // This prevents duplicate refunds if processCancellation fails after refund
-    await this.prisma.tripRequest.update({
-      where: { id: requestId },
-      data: {
-        status: RequestStatus.CANCELLED,
-        cancelled_at: new Date(),
-        cancellation_type: cancellationType,
-        cancellation_reason: cancellationDto.reason,
-        updated_at: new Date(),
-      },
-    });
+    if (changeStatus) {
+      await changeStatus(RequestStatus.CANCELLED);
+      request.status = RequestStatus.CANCELLED;
+      await this.prisma.tripRequest.update({
+        where: { id: requestId },
+        data: {
+          cancelled_at: new Date(),
+          cancellation_type: cancellationType,
+          cancellation_reason: cancellationDto.reason,
+          updated_at: new Date(),
+        },
+      });
+    } else {
+      await this.prisma.tripRequest.update({
+        where: { id: requestId },
+        data: {
+          status: RequestStatus.CANCELLED,
+          cancelled_at: new Date(),
+          cancellation_type: cancellationType,
+          cancellation_reason: cancellationDto.reason,
+          updated_at: new Date(),
+        },
+      });
+    }
 
     // Process cancellation based on type and payment status from database
     // Status is already CANCELLED, so if this fails, retry will be blocked
