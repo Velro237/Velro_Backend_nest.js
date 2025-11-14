@@ -142,19 +142,55 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Helper method to check if a user is in a chat room
   private isUserInRoom(userId: string, chatId: string): boolean {
     try {
-      const roomName = this.roomName(chatId);
-      const room = this.server.sockets.adapter.rooms.get(roomName);
-
-      if (!room) {
+      // Check if server is properly initialized
+      if (!this.server || !this.server.sockets) {
         return false;
       }
 
-      // Check if any socket belonging to this user is in the room
+      const roomName = this.roomName(chatId);
+
+      // Find all sockets for this user
+      const userSockets: Socket[] = [];
+
+      // Try different ways to access sockets based on Socket.IO version
+      let sockets: Map<string, Socket>;
+
+      if (this.server.sockets && this.server.sockets.sockets) {
+        // Socket.IO v4+ API
+        sockets = this.server.sockets.sockets;
+      } else if (
+        this.server.sockets &&
+        typeof (this.server.sockets as any).sockets === 'function'
+      ) {
+        // Socket.IO v3 API
+        sockets = (this.server.sockets as any).sockets();
+      } else {
+        // Fallback - try to get sockets directly
+        sockets = (this.server as any).sockets || new Map();
+      }
+
+      // Find all sockets belonging to this user
       for (const [socketId, socketUserId] of this.socketUser.entries()) {
-        if (socketUserId === userId && room.has(socketId)) {
+        if (socketUserId === userId) {
+          const socket = sockets.get(socketId);
+          if (socket && socket.connected) {
+            userSockets.push(socket);
+          }
+        }
+      }
+
+      if (userSockets.length === 0) {
+        return false;
+      }
+
+      // Check if any of the user's sockets are in the room
+      for (const socket of userSockets) {
+        // Check if socket is in the room using socket.rooms (Set of room names)
+        if (socket.rooms && socket.rooms.has(roomName)) {
           return true;
         }
       }
+
       return false;
     } catch (error) {
       console.error('Error checking if user is in room:', error);
@@ -177,6 +213,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         isRead,
       });
     }
+  }
+
+  // Helper method to emit read status change event to all members in the chat room
+  private emitReadStatusChange(
+    chatId: string,
+    messageId: string,
+    isRead: boolean,
+  ): void {
+    // Broadcast read status change to all members in the chat room
+    this.server.to(this.roomName(chatId)).emit('message:read-status-changed', {
+      chatId,
+      messageId,
+      isRead,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   /**
@@ -521,42 +572,53 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         },
       });
 
-      // Get chat members to notify senders
+      // Get chat members to identify who was already in the room
       const chatMembers = await this.chatService.getChatMembers(chatId);
       const otherMembers = chatMembers.filter(
         (member) => member.user_id !== user.sub,
       );
 
-      // Mark all messages from other users as read
+      // Find which members were already in the room when the new user joined
+      const membersInRoom: string[] = [];
+      for (const member of otherMembers) {
+        if (this.isUserInRoom(member.user_id, chatId)) {
+          membersInRoom.push(member.user_id);
+        }
+      }
+
+      // Get all unread messages from members who were already in the room
+      // BEFORE marking as read, so we can notify those senders
+      const unreadMessagesFromMembersInRoom =
+        await this.prisma.message.findMany({
+          where: {
+            chat_id: chatId,
+            sender_id: { in: membersInRoom },
+            isRead: false,
+          },
+          select: {
+            id: true,
+            sender_id: true,
+          },
+        });
+
+      // Mark all messages from other users as read (for the joining user)
       await this.chatService.markAllMessagesAsRead(user.sub, chatId);
 
-      // Notify all senders that their messages have been read
-      // Get all unread messages that belong to other members
-      const unreadMessages = await this.prisma.message.findMany({
-        where: {
-          chat_id: chatId,
-          sender_id: { in: otherMembers.map((m) => m.user_id) },
-          isRead: false,
-        },
-        select: {
-          id: true,
-          sender_id: true,
-        },
-      });
-
-      // Group messages by sender and notify each sender
+      // Group messages by sender and notify each sender who was in the room
       const messagesBySender = new Map<string, string[]>();
-      for (const msg of unreadMessages) {
+      for (const msg of unreadMessagesFromMembersInRoom) {
         if (!messagesBySender.has(msg.sender_id)) {
           messagesBySender.set(msg.sender_id, []);
         }
         messagesBySender.get(msg.sender_id)!.push(msg.id);
       }
 
-      // Notify each sender about their read messages
+      // Notify each sender (who was in the room) that their messages were read by the joining user
       for (const [senderId, messageIds] of messagesBySender.entries()) {
         for (const messageId of messageIds) {
           this.notifySenderMessageRead(senderId, chatId, messageId, true);
+          // Emit read status change event for each message
+          this.emitReadStatusChange(chatId, messageId, true);
         }
       }
     } catch (error) {
@@ -755,11 +817,56 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Note: createMessage already extracts imageUrls from messageData and includes it in the response
       // So the message structure matches exactly what getMessages returns
 
-      // broadcast to room
-      this.server.to(this.roomName(data.chatId)).emit('message:new', message);
+      // Get chat members to check who's in the room
+      const chatMembers = await this.chatService.getChatMembers(data.chatId);
+      const receiversInRoom: string[] = [];
 
-      // Optionally: ack to sender with the saved message (id, timestamps)
-      client.emit('message:ack', message);
+      // Check which receivers are currently in the chat room
+      for (const member of chatMembers) {
+        if (member.user_id !== user.sub) {
+          const userInRoom = this.isUserInRoom(member.user_id, data.chatId);
+
+          if (userInRoom) {
+            receiversInRoom.push(member.user_id);
+            // If receiver is in room, mark message as read immediately
+            try {
+              await this.chatService.markMessageRead(
+                member.user_id,
+                data.chatId,
+                message.id,
+              );
+              // Emit read status change event
+              this.emitReadStatusChange(data.chatId, message.id, true);
+            } catch (error) {
+              console.error(
+                `Failed to mark message as read for user ${member.user_id}:`,
+                error,
+              );
+            }
+          }
+        }
+      }
+
+      // Determine if message is read (if any receiver is in room)
+      // Sender sees message as read only if at least one receiver is in the chat room
+      const isReadByReceiver = receiversInRoom.length > 0;
+
+      // Prepare message for broadcasting with correct read status
+      const messageForRoom = {
+        ...message,
+        isRead: isReadByReceiver, // Set isRead based on whether receiver is in room
+      };
+
+      // broadcast to room - message has isRead: true if receiver is in room
+      this.server
+        .to(this.roomName(data.chatId))
+        .emit('message:new', messageForRoom);
+
+      // Ack to sender with read status based on whether receiver is in chat
+      client.emit('message:ack', {
+        ...message,
+        isRead: isReadByReceiver, // Sender sees it as read only if receiver is in room
+      });
 
       // Send push notifications to other chat members (non-blocking)
       this.sendPushNotificationToChatMembers(
@@ -862,6 +969,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         true,
       );
 
+      // Emit read status change event
+      this.emitReadStatusChange(payload.chatId, payload.messageId, true);
+
       // Broadcast to room that message was read
       client.to(this.roomName(payload.chatId)).emit('message:read', {
         chatId: payload.chatId,
@@ -930,7 +1040,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         messagesBySender.get(msg.sender_id)!.push(msg.id);
       }
 
-      // Notify each sender about their read messages
+      // Notify each sender about their read messages and emit read status changes
       for (const [senderId, messageIds] of messagesBySender.entries()) {
         for (const messageId of messageIds) {
           this.notifySenderMessageRead(
@@ -939,6 +1049,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             messageId,
             true,
           );
+          // Emit read status change event for each message
+          this.emitReadStatusChange(payload.chatId, messageId, true);
         }
       }
 
