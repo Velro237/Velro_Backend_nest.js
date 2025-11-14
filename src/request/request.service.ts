@@ -1475,32 +1475,14 @@ export class RequestService {
                       throw new NotFoundException('Traveler wallet not found');
                     }
 
-                    // Convert XAF to wallet currency for generic balances
-                    let converted = 0;
-                    try {
-                      const conv = this.currencyService.convertCurrency(
-                        amountPaid,
-                        'XAF',
-                        travelerWallet.currency,
-                      );
-                      converted = conv.convertedAmount;
-                    } catch (convErr) {
-                      // Proceed with XAF balances even if conversion fails
-                      converted = 0;
-                    }
-
-                    // Move funds from hold to available (XAF and wallet currency)
+                    // Move funds from hold to available (XAF only)
+                    // Do NOT update hold_balance or available_balance
                     await prisma.wallet.update({
                       where: { id: travelerWallet.id },
                       data: {
                         hold_balance_xaf: { decrement: amountPaid },
                         available_balance_xaf: { increment: amountPaid },
-                        ...(converted > 0
-                          ? {
-                              hold_balance: { decrement: converted },
-                              available_balance: { increment: converted },
-                            }
-                          : {}),
+                        // Removed: hold_balance and available_balance updates
                       },
                     });
 

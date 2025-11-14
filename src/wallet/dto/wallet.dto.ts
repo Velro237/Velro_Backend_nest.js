@@ -104,6 +104,12 @@ export class WalletBalanceDto {
   })
   totalBalance: number;
 
+  @ApiProperty({
+    description: 'Currency of the user (wallet currency)',
+    example: 'EUR',
+  })
+  currency: string;
+
   // XAF balances
   @ApiProperty({
     description: 'Available balance in XAF',
