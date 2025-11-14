@@ -703,37 +703,17 @@ export class MobilemoneyService {
         lang,
       );
 
-      // Deduct amount from HOLD balances (XAF and wallet currency) and create transaction
+      // Deduct amount from HOLD balances (XAF only) and create transaction
       await this.prisma.$transaction(async (prisma) => {
-        // Convert XAF to wallet currency for proper decrement on multi-currency balances
-        let converted = 0;
-        try {
-          const conv = this.currencyService.convertCurrency(
-            amount,
-            'XAF',
-            wallet.currency,
-          );
-          converted = conv.convertedAmount;
-        } catch (convErr) {
-          this.logger.warn(
-            `Currency conversion XAF -> ${wallet.currency} failed during deposit: ${convErr?.message || convErr}`,
-          );
-          converted = 0;
-        }
-
-        // Update wallet balances: decrease XAF hold and corresponding wallet currency hold/total
+        // Update wallet balances: decrease XAF available balance only
+        // Do NOT update available_balance or total_balance
         await prisma.wallet.update({
           where: { id: wallet.id },
           data: {
             available_balance_xaf: {
               decrement: amount,
             },
-            ...(converted > 0
-              ? {
-                  available_balance: { decrement: converted },
-                  total_balance: { decrement: converted },
-                }
-              : {}),
+            // Removed: available_balance and total_balance updates
           },
         });
 
@@ -757,7 +737,6 @@ export class MobilemoneyService {
               withdrawal_number_id: withdrawalNumberId,
               withdrawal_number: withdrawalNumber.number,
               service_code: serviceCode,
-              convertedAmount: converted,
               walletCurrency: wallet.currency,
             },
           },
@@ -1037,34 +1016,15 @@ export class MobilemoneyService {
 
         const netAmount = Number(transaction.amount_requested);
 
-        // Credit trip creator's wallet (XAF hold) and converted hold in wallet currency
-        // Convert XAF net amount to wallet currency
-        let convertedHold = 0;
-        try {
-          const conv = this.currencyService.convertCurrency(
-            netAmount,
-            'XAF',
-            tripCreator.wallet.currency,
-          );
-          convertedHold = conv.convertedAmount;
-        } catch (convErr) {
-          this.logger.warn(
-            `Currency conversion XAF -> ${tripCreator.wallet.currency} failed: ${convErr?.message || convErr}`,
-          );
-        }
-
+        // Credit trip creator's wallet (XAF hold only)
+        // Do NOT update hold_balance or total_balance
         await this.prisma.wallet.update({
           where: { id: tripCreator.wallet.id },
           data: {
             hold_balance_xaf: {
               increment: netAmount,
             },
-            ...(convertedHold > 0
-              ? {
-                  hold_balance: { increment: convertedHold },
-                  total_balance: { increment: convertedHold },
-                }
-              : {}),
+            // Removed: hold_balance and total_balance updates
           },
         });
 
@@ -1098,7 +1058,6 @@ export class MobilemoneyService {
               paymentMethod: 'mobile_money',
               serviceCode,
               operatorId,
-              convertedHoldAmount: convertedHold,
               walletCurrency: tripCreator.wallet.currency,
             },
           },

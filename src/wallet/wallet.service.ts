@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from '../payment/stripe.service';
+import { CurrencyService } from '../currency/currency.service';
 import {
   WithdrawalRequestDto,
   WithdrawalResponseDto,
@@ -27,6 +28,7 @@ export class WalletService {
     private prisma: PrismaService,
     private stripeService: StripeService,
     private configService: ConfigService,
+    private currencyService: CurrencyService,
   ) {}
 
   /**
@@ -39,6 +41,16 @@ export class WalletService {
       // Ensure wallet exists
       const wallet = await this.ensureWallet(userId);
 
+      // Get user to get their currency preference
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { currency: true },
+      });
+
+      // Get user's currency (default to XAF if not set)
+      // This is the currency to which all balances will be converted
+      const userCurrency = user?.currency || 'XAF';
+
       // Get recent withdrawals (last 10)
       const withdrawals = await this.prisma.transaction.findMany({
         where: {
@@ -49,11 +61,111 @@ export class WalletService {
         take: 10,
       });
 
+      // Helper function to convert balance only if currency differs
+      // Returns the converted amount, or the original amount if currencies match
+      const convertIfNeeded = (
+        amount: number,
+        fromCurrency: string,
+        toCurrency: string,
+      ): number => {
+        // Handle invalid amounts (null, undefined, NaN)
+        if (amount === null || amount === undefined || isNaN(amount)) {
+          return 0;
+        }
+
+        // If amount is 0, return 0 (no conversion needed)
+        if (amount === 0) {
+          return 0;
+        }
+
+        // Normalize currency codes
+        const fromCurrencyUpper = (fromCurrency || '').toUpperCase();
+        const toCurrencyUpper = (toCurrency || '').toUpperCase();
+
+        // Same currency, no conversion needed
+        if (fromCurrencyUpper === toCurrencyUpper) {
+          return amount;
+        }
+
+        // Different currency, convert it
+        try {
+          const converted = this.currencyService.convertCurrency(
+            amount,
+            fromCurrencyUpper,
+            toCurrencyUpper,
+          );
+          return converted.convertedAmount || 0;
+        } catch (error) {
+          this.logger.error(
+            `Error converting ${amount} ${fromCurrencyUpper} to ${toCurrencyUpper}:`,
+            error,
+          );
+          // If conversion fails, return 0 for that balance
+          return 0;
+        }
+      };
+
+      // Calculate availableBalance from all currency-specific balances
+      // Only convert balances that are NOT in the user's wallet currency
+      let availableBalance = 0;
+      try {
+        // XAF balance - only convert if user currency is not XAF
+        const xafAmount = Number(wallet.available_balance_xaf) || 0;
+        availableBalance += convertIfNeeded(xafAmount, 'XAF', userCurrency);
+
+        // USD balance - only convert if user currency is not USD
+        const usdAmount = Number(wallet.available_balance_usd) || 0;
+        availableBalance += convertIfNeeded(usdAmount, 'USD', userCurrency);
+
+        // EUR balance - only convert if user currency is not EUR
+        const eurAmount = Number(wallet.available_balance_eur) || 0;
+        availableBalance += convertIfNeeded(eurAmount, 'EUR', userCurrency);
+
+        // CAD balance - only convert if user currency is not CAD
+        const cadAmount = Number(wallet.available_balance_cad) || 0;
+        availableBalance += convertIfNeeded(cadAmount, 'CAD', userCurrency);
+      } catch (convError) {
+        this.logger.error('Error converting balances:', convError);
+        // If conversion fails, keep whatever was calculated so far
+      }
+
+      // Calculate holdBalance from all currency-specific balances
+      // Only convert balances that are NOT in the user's wallet currency
+      let holdBalance = 0;
+      try {
+        // XAF balance - only convert if user currency is not XAF
+        const xafAmount = Number(wallet.hold_balance_xaf) || 0;
+        holdBalance += convertIfNeeded(xafAmount, 'XAF', userCurrency);
+
+        // USD balance - only convert if user currency is not USD
+        const usdAmount = Number(wallet.hold_balance_usd) || 0;
+        holdBalance += convertIfNeeded(usdAmount, 'USD', userCurrency);
+
+        // EUR balance - only convert if user currency is not EUR
+        const eurAmount = Number(wallet.hold_balance_eur) || 0;
+        holdBalance += convertIfNeeded(eurAmount, 'EUR', userCurrency);
+
+        // CAD balance - only convert if user currency is not CAD
+        const cadAmount = Number(wallet.hold_balance_cad) || 0;
+        holdBalance += convertIfNeeded(cadAmount, 'CAD', userCurrency);
+      } catch (convError) {
+        this.logger.error('Error converting hold balances:', convError);
+        // If conversion fails, keep whatever was calculated so far
+      }
+
+      // Round to 2 decimal places
+      availableBalance = Math.round(availableBalance * 100) / 100;
+      holdBalance = Math.round(holdBalance * 100) / 100;
+
+      // Calculate totalBalance as sum of availableBalance and holdBalance
+      const totalBalance = availableBalance + holdBalance;
+
       return {
         balance: {
-          availableBalance: Number(wallet.available_balance),
-          holdBalance: Number(wallet.hold_balance),
-          totalBalance: Number(wallet.total_balance),
+          availableBalance,
+          holdBalance,
+          totalBalance,
+          currency: userCurrency,
           availableBalanceXaf: Number(wallet.available_balance_xaf),
           holdBalanceXaf: Number(wallet.hold_balance_xaf),
           availableBalanceUsd: Number(wallet.available_balance_usd),

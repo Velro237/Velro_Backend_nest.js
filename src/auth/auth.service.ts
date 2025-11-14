@@ -53,6 +53,8 @@ import Mailgun from 'mailgun.js';
 import { randomInt } from 'crypto';
 import { OtpService } from './otp/otp.service';
 import { NotificationService } from '../notification/notification.service';
+import { CurrencyService } from '../currency/currency.service';
+import { CountryDetectionService } from '../currency/country-detection.service';
 
 @Injectable()
 export class AuthService {
@@ -63,6 +65,8 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly otpService: OtpService,
     private readonly notificationService: NotificationService,
+    private readonly currencyService: CurrencyService,
+    private readonly countryDetectionService: CountryDetectionService,
   ) {}
 
   async sendEmail(
@@ -154,8 +158,30 @@ export class AuthService {
       isFreightForwarder,
       companyAddress,
       companyName,
-      currency = 'XAF',
+      currency: currencyFromDto,
     } = signupDto;
+
+    // Determine currency: use DTO currency if provided, otherwise detect from phone number
+    let currency = currencyFromDto;
+    if (!currency && phone) {
+      try {
+        // Extract country code from phone number
+        const countryCode = this.extractCountryCodeFromPhone(phone);
+        if (countryCode) {
+          // Get currency for the detected country
+          currency =
+            this.currencyService.getDisplayCurrencyForCountry(countryCode);
+        }
+      } catch (error) {
+        // If detection fails, fall back to default
+        console.error('Failed to detect currency from phone:', error);
+      }
+    }
+
+    // Default to XAF if no currency could be determined
+    if (!currency) {
+      currency = 'XAF';
+    }
 
     // Check if user already exists
     const existingUser = await this.prisma.user.findUnique({
@@ -199,6 +225,7 @@ export class AuthService {
           isFreightForwarder,
           companyAddress,
           companyName,
+          currency,
         },
         select: {
           id: true,
@@ -946,6 +973,25 @@ export class AuthService {
       const saltRounds = 10;
       const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+      // Determine currency: detect from phone number if available
+      let currency = 'XAF'; // Default to XAF
+      if (pendingUser.phone) {
+        try {
+          // Extract country code from phone number
+          const countryCode = this.extractCountryCodeFromPhone(
+            pendingUser.phone,
+          );
+          if (countryCode) {
+            // Get currency for the detected country
+            currency =
+              this.currencyService.getDisplayCurrencyForCountry(countryCode);
+          }
+        } catch (error) {
+          // If detection fails, fall back to default
+          console.error('Failed to detect currency from phone:', error);
+        }
+      }
+
       // Create the user
       const user = await this.prisma.user.create({
         data: {
@@ -961,6 +1007,7 @@ export class AuthService {
           isFreightForwarder: pendingUser.isFreightForwarder,
           companyName: pendingUser.companyName,
           companyAddress: pendingUser.companyAddress,
+          currency,
         },
         select: {
           id: true,
@@ -973,6 +1020,7 @@ export class AuthService {
           isFreightForwarder: true,
           role: true,
           createdAt: true,
+          currency: true,
         },
       });
 
@@ -989,7 +1037,7 @@ export class AuthService {
       await this.prisma.wallet.create({
         data: {
           userId: user.id,
-          currency: 'XAF',
+          currency: user.currency,
         },
       });
 
@@ -1521,6 +1569,128 @@ export class AuthService {
         },
       );
       throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Extract country code from phone number
+   * Similar logic to CountryDetectionService.extractCountryFromPhone
+   */
+  private extractCountryCodeFromPhone(phoneNumber: string): string | null {
+    try {
+      if (!phoneNumber) return null;
+
+      // Remove all non-digit characters
+      const cleanPhone = phoneNumber.replace(/\D/g, '');
+
+      // Common country code patterns (subset from CountryDetectionService)
+      const countryCodes: Record<string, string> = {
+        // Central Africa (XAF region)
+        '237': 'CM', // Cameroon
+        '236': 'CF', // Central African Republic
+        '235': 'TD', // Chad
+        '242': 'CG', // Republic of the Congo
+        '240': 'GQ', // Equatorial Guinea
+        '241': 'GA', // Gabon
+
+        // Europe (EUR)
+        '33': 'FR',
+        '49': 'DE',
+        '39': 'IT',
+        '34': 'ES',
+        '31': 'NL',
+        '32': 'BE',
+        '43': 'AT',
+        '351': 'PT',
+        '353': 'IE',
+        '358': 'FI',
+        '352': 'LU',
+        '356': 'MT',
+        '357': 'CY',
+        '421': 'SK',
+        '386': 'SI',
+        '372': 'EE',
+        '371': 'LV',
+        '370': 'LT',
+        '30': 'GR',
+        '385': 'HR',
+        '359': 'BG',
+        '40': 'RO',
+        '48': 'PL',
+        '420': 'CZ',
+        '36': 'HU',
+        '44': 'GB',
+        '41': 'CH',
+        '47': 'NO',
+        '46': 'SE',
+        '45': 'DK',
+        '354': 'IS',
+        '376': 'AD',
+        '377': 'MC',
+        '378': 'SM',
+        '379': 'VA',
+        '423': 'LI',
+        '355': 'AL',
+        '389': 'MK',
+        '381': 'RS',
+        '382': 'ME',
+        '387': 'BA',
+        '383': 'XK',
+        '373': 'MD',
+        '380': 'UA',
+        '375': 'BY',
+        '7': 'RU',
+
+        // North America
+        '1': 'US', // Default to US for +1 (Canada detection requires area code)
+      };
+
+      // Check for exact matches (longest codes first to avoid false matches)
+      const sortedCodes = Object.keys(countryCodes).sort(
+        (a, b) => b.length - a.length,
+      );
+
+      for (const code of sortedCodes) {
+        if (cleanPhone.startsWith(code)) {
+          // Special handling for +1 (US/Canada)
+          if (code === '1') {
+            // Check for Canadian area codes
+            const canadianAreaCodes = [
+              '416',
+              '647',
+              '905',
+              '289',
+              '365',
+              '437',
+              '519',
+              '226',
+              '613',
+              '343',
+              '705',
+              '249',
+              '807',
+              '902',
+              '782',
+              '506',
+              '709',
+              '867',
+            ];
+            if (cleanPhone.length >= 11) {
+              const areaCode = cleanPhone.substring(1, 4);
+              if (canadianAreaCodes.includes(areaCode)) {
+                return 'CA'; // Canada
+              }
+            }
+            return 'US'; // Default to US for +1
+          }
+          return countryCodes[code];
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Failed to extract country from phone:', error);
+      return null;
     }
   }
 }

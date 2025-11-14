@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationModule } from '../notification/notification.module';
+import { CurrencyModule } from '../currency/currency.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
@@ -16,6 +17,7 @@ import { OtpService } from './otp/otp.service';
   imports: [
     PrismaModule,
     NotificationModule,
+    CurrencyModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
