@@ -180,6 +180,47 @@ export class UserInfoDto {
     required: false,
   })
   picture: string | null;
+
+  @ApiProperty({
+    description: 'User KYC records',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        status: {
+          type: 'string',
+          enum: [
+            'NOT_STARTED',
+            'IN_PROGRESS',
+            'APPROVED',
+            'DECLINED',
+            'KYC_EXPIRED',
+            'IN_REVIEW',
+            'EXPIRED',
+            'ABANDONED',
+          ],
+        },
+        provider: { type: 'string', enum: ['DIDIT', 'OTHER'] },
+        rejectionReason: { type: 'string', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+        verifiedAt: { type: 'string', format: 'date-time', nullable: true },
+        expiresAt: { type: 'string', format: 'date-time', nullable: true },
+      },
+    },
+    required: false,
+  })
+  kycRecords: Array<{
+    id: string;
+    status: string;
+    provider: string;
+    rejectionReason: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    verifiedAt: Date | null;
+    expiresAt: Date | null;
+  }>;
 }
 
 export class ModeOfTransportDto {

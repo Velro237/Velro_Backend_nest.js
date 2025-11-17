@@ -14,9 +14,11 @@ import {
   ValidatorConstraint,
   ValidatorConstraintInterface,
   ValidationArguments,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TripItemListDto } from './trip-item-list.dto';
+import { TripStatus } from 'generated/prisma/client';
 
 export class LocationDto {
   @ApiProperty({
@@ -159,6 +161,21 @@ export class TripDateValidationConstraint
     }
 
     return 'Invalid date range';
+  }
+}
+
+@ValidatorConstraint({ name: 'DraftStatusOnly', async: false })
+export class DraftStatusOnlyConstraint implements ValidatorConstraintInterface {
+  validate(value: any, args: ValidationArguments) {
+    // If status is provided, it must be DRAFT
+    if (value === undefined || value === null) {
+      return true; // Optional field, allow undefined/null
+    }
+    return value === TripStatus.DRAFT;
+  }
+
+  defaultMessage(args: ValidationArguments) {
+    return 'Only DRAFT status is allowed when creating a trip';
   }
 }
 
@@ -409,6 +426,18 @@ export class CreateTripDto {
   })
   @IsString()
   currency: string;
+
+  @ApiProperty({
+    description:
+      'Trip status. Only DRAFT can be passed during creation. If not provided, defaults to SCHEDULED.',
+    enum: [TripStatus.DRAFT],
+    example: TripStatus.DRAFT,
+    required: false,
+    default: TripStatus.SCHEDULED,
+  })
+  @IsOptional()
+  @Validate(DraftStatusOnlyConstraint)
+  status?: TripStatus;
 
   @ApiProperty({
     description:

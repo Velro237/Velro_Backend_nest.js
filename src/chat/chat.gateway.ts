@@ -94,6 +94,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Set user as online in Redis
     await this.redis.setUserOnline(user.sub, client.id);
 
+    // Notify all chat rooms that this user came online
+    try {
+      const memberChats = await this.chatService.getChatIdsForUser(user.sub);
+      memberChats.forEach((chatId) => {
+        // Notify OTHER users in each chat that this user came online (exclude current user)
+        this.server.to(this.roomName(chatId)).emit('user:online', {
+          chatId,
+          userId: user.sub,
+          userEmail: userExists.email,
+          timestamp: new Date().toISOString(),
+          message: `${userExists.email} is now online`,
+        });
+      });
+    } catch (error) {
+      console.error(
+        'Failed to notify chat rooms of user online status:',
+        error,
+      );
+      // Don't fail the connection if notification fails
+    }
+
     // Note: Users are NOT auto-joined to chat rooms on connection.
     // They must explicitly call the 'join' event to join a specific chat room.
     // This ensures isUserInRoom only returns true when the user has explicitly joined.

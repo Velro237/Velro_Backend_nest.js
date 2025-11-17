@@ -178,6 +178,23 @@ export class TripService {
       throw new ConflictException(message);
     }
 
+    // Validate status - only DRAFT is allowed when creating a trip (if provided)
+    // Default is SCHEDULED if not provided
+    if (tripData.status && tripData.status !== TripStatus.DRAFT) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.onlyDraftAllowed',
+        {
+          lang,
+          defaultValue:
+            'Only DRAFT status can be passed when creating a trip. Default is SCHEDULED.',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    // Set status: use DRAFT if provided, otherwise default to SCHEDULED
+    const tripStatus = tripData.status || TripStatus.SCHEDULED;
+
     try {
       // Create trip with trip items in a transaction
       const result = await this.prisma.$transaction(async (prisma) => {
@@ -200,6 +217,7 @@ export class TripService {
             notes: tripData.notes || null,
             meetup_flexible: tripData.meetup_flexible || false,
             currency: tripData.currency as Currency,
+            status: tripStatus,
           },
           select: {
             id: true,
@@ -2483,6 +2501,22 @@ export class TripService {
                 role: true,
                 isFreightForwarder: true,
                 picture: true,
+                kycRecords: {
+                  select: {
+                    id: true,
+                    status: true,
+                    provider: true,
+                    rejectionReason: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    verifiedAt: true,
+                    expiresAt: true,
+                  },
+                  orderBy: {
+                    createdAt: 'desc',
+                  },
+                  take: 1, // Get the most recent KYC record
+                },
               },
             },
             trip_items: {
@@ -2611,6 +2645,7 @@ export class TripService {
               role: trip.user.role,
               isFreightForwarder: trip.user.isFreightForwarder,
               picture: trip.user.picture,
+              kycRecords: trip.user.kycRecords || [],
             }
           : null,
         departure_date: trip.departure_date,
