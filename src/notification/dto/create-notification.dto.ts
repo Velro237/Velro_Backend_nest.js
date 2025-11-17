@@ -42,6 +42,24 @@ export class CreateNotificationDto {
   type: NotificationType;
 
   @ApiProperty({
+    description: 'Trip ID associated with the notification',
+    example: '123e4567-e89b-12d3-a456-426614174001',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  trip_id?: string;
+
+  @ApiProperty({
+    description: 'Request ID associated with the notification',
+    example: '123e4567-e89b-12d3-a456-426614174002',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  request_id?: string;
+
+  @ApiProperty({
     description: 'Additional data for the notification',
     example: {
       tripId: '123e4567-e89b-12d3-a456-426614174001',

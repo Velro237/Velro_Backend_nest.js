@@ -70,6 +70,8 @@ export class NotificationService {
           title: createNotificationDto.title,
           message: createNotificationDto.message,
           type: createNotificationDto.type,
+          trip_id: createNotificationDto.trip_id || null,
+          request_id: createNotificationDto.request_id || null,
           data: createNotificationDto.data || null,
         },
       });

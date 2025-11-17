@@ -67,6 +67,7 @@ export class ChatSummaryDto {
         id: '123e4567-e89b-12d3-a456-426614174001',
         email: 'user@example.com',
         name: 'John Doe',
+        picture: 'https://example.com/avatar.jpg',
       },
     },
   })
@@ -81,6 +82,7 @@ export class ChatSummaryDto {
       id: string;
       email: string;
       name: string;
+      picture: string | null;
     } | null;
   } | null;
 
@@ -107,6 +109,7 @@ export class ChatSummaryDto {
         email: { type: 'string' },
         name: { type: 'string' },
         role: { type: 'string' },
+        picture: { type: 'string' },
       },
     },
   })
@@ -115,6 +118,7 @@ export class ChatSummaryDto {
     email: string;
     name: string;
     role: string;
+    picture: string | null;
   }>;
 
   @ApiProperty({

@@ -983,6 +983,8 @@ export class TripService {
                   },
                 ),
                 type: 'REQUEST',
+                trip_id: tripId,
+                request_id: request.id,
                 data: {
                   tripId: tripId,
                   requestId: request.id,
@@ -2480,6 +2482,7 @@ export class TripService {
                 email: true,
                 role: true,
                 isFreightForwarder: true,
+                picture: true,
               },
             },
             trip_items: {
@@ -2607,6 +2610,7 @@ export class TripService {
               email: trip.user.email,
               role: trip.user.role,
               isFreightForwarder: trip.user.isFreightForwarder,
+              picture: trip.user.picture,
             }
           : null,
         departure_date: trip.departure_date,

@@ -41,6 +41,14 @@ export const ApiGetNotifications = () =>
       description: 'Number of notifications per page (max 100)',
       example: 10,
     }),
+    ApiQuery({
+      name: 'lang',
+      required: false,
+      type: String,
+      description:
+        'Language code for response messages (e.g., "en", "fr"). Defaults to "en" if not provided.',
+      example: 'en',
+    }),
     ApiResponse({
       status: 200,
       description:

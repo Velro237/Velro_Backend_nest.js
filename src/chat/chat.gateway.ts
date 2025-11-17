@@ -94,21 +94,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Set user as online in Redis
     await this.redis.setUserOnline(user.sub, client.id);
 
-    // Optionally: auto-join the user to rooms for chats they are members of
-    // (so they receive events automatically)
-    const memberChats = await this.chatService.getChatIdsForUser(user.sub);
-    memberChats.forEach((chatId) => {
-      client.join(this.roomName(chatId));
-
-      // Notify OTHER users in each chat that this user came online (exclude current user)
-      client.to(this.roomName(chatId)).emit('user:online', {
-        chatId,
-        userId: user.sub,
-        userEmail: userExists.email,
-        timestamp: new Date().toISOString(),
-        message: `${userExists.email} is now online`,
-      });
-    });
+    // Note: Users are NOT auto-joined to chat rooms on connection.
+    // They must explicitly call the 'join' event to join a specific chat room.
+    // This ensures isUserInRoom only returns true when the user has explicitly joined.
   }
 
   async handleDisconnect(client: Socket) {
@@ -386,8 +374,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 data.chatId,
                 message.id,
               );
-              // Update the message object to reflect the read status
-              message.isRead = true;
+              // Note: Read status is determined per-user when sending messages,
+              // so we don't modify the global message.isRead here
             } catch (error) {
               console.error(
                 `Failed to mark message as read for user ${member.user_id}:`,
@@ -399,7 +387,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       // Determine if message is read (if any receiver is in room)
-      const isReadByReceiver = message.isRead || receiversInRoom.length > 0;
+      const isReadByReceiver = receiversInRoom.length > 0;
 
       // Send message acknowledgement to the sender
       // Sender sees message as read only if receiver is in the chat room
@@ -413,14 +401,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Send new message notification to other users in the chat
       // The message includes all review data when type is REVIEW
+      // Only users who are BOTH online AND in the room should see it as read
       for (const member of chatMembers) {
         if (member.user_id !== data.senderId) {
+          // Check if THIS specific member is in the room
+          const memberInRoom = this.isUserInRoom(member.user_id, data.chatId);
+
           const memberSocket = this.findSocketByUserId(member.user_id);
           if (memberSocket) {
-            const wasInRoom = receiversInRoom.includes(member.user_id);
+            // Send message with isRead based on whether THIS member is in room
+            // Only marked as read if THIS specific member is both online AND in the room
             memberSocket.emit('message:new', {
               ...message,
-              isRead: wasInRoom, // Recipient sees it as read if they were in room
+              isRead: memberInRoom, // Only read if THIS member is in the room
             });
           }
         }
@@ -825,7 +818,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       for (const member of chatMembers) {
         if (member.user_id !== user.sub) {
           const userInRoom = this.isUserInRoom(member.user_id, data.chatId);
-
           if (userInRoom) {
             receiversInRoom.push(member.user_id);
             // If receiver is in room, mark message as read immediately
@@ -851,13 +843,36 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Sender sees message as read only if at least one receiver is in the chat room
       const isReadByReceiver = receiversInRoom.length > 0;
 
-      // Prepare message for broadcasting with correct read status
+      // Track which members we've sent individual messages to
+      const membersNotified = new Set<string>();
+
+      // Send message to each chat member individually with their specific read status
+      // Only users who are BOTH online AND in the room should see it as read
+      for (const member of chatMembers) {
+        if (member.user_id !== user.sub) {
+          // Check if THIS specific member is in the room
+          const memberInRoom = this.isUserInRoom(member.user_id, data.chatId);
+
+          // Find socket for this member
+          const memberSocket = this.findSocketByUserId(member.user_id);
+          if (memberSocket) {
+            // Send message with isRead based on whether THIS member is in room
+            // Only marked as read if THIS specific member is both online AND in the room
+            memberSocket.emit('message:new', {
+              ...message,
+              isRead: memberInRoom, // Only read if THIS member is in the room
+            });
+            membersNotified.add(member.user_id);
+          }
+        }
+      }
+
+      // Broadcast to room so all members (including sender) receive the message
+      // Individual messages above already handle read status for each receiver
       const messageForRoom = {
         ...message,
-        isRead: isReadByReceiver, // Set isRead based on whether receiver is in room
+        isRead: isReadByReceiver, // For room broadcast, use aggregate read status
       };
-
-      // broadcast to room - message has isRead: true if receiver is in room
       this.server
         .to(this.roomName(data.chatId))
         .emit('message:new', messageForRoom);
@@ -1153,7 +1168,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       if (!sender) return;
 
-      // Send push notification to each other member
+      // Send push notification to each other member (excluding sender)
       for (const member of otherMembers) {
         try {
           // Get user's device_id and language for push notification
@@ -1167,18 +1182,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           // Get user's language preference
           const userLang = user.lang || 'en';
 
-          // Prepare message content for notification
+          // Prepare message content for notification - send message directly without translation
           let messageContent = message.content || '';
-          if (message.imageUrls && message.imageUrls.length > 0) {
-            messageContent = messageContent
-              ? `${messageContent} [${message.imageUrls.length} image(s)]`
-              : `[${message.imageUrls.length} image(s)]`;
-          }
-          if (!messageContent) {
-            messageContent = 'New message';
+          const imageCount = message.imageUrls?.length || 0;
+
+          // Append image count info if there are images
+          if (imageCount > 0) {
+            if (messageContent) {
+              messageContent = `${messageContent} [${imageCount} image(s)]`;
+            } else {
+              messageContent = `${imageCount} image(s)`;
+            }
           }
 
-          // Translate notification title and body to user's language
+          // If still no content, use translated default message
+          if (!messageContent) {
+            messageContent = await this.i18n.translate(
+              'translation.notification.chat.newMessage.newMessageDefault',
+              {
+                lang: userLang,
+                defaultValue: 'New message',
+              },
+            );
+          }
+
+          // Translate notification title to user's language
           const notificationTitle = await this.i18n.translate(
             'translation.notification.chat.newMessage.title',
             {
@@ -1190,16 +1218,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             },
           );
 
-          const notificationBody = await this.i18n.translate(
-            'translation.notification.chat.newMessage.body',
-            {
-              lang: userLang,
-              defaultValue: messageContent,
-              args: {
-                message: messageContent,
-              },
-            },
-          );
+          // Send message content directly in body (no translation)
+          const notificationBody = messageContent;
 
           // Send push notification
           await this.notificationService.sendPushNotification(

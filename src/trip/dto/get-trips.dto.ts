@@ -173,6 +173,13 @@ export class UserInfoDto {
     example: false,
   })
   isFreightForwarder: boolean;
+
+  @ApiProperty({
+    description: 'User profile picture URL',
+    example: 'https://example.com/avatar.jpg',
+    required: false,
+  })
+  picture: string | null;
 }
 
 export class ModeOfTransportDto {
