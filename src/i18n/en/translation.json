@@ -222,7 +222,10 @@
     "chat": {
       "newMessage": {
         "title": "New message from {senderName}",
-        "body": "{message}"
+        "body": "{message}",
+        "imageMessage": "{count} image(s)",
+        "imageMessageWithText": "{text} [{count} image(s)]",
+        "newMessageDefault": "New message"
       }
     },
     "userNotFound": "User not found",

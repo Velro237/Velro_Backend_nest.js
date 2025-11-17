@@ -601,6 +601,9 @@ model Notification {
   user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
   user_id String
 
+  trip_id    String?
+  request_id String?
+
   title   String
   message String
   type    NotificationType // enum for categorizing

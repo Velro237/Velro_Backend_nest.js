@@ -223,7 +223,10 @@
     "chat": {
       "newMessage": {
         "title": "Nouveau message de {senderName}",
-        "body": "{message}"
+        "body": "{message}",
+        "imageMessage": "{count} image(s)",
+        "imageMessageWithText": "{text} [{count} image(s)]",
+        "newMessageDefault": "Nouveau message"
       }
     },
     "userNotFound": "Utilisateur non trouvé",

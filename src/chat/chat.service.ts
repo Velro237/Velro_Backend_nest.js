@@ -269,6 +269,7 @@ export class ChatService {
                     email: true,
                     name: true,
                     role: true,
+                    picture: true,
                   },
                 },
               },
@@ -282,6 +283,7 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    picture: true,
                   },
                 },
               },
@@ -380,6 +382,7 @@ export class ChatService {
                       id: lastMsg.sender.id,
                       email: lastMsg.sender.email || '',
                       name: lastMsg.sender.name || '',
+                      picture: lastMsg.sender.picture || null,
                     }
                   : null,
               }
@@ -391,6 +394,7 @@ export class ChatService {
             email: member.user.email,
             name: member.user.name,
             role: member.user.role,
+            picture: member.user.picture,
           })),
           createdAt: chat.createdAt,
           trip: chat.trip

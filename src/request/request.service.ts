@@ -1735,41 +1735,17 @@ export class RequestService {
           },
         };
 
-        // Delete all existing notifications for this user concerning this request
-        // before creating a new one
+        // Delete all existing notifications for the person triggering the action (userId)
+        // concerning this request, before creating a new one, using trip_id and request_id fields
         try {
-          // Find all REQUEST notifications for this user
-          const existingNotifications = await this.prisma.notification.findMany(
-            {
-              where: {
-                user_id: request.user_id,
-                type: 'REQUEST',
-              },
-              select: {
-                id: true,
-                data: true,
-              },
+          await this.prisma.notification.deleteMany({
+            where: {
+              user_id: userId,
+              type: 'REQUEST',
+              trip_id: request.trip_id,
+              request_id: request.id,
             },
-          );
-
-          // Filter notifications that match this request ID
-          const matchingNotificationIds = existingNotifications
-            .filter((notification) => {
-              const notificationData = notification.data as any;
-              return notificationData?.id === request.id;
-            })
-            .map((notification) => notification.id);
-
-          // Delete matching notifications
-          if (matchingNotificationIds.length > 0) {
-            await this.prisma.notification.deleteMany({
-              where: {
-                id: {
-                  in: matchingNotificationIds,
-                },
-              },
-            });
-          }
+          });
         } catch (deleteError) {
           console.error(
             'Failed to delete existing notifications:',
@@ -1972,6 +1948,10 @@ export class RequestService {
       });
       const recipientLang = recipient?.lang || 'en';
 
+      // Extract trip_id and request_id from requestData
+      const tripId = requestData?.trip_id || requestData?.trip?.id || null;
+      const requestId = requestData?.id || null;
+
       // Create notification in database
       await this.notificationService.createNotification(
         {
@@ -1979,6 +1959,8 @@ export class RequestService {
           title,
           message,
           type: 'REQUEST',
+          trip_id: tripId,
+          request_id: requestId,
           data: requestData,
         },
         recipientLang,

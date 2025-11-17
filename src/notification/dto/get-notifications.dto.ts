@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsInt, Min, Max, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { NotificationType } from 'generated/prisma';
 
@@ -31,6 +31,16 @@ export class GetNotificationsQueryDto {
   @Max(100)
   @IsOptional()
   limit?: number = 10;
+
+  @ApiProperty({
+    description:
+      'Language code for response messages (e.g., "en", "fr"). Defaults to "en" if not provided.',
+    example: 'en',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  lang?: string;
 }
 
 export class NotificationSummaryDto {
