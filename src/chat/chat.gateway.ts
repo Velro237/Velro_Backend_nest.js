@@ -450,6 +450,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         );
       }
 
+      // Send push notifications to other chat members (non-blocking)
+      this.sendPushNotificationToChatMembers(
+        data.chatId,
+        data.senderId,
+        message,
+      ).catch((error) => {
+        console.error('Failed to send push notifications:', error);
+        // Don't fail the message creation if notifications fail
+      });
+
       return message;
     } catch (error) {
       console.error('Failed to send message programmatically:', error);

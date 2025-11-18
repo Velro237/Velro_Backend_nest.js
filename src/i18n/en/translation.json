@@ -45,6 +45,10 @@
   "trip": {
     "create": {
       "success": "Trip created successfully",
+      "newTripNotification": {
+        "title": "New Trip Available",
+        "body": "A new trip from {departure} to {destination} is now available"
+      },
       "failed": "Failed to create trip",
       "userNotFound": "User not found",
       "transportNotFound": "Transport type not found",

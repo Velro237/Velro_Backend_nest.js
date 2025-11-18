@@ -1357,12 +1357,8 @@ export class ChatService {
         }
       }
 
-      // Send push notification to other chat members (excluding sender) - non-blocking
-      this.sendPushNotificationToChatMembers(chatId, senderId, message).catch(
-        (error) => {
-          console.error('Push notification error (non-blocking):', error);
-        },
-      );
+      // Note: Push notifications are handled by the caller (e.g., chat gateway)
+      // to avoid duplicate notifications
 
       return result;
     } catch (error: any) {
@@ -1808,13 +1804,32 @@ export class ChatService {
             },
           );
 
-          const notificationBody = await this.i18n.translate(
-            'translation.notification.chat.newMessage.body',
-            {
-              lang: userLang,
-              defaultValue: message.content || 'New message received',
-            },
-          );
+          // Prepare message content for notification - send message directly without translation
+          let messageContent = message.content || '';
+          const imageCount = message.imageUrls?.length || 0;
+
+          // Append image count info if there are images
+          if (imageCount > 0) {
+            if (messageContent) {
+              messageContent = `${messageContent} [${imageCount} image(s)]`;
+            } else {
+              messageContent = `${imageCount} image(s)`;
+            }
+          }
+
+          // If still no content, use translated default message
+          if (!messageContent) {
+            messageContent = await this.i18n.translate(
+              'translation.notification.chat.newMessage.newMessageDefault',
+              {
+                lang: userLang,
+                defaultValue: 'New message',
+              },
+            );
+          }
+
+          // Send message content directly in body (no translation)
+          const notificationBody = messageContent;
 
           // Send push notification
           await this.notificationService.sendPushNotification(
