@@ -45,6 +45,10 @@
   "trip": {
     "create": {
       "success": "Voyage créé avec succès",
+      "newTripNotification": {
+        "title": "Nouveau voyage disponible",
+        "body": "Un nouveau voyage de {departure} vers {destination} est maintenant disponible"
+      },
       "failed": "Échec de la création du voyage",
       "userNotFound": "Utilisateur non trouvé",
       "transportNotFound": "Type de transport non trouvé",

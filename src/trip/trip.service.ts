@@ -290,6 +290,17 @@ export class TripService {
 
       // Alert checking is now handled by the hourly scheduler
 
+      // Send push notifications to all app users (non-blocking)
+      // Only send if trip status is not DRAFT (DRAFT trips are not visible to others)
+      if (tripStatus !== TripStatus.DRAFT) {
+        this.sendNewTripNotificationToAllUsers(result.trip, tripData).catch(
+          (error) => {
+            console.error('Failed to send new trip notifications:', error);
+            // Don't fail trip creation if notifications fail
+          },
+        );
+      }
+
       const message = await this.i18n.translate(
         'translation.trip.create.success',
         {
@@ -3331,6 +3342,103 @@ export class TripService {
         },
       );
       throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Send push notifications to all app users when a new trip is created
+   * This method is non-blocking and should be called without await
+   */
+  private async sendNewTripNotificationToAllUsers(
+    trip: any,
+    tripData: any,
+  ): Promise<void> {
+    try {
+      // Get all users with device_id (users who have the app installed)
+      const users = await this.prisma.user.findMany({
+        where: {
+          device_id: {
+            not: null,
+          },
+          role: {
+            not: UserRole.ADMIN, // Exclude admins
+          },
+        },
+        select: {
+          id: true,
+          device_id: true,
+          lang: true,
+        },
+      });
+
+      if (users.length === 0) {
+        return;
+      }
+
+      // Extract departure and destination locations for notification
+      const departureLocation =
+        (tripData.departure as any)?.city ||
+        (tripData.departure as any)?.country ||
+        (tripData.departure as any)?.address ||
+        'Unknown';
+      const destinationLocation =
+        (tripData.destination as any)?.city ||
+        (tripData.destination as any)?.country ||
+        (tripData.destination as any)?.address ||
+        'Unknown';
+
+      // Send push notification to each user in their language
+      for (const user of users) {
+        try {
+          if (!user.device_id) continue;
+
+          const userLang = user.lang || 'en';
+
+          // Translate notification title and body to user's language
+          const notificationTitle = await this.i18n.translate(
+            'translation.trip.create.newTripNotification.title',
+            {
+              lang: userLang,
+              defaultValue: 'New Trip Available',
+            },
+          );
+
+          const notificationBody = await this.i18n.translate(
+            'translation.trip.create.newTripNotification.body',
+            {
+              lang: userLang,
+              defaultValue: `A new trip from ${departureLocation} to ${destinationLocation} is now available`,
+              args: {
+                departure: departureLocation,
+                destination: destinationLocation,
+              },
+            },
+          );
+
+          // Send push notification
+          await this.notificationService.sendPushNotification(
+            {
+              deviceId: user.device_id,
+              title: notificationTitle,
+              body: notificationBody,
+              data: {
+                tripId: trip.id,
+                type: 'NEW_TRIP',
+              },
+            },
+            userLang,
+          );
+        } catch (error) {
+          // Log error but continue with other users
+          console.error(
+            `Failed to send push notification to user ${user.id}:`,
+            error,
+          );
+        }
+      }
+    } catch (error) {
+      // Log error but don't fail the trip creation
+      console.error('Failed to send new trip notifications:', error);
     }
   }
 }
