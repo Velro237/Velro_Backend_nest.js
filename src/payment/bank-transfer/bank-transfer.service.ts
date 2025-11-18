@@ -85,8 +85,8 @@ export class BankTransferService {
         );
 
         return {
-          clientSecret: existingIntent.id,
-          paymentIntentId: existingIntent.client_secret || existingIntent.id,
+          clientSecret: existingIntent.client_secret,
+          paymentIntentId: existingIntent.id,
           amount: existingIntent.amount / 100,
           currency: existingIntent.currency.toUpperCase(),
           customerId,
@@ -187,7 +187,7 @@ export class BankTransferService {
       );
 
       return {
-        clientSecret: paymentIntent.client_secret || paymentIntent.id,
+        clientSecret: paymentIntent.client_secret,
         paymentIntentId: paymentIntent.id,
         amount: senderTotal,
         currency,

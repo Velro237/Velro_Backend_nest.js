@@ -1451,48 +1451,79 @@ export class RequestService {
             );
           }
 
+          // Move funds from hold to available for ALL payment types
           if (status === 'DELIVERED' && request.payment_intent_id) {
             try {
-              const paymentTx = await this.prisma.transaction.findUnique({
-                where: { id: request.payment_intent_id },
+              // Find the transaction for this request
+              const paymentTx = await this.prisma.transaction.findFirst({
+                where: {
+                  request_id: requestId,
+                  userId: request.trip.user_id, // Traveler
+                  source: 'TRIP_EARNING',
+                  type: 'CREDIT',
+                  status: 'ONHOLD',
+                },
+                orderBy: {
+                  createdAt: 'desc',
+                },
               });
-              console.log('Payment transaction:', paymentTx.currency);
 
-              if (paymentTx && paymentTx.currency === 'XAF') {
-                console.log('Payment transaction:');
-                const amountPaid = Number(paymentTx.amount_requested);
-                if (isNaN(amountPaid)) {
+              if (paymentTx) {
+                const amountPaid = Number(paymentTx.amount_paid);
+                const currency = paymentTx.currency;
+
+                if (isNaN(amountPaid) || amountPaid <= 0) {
                   throw new BadRequestException('Invalid amount paid');
                 }
 
-                if (amountPaid > 0) {
-                  await this.prisma.$transaction(async (prisma) => {
-                    // Traveler's wallet
-                    const travelerWallet = await prisma.wallet.findUnique({
-                      where: { userId: request.trip.user_id },
-                    });
-                    if (!travelerWallet) {
-                      throw new NotFoundException('Traveler wallet not found');
-                    }
+                // Get traveler's wallet
+                const travelerWallet = await this.prisma.wallet.findUnique({
+                  where: { userId: request.trip.user_id },
+                });
 
-                    // Move funds from hold to available (XAF only)
-                    // Do NOT update hold_balance or available_balance
-                    await prisma.wallet.update({
-                      where: { id: travelerWallet.id },
-                      data: {
-                        hold_balance_xaf: { decrement: amountPaid },
-                        available_balance_xaf: { increment: amountPaid },
-                        // Removed: hold_balance and available_balance updates
-                      },
-                    });
-
-                    // Mark payment transaction as COMPLETED if currently ONHOLD/SUCCESS
-                    await prisma.transaction.update({
-                      where: { id: paymentTx.id },
-                      data: { status: 'COMPLETED' },
-                    });
-                  });
+                if (!travelerWallet) {
+                  throw new NotFoundException('Traveler wallet not found');
                 }
+
+                // Get currency-specific column names
+                const getCurrencyColumns = (curr: string) => {
+                  switch (curr.toUpperCase()) {
+                    case 'EUR':
+                      return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+                    case 'USD':
+                      return { available: 'available_balance_usd', hold: 'hold_balance_usd' };
+                    case 'CAD':
+                      return { available: 'available_balance_cad', hold: 'hold_balance_cad' };
+                    case 'XAF':
+                      return { available: 'available_balance_xaf', hold: 'hold_balance_xaf' };
+                    default:
+                      return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+                  }
+                };
+
+                const currencyColumns = getCurrencyColumns(currency);
+
+                // Move funds from hold to available in a transaction
+                await this.prisma.$transaction(async (prisma) => {
+                  // Move funds from hold to available
+                  await prisma.wallet.update({
+                    where: { id: travelerWallet.id },
+                    data: {
+                      [currencyColumns.hold]: { decrement: amountPaid },
+                      [currencyColumns.available]: { increment: amountPaid },
+                    },
+                  });
+
+                  // Mark payment transaction as COMPLETED
+                  await prisma.transaction.update({
+                    where: { id: paymentTx.id },
+                    data: { status: 'COMPLETED' },
+                  });
+                });
+
+                console.log(
+                  `Moved ${amountPaid} ${currency} from hold to available for traveler ${request.trip.user_id}`,
+                );
               }
             } catch (settleErr) {
               console.error(
@@ -1500,6 +1531,7 @@ export class RequestService {
                   (settleErr as any)?.message || settleErr
                 }`,
               );
+              // Don't throw - allow status change to proceed
             }
           }
           break;
