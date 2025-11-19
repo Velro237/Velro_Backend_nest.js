@@ -508,8 +508,48 @@ export class BankTransferService {
           `Funding received: ${transaction.net_amount / 100} ${transaction.currency.toUpperCase()} for customer ${transaction.customer}`,
         );
 
-        // You can add logic here to notify the customer or update order status
-        // For now, we'll just log it
+        // AUTO-RECONCILE: Find pending PaymentIntent for this customer and reconcile
+        const customerId = transaction.customer as string;
+        const currency = transaction.currency.toLowerCase();
+        const amountReceived = transaction.net_amount / 100; // Convert from cents
+
+        this.logger.log(
+          `Attempting to auto-reconcile payment for customer ${customerId}`,
+        );
+
+        // Find pending PaymentIntent for this customer
+        const stripe = this.stripeService.getStripeInstance();
+        
+        // Search for incomplete PaymentIntents for this customer
+        const paymentIntents = await stripe.paymentIntents.list({
+          customer: customerId,
+          limit: 10,
+        });
+
+        // Find a matching PaymentIntent (same currency, requires_action status)
+        const matchingIntent = paymentIntents.data.find(
+          (pi) =>
+            pi.currency === currency &&
+            pi.status === 'requires_action' &&
+            pi.amount <= transaction.net_amount, // Customer has enough balance
+        );
+
+        if (matchingIntent) {
+          this.logger.log(
+            `Found matching PaymentIntent ${matchingIntent.id}, reconciling...`,
+          );
+
+          // Reconcile the payment automatically
+          await this.reconcilePaymentFromBalance(matchingIntent.id);
+
+          this.logger.log(
+            `Successfully auto-reconciled payment ${matchingIntent.id}`,
+          );
+        } else {
+          this.logger.log(
+            `No matching PaymentIntent found for customer ${customerId}. User may need to manually reconcile.`,
+          );
+        }
       }
     } catch (error) {
       this.logger.error(
