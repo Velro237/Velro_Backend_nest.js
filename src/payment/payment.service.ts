@@ -27,9 +27,10 @@ import {
   GetWalletRequestDto,
   GetWalletResponseDto,
 } from './dto/get-wallet-request.dto';
-import { PaymentStatus } from 'generated/prisma';
+import { PaymentStatus, NotificationType } from 'generated/prisma';
 import { RequestService } from '../request/request.service';
 import { CurrencyService } from '../currency/currency.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class PaymentService {
@@ -43,6 +44,7 @@ export class PaymentService {
     @Inject(forwardRef(() => RequestService))
     private readonly requestService: RequestService,
     private readonly currencyService: CurrencyService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async initializeWallet(
@@ -518,9 +520,92 @@ export class PaymentService {
         return;
       }
 
+      // IMPORTANT: Get actual payment currency and amount from Stripe PaymentIntent
+      // The order.currency may be XAF (stored), but payment was made in trip currency (USD/EUR/CAD)
+      const paymentIntent = await this.stripeService.getPaymentIntent(paymentIntentId);
+      const paymentCurrency = paymentIntent.currency.toUpperCase();
+      const totalPaid = paymentIntent.amount / 100; // Convert from cents
+      
+      // Get traveler price from PaymentIntent metadata (if available) or calculate from total
+      let travelerPrice: number;
+      if (paymentIntent.metadata?.travelerPrice) {
+        travelerPrice = Number(paymentIntent.metadata.travelerPrice);
+      } else {
+        // Fallback: Calculate traveler price from total paid - platform fee
+        // This should match what was calculated during payment creation
+        const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
+        const requestCurrency = (order.currency || 'XAF').toUpperCase();
+        const requestCost = Number(order.cost || 0);
+        
+        // Convert request cost back to trip currency (same logic as createPaymentIntent)
+        if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
+          const conversion = this.currencyService.convertCurrency(
+            requestCost,
+            'XAF',
+            tripCurrency
+          );
+          travelerPrice = conversion.convertedAmount;
+        } else {
+          travelerPrice = requestCost;
+        }
+      }
+
       // IDEMPOTENCY: Check if payment already processed
-      if (order.payment_status === PaymentStatus.SUCCEEDED) {
+      const isAlreadyProcessed = order.payment_status === PaymentStatus.SUCCEEDED;
+      
+      // Get traveler's language preference
+      const traveler = await this.prisma.user.findUnique({
+        where: { id: order.trip.user_id },
+        select: { lang: true, device_id: true },
+      });
+      const travelerLang = traveler?.lang || 'en';
+      
+      // Notification data
+      const notificationTitle = 'Payment Received';
+      const notificationMessage = `You've received a payment of ${paymentCurrency} ${travelerPrice.toFixed(2)} for your trip. The funds are on hold until delivery is confirmed.`;
+      const notificationData = {
+        type: 'payment_received',
+        order_id: order.id,
+        trip_id: order.trip_id,
+        amount: travelerPrice,
+        currency: paymentCurrency,
+      };
+      
+      if (isAlreadyProcessed) {
         this.logger.log(`Payment already processed for order ${order.id}`);
+        
+        // Still create in-app notification and send push notification even if payment was already processed
+        // (in case notification wasn't sent before or user now has device_id)
+        try {
+          // Create in-app notification (always)
+          await this.notificationService.createNotification(
+            {
+              user_id: order.trip.user_id,
+              title: notificationTitle,
+              message: notificationMessage,
+              type: NotificationType.REQUEST,
+              trip_id: order.trip_id,
+              request_id: order.id,
+              data: notificationData,
+            },
+            travelerLang,
+          );
+          
+          // Send push notification if device_id exists
+          if (traveler?.device_id) {
+            await this.notificationService.sendPushNotificationToUser(
+              order.trip.user_id,
+              notificationTitle,
+              notificationMessage,
+              notificationData,
+              travelerLang,
+            );
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to create/send notification for already processed payment: ${error.message}`);
+          // Don't fail the operation if notification fails
+        }
+        
         return;
       }
 
@@ -557,36 +642,6 @@ export class PaymentService {
         throw new NotFoundException(
           `Traveler wallet not found. This indicates a data integrity issue.`
         );
-      }
-      
-      // IMPORTANT: Get actual payment currency and amount from Stripe PaymentIntent
-      // The order.currency may be XAF (stored), but payment was made in trip currency (USD/EUR/CAD)
-      const paymentIntent = await this.stripeService.getPaymentIntent(paymentIntentId);
-      const paymentCurrency = paymentIntent.currency.toUpperCase();
-      const totalPaid = paymentIntent.amount / 100; // Convert from cents
-      
-      // Get traveler price from PaymentIntent metadata (if available) or calculate from total
-      let travelerPrice: number;
-      if (paymentIntent.metadata?.travelerPrice) {
-        travelerPrice = Number(paymentIntent.metadata.travelerPrice);
-      } else {
-        // Fallback: Calculate traveler price from total paid - platform fee
-        // This should match what was calculated during payment creation
-        const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
-        const requestCurrency = (order.currency || 'XAF').toUpperCase();
-        const requestCost = Number(order.cost || 0);
-        
-        // Convert request cost back to trip currency (same logic as createPaymentIntent)
-        if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
-          const conversion = this.currencyService.convertCurrency(
-            requestCost,
-            'XAF',
-            tripCurrency
-          );
-          travelerPrice = conversion.convertedAmount;
-        } else {
-          travelerPrice = requestCost;
-        }
       }
       
       const pendingEarnings = travelerPrice;
@@ -664,6 +719,37 @@ export class PaymentService {
       });
 
       this.logger.log(`Payment processed successfully for order ${order.id}`);
+
+      // Create in-app notification and send push notification to traveler about payment
+      try {
+        // Create in-app notification (always)
+        await this.notificationService.createNotification(
+          {
+            user_id: order.trip.user_id,
+            title: notificationTitle,
+            message: notificationMessage,
+            type: NotificationType.REQUEST,
+            trip_id: order.trip_id,
+            request_id: order.id,
+            data: notificationData,
+          },
+          travelerLang,
+        );
+        
+        // Send push notification if device_id exists
+        if (traveler?.device_id) {
+          await this.notificationService.sendPushNotificationToUser(
+            order.trip.user_id,
+            notificationTitle,
+            notificationMessage,
+            notificationData,
+            travelerLang,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to create/send payment notification: ${error.message}`);
+        // Don't fail the operation if notification fails
+      }
     } catch (error) {
       this.logger.error('Failed to handle payment success:', error);
       throw error;
@@ -1033,6 +1119,57 @@ export class PaymentService {
       }
 
       this.logger.log(`Refund processed for order ${order.id}`);
+
+      // Get sender's language preference and device_id
+      const sender = await this.prisma.user.findUnique({
+        where: { id: order.user_id },
+        select: { lang: true, device_id: true },
+      });
+      const senderLang = sender?.lang || 'en';
+      
+      // Notification data
+      const refundCurrency = refund.currency?.toUpperCase?.() || 'EUR';
+      const refundAmount = refund.amount / 100; // Convert from cents
+      const refundTitle = 'Refund Processed';
+      const refundMessage = `Your refund of ${refundCurrency} ${refundAmount.toFixed(2)} has been processed and will be returned to your payment method.`;
+      const refundData = {
+        type: 'refund_processed',
+        order_id: order.id,
+        trip_id: order.trip_id,
+        amount: refundAmount,
+        currency: refundCurrency,
+      };
+      
+      // Create in-app notification and send push notification to sender about refund
+      try {
+        // Create in-app notification (always)
+        await this.notificationService.createNotification(
+          {
+            user_id: order.user_id, // sender
+            title: refundTitle,
+            message: refundMessage,
+            type: NotificationType.REQUEST,
+            trip_id: order.trip_id,
+            request_id: order.id,
+            data: refundData,
+          },
+          senderLang,
+        );
+        
+        // Send push notification if device_id exists
+        if (sender?.device_id) {
+          await this.notificationService.sendPushNotificationToUser(
+            order.user_id, // sender
+            refundTitle,
+            refundMessage,
+            refundData,
+            senderLang,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to create/send refund notification: ${error.message}`);
+        // Don't fail the operation if notification fails
+      }
     } catch (error) {
       this.logger.error(`Failed to handle refund: ${error.message}`);
       throw error;

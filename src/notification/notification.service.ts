@@ -514,4 +514,61 @@ export class NotificationService {
       message,
     };
   }
+
+  /**
+   * Send push notification to a user by their userId
+   * This is a non-throwing helper method for internal use
+   * If sending fails, it logs the error but doesn't throw
+   */
+  async sendPushNotificationToUser(
+    userId: string,
+    title: string,
+    body: string,
+    data?: Record<string, any>,
+    lang: string = 'en',
+  ): Promise<void> {
+    try {
+      // Get user's device_id
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { device_id: true },
+      });
+
+      if (!user || !user.device_id) {
+        this.logger.log(`User ${userId} has no device_id, skipping push notification`);
+        return;
+      }
+
+      // Validate that it's a valid Expo push token
+      if (!Expo.isExpoPushToken(user.device_id)) {
+        this.logger.warn(`User ${userId} has invalid Expo push token: ${user.device_id}`);
+        return;
+      }
+
+      // Send the push notification
+      const messages: ExpoPushMessage[] = [
+        {
+          to: user.device_id,
+          sound: 'default',
+          title,
+          body,
+          data: data || {},
+        },
+      ];
+
+      const chunks = this.expo.chunkPushNotifications(messages);
+
+      for (const chunk of chunks) {
+        try {
+          const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
+          this.logger.log(`Push notification sent to user ${userId}:`, ticketChunk);
+        } catch (error) {
+          this.logger.error(`Failed to send push notification to user ${userId}:`, error);
+        }
+      }
+    } catch (error) {
+      // Log the error but don't throw - we don't want push notification failures to break the main flow
+      this.logger.error(`Error in sendPushNotificationToUser for user ${userId}:`, error);
+    }
+  }
 }

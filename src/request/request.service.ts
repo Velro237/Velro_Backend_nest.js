@@ -19,6 +19,7 @@ import {
   MessageType as PrismaMessageType,
   UserRole,
   Currency,
+  NotificationType,
 } from 'generated/prisma';
 import { MessageType } from '../chat/dto/send-message.dto';
 import {
@@ -1914,6 +1915,57 @@ export class RequestService {
         try {
           await this.walletService.moveToAvailable(orderId);
           earningsReleased = true;
+
+          // Get traveler's language preference and device_id
+          const traveler = await this.prisma.user.findUnique({
+            where: { id: order.trip.user_id },
+            select: { lang: true, device_id: true },
+          });
+          const travelerLang = traveler?.lang || lang || 'en';
+          
+          // Notification data
+          const currency = order.trip.currency || order.currency || 'XAF';
+          const amount = Number(order.cost || 0);
+          const moneyReleasedTitle = 'Money Released';
+          const moneyReleasedMessage = `Your earnings of ${currency} ${amount.toFixed(2)} from order ${order.id} have been released to your available balance!`;
+          const moneyReleasedData = {
+            type: 'money_released',
+            order_id: order.id,
+            trip_id: order.trip_id,
+            amount: amount,
+            currency: currency,
+          };
+          
+          // Create in-app notification and send push notification to traveler about money being released
+          try {
+            // Create in-app notification (always)
+            await this.notificationService.createNotification(
+              {
+                user_id: order.trip.user_id, // traveler
+                title: moneyReleasedTitle,
+                message: moneyReleasedMessage,
+            type: NotificationType.REQUEST,
+                trip_id: order.trip_id,
+                request_id: order.id,
+                data: moneyReleasedData,
+              },
+              travelerLang,
+            );
+            
+            // Send push notification if device_id exists
+            if (traveler?.device_id) {
+              await this.notificationService.sendPushNotificationToUser(
+                order.trip.user_id, // traveler
+                moneyReleasedTitle,
+                moneyReleasedMessage,
+                moneyReleasedData,
+                travelerLang,
+              );
+            }
+          } catch (error) {
+            console.error('Failed to create/send money released notification:', error);
+            // Don't fail the confirmation if notification fails
+          }
         } catch (error) {
           console.error('Failed to release earnings:', error);
           // Don't fail the confirmation if wallet update fails
