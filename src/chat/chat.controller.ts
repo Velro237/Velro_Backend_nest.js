@@ -108,27 +108,4 @@ export class ChatController {
   ): Promise<GetChatsResponseDto> {
     return this.chatService.getSupportChat(user.id, lang);
   }
-
-  @Get('support/messages')
-  @ApiOperation({
-    summary: 'Get support chat messages',
-    description:
-      'Get messages from the support chat between the authenticated user and an admin. Uses the same format as getMessages.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Support messages retrieved successfully',
-    type: GetMessagesResponseDto,
-  })
-  @ApiResponse({
-    status: 404,
-    description: 'Support chat not found',
-  })
-  async getSupportMessages(
-    @Query() query: GetMessagesQueryDto,
-    @CurrentUser() user: User,
-    @I18nLang() lang: string,
-  ): Promise<GetMessagesResponseDto> {
-    return this.chatService.getSupportMessages(user.id, query, lang);
-  }
 }
