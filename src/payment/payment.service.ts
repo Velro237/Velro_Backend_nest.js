@@ -591,16 +591,14 @@ export class PaymentService {
             travelerLang,
           );
           
-          // Send push notification if device_id exists
-          if (traveler?.device_id) {
-            await this.notificationService.sendPushNotificationToUser(
-              order.trip.user_id,
-              notificationTitle,
-              notificationMessage,
-              notificationData,
-              travelerLang,
-            );
-          }
+          // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
+          await this.notificationService.sendPushNotificationToUser(
+            order.trip.user_id,
+            notificationTitle,
+            notificationMessage,
+            notificationData,
+            travelerLang,
+          );
         } catch (error) {
           this.logger.warn(`Failed to create/send notification for already processed payment: ${error.message}`);
           // Don't fail the operation if notification fails
@@ -736,16 +734,14 @@ export class PaymentService {
           travelerLang,
         );
         
-        // Send push notification if device_id exists
-        if (traveler?.device_id) {
-          await this.notificationService.sendPushNotificationToUser(
-            order.trip.user_id,
-            notificationTitle,
-            notificationMessage,
-            notificationData,
-            travelerLang,
-          );
-        }
+        // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
+        await this.notificationService.sendPushNotificationToUser(
+          order.trip.user_id,
+          notificationTitle,
+          notificationMessage,
+          notificationData,
+          travelerLang,
+        );
       } catch (error) {
         this.logger.warn(`Failed to create/send payment notification: ${error.message}`);
         // Don't fail the operation if notification fails
@@ -1156,16 +1152,14 @@ export class PaymentService {
           senderLang,
         );
         
-        // Send push notification if device_id exists
-        if (sender?.device_id) {
-          await this.notificationService.sendPushNotificationToUser(
-            order.user_id, // sender
-            refundTitle,
-            refundMessage,
-            refundData,
-            senderLang,
-          );
-        }
+        // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
+        await this.notificationService.sendPushNotificationToUser(
+          order.user_id, // sender
+          refundTitle,
+          refundMessage,
+          refundData,
+          senderLang,
+        );
       } catch (error) {
         this.logger.warn(`Failed to create/send refund notification: ${error.message}`);
         // Don't fail the operation if notification fails
