@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from '../payment/stripe.service';
 import { CurrencyService } from '../currency/currency.service';
+import { NotificationService } from '../notification/notification.service';
 import {
   WithdrawalRequestDto,
   WithdrawalResponseDto,
@@ -19,6 +20,7 @@ import {
   GroupedTransactionsDto,
   PaginationQueryDto,
 } from './dto/wallet.dto';
+import { NotificationType } from 'generated/prisma';
 
 @Injectable()
 export class WalletService {
@@ -29,6 +31,7 @@ export class WalletService {
     private stripeService: StripeService,
     private configService: ConfigService,
     private currencyService: CurrencyService,
+    private notificationService: NotificationService,
   ) {}
 
   /**
@@ -535,6 +538,53 @@ export class WalletService {
         this.logger.log(
           `Withdrawal created successfully: ${withdrawal.id}, Transfer: ${transfer.id}`,
         );
+
+        // Get user's language preference and device_id for notification
+        const userForNotification = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { lang: true, device_id: true },
+        });
+        const userLang = userForNotification?.lang || 'en';
+        
+        // Notification data
+        const withdrawalTitle = 'Withdrawal Processed';
+        const withdrawalMessage = `Your withdrawal of ${requestedCurrency} ${netAmount.toFixed(2)} has been processed successfully and is on its way to your account.`;
+        const withdrawalData = {
+          type: 'withdrawal_processed',
+          withdrawal_id: withdrawal.id,
+          transfer_id: transfer.id,
+          amount: netAmount,
+          currency: requestedCurrency,
+        };
+        
+        // Create in-app notification and send push notification about successful withdrawal
+        try {
+          // Create in-app notification (always)
+          await this.notificationService.createNotification(
+            {
+              user_id: userId,
+              title: withdrawalTitle,
+              message: withdrawalMessage,
+              type: NotificationType.REQUEST,
+              data: withdrawalData,
+            },
+            userLang,
+          );
+          
+          // Send push notification if device_id exists
+          if (userForNotification?.device_id) {
+            await this.notificationService.sendPushNotificationToUser(
+              userId,
+              withdrawalTitle,
+              withdrawalMessage,
+              withdrawalData,
+              userLang,
+            );
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to create/send withdrawal notification: ${error.message}`);
+          // Don't fail the withdrawal if notification fails
+        }
 
         return this.mapWithdrawal({
           ...withdrawal,
