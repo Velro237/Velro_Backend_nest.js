@@ -1489,15 +1489,30 @@ export class RequestService {
                 const getCurrencyColumns = (curr: string) => {
                   switch (curr.toUpperCase()) {
                     case 'EUR':
-                      return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+                      return {
+                        available: 'available_balance_eur',
+                        hold: 'hold_balance_eur',
+                      };
                     case 'USD':
-                      return { available: 'available_balance_usd', hold: 'hold_balance_usd' };
+                      return {
+                        available: 'available_balance_usd',
+                        hold: 'hold_balance_usd',
+                      };
                     case 'CAD':
-                      return { available: 'available_balance_cad', hold: 'hold_balance_cad' };
+                      return {
+                        available: 'available_balance_cad',
+                        hold: 'hold_balance_cad',
+                      };
                     case 'XAF':
-                      return { available: 'available_balance_xaf', hold: 'hold_balance_xaf' };
+                      return {
+                        available: 'available_balance_xaf',
+                        hold: 'hold_balance_xaf',
+                      };
                     default:
-                      return { available: 'available_balance_eur', hold: 'hold_balance_eur' };
+                      return {
+                        available: 'available_balance_eur',
+                        hold: 'hold_balance_eur',
+                      };
                   }
                 };
 
@@ -1941,12 +1956,18 @@ export class RequestService {
     deviceId?: string,
   ): Promise<void> {
     try {
-      // Get recipient user's language preference
+      // Get recipient user's language preference and normalize it
       const recipient = await this.prisma.user.findUnique({
         where: { id: recipientUserId },
         select: { id: true, lang: true },
       });
-      const recipientLang = recipient?.lang || 'en';
+      const recipientLangRaw = recipient?.lang || 'en';
+      // Normalize language to ensure it matches i18n format (lowercase)
+      const recipientLang = recipientLangRaw
+        ? recipientLangRaw.toLowerCase().trim()
+        : 'en';
+      // Ensure it's a valid language ('en' or 'fr'), default to 'en'
+      const normalizedRecipientLang = recipientLang === 'fr' ? 'fr' : 'en';
 
       // Extract trip_id and request_id from requestData
       const tripId = requestData?.trip_id || requestData?.trip?.id || null;
@@ -1963,10 +1984,10 @@ export class RequestService {
           request_id: requestId,
           data: requestData,
         },
-        recipientLang,
+        normalizedRecipientLang,
       );
 
-      // Send push notification if user has device_id
+      // Send push notification if user has device_id (with user's language)
       if (deviceId) {
         await this.notificationService.sendPushNotification(
           {
@@ -1975,7 +1996,7 @@ export class RequestService {
             body: message,
             data: requestData,
           },
-          recipientLang,
+          normalizedRecipientLang,
         );
       }
     } catch (error) {

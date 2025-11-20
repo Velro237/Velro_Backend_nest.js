@@ -1191,13 +1191,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         (member) => member.user_id !== senderId,
       );
 
+      // Get chat information to check if it's a SUPPORT chat
+      const chat = await this.prisma.chat.findUnique({
+        where: { id: chatId },
+        select: { type: true },
+      });
+
       // Get sender information for the notification
       const sender = await this.prisma.user.findUnique({
         where: { id: senderId },
-        select: { id: true, name: true, email: true },
+        select: { id: true, name: true, email: true, role: true },
       });
 
       if (!sender) return;
+
+      // Determine notification type: SUPPORT if chat is SUPPORT type and sender is admin, otherwise CHAT_MESSAGE
+      const notificationType =
+        chat?.type === 'SUPPORT' && sender.role === 'ADMIN'
+          ? 'SUPPORT'
+          : 'CHAT_MESSAGE';
 
       // Send push notification to each other member (excluding sender)
       for (const member of otherMembers) {
@@ -1210,8 +1222,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
           if (!user || !user.device_id) continue;
 
-          // Get user's language preference
-          const userLang = user.lang || 'en';
+          // Get user's language preference and normalize it
+          const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';
+          // Ensure it's a valid language ('en' or 'fr'), default to 'en'
+          const normalizedUserLang = userLang === 'fr' ? 'fr' : 'en';
 
           // Prepare message content for notification - send message directly without translation
           let messageContent = message.content || '';
@@ -1231,7 +1245,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             messageContent = await this.i18n.translate(
               'translation.notification.chat.newMessage.newMessageDefault',
               {
-                lang: userLang,
+                lang: normalizedUserLang,
                 defaultValue: 'New message',
               },
             );
@@ -1241,7 +1255,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           const notificationTitle = await this.i18n.translate(
             'translation.notification.chat.newMessage.title',
             {
-              lang: userLang,
+              lang: normalizedUserLang,
               defaultValue: `New message from ${sender.name || sender.email}`,
               args: {
                 senderName: sender.name || sender.email,
@@ -1252,7 +1266,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           // Send message content directly in body (no translation)
           const notificationBody = messageContent;
 
-          // Send push notification
+          // Send push notification with user's language
           await this.notificationService.sendPushNotification(
             {
               deviceId: user.device_id,
@@ -1263,10 +1277,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 messageId: message.id,
                 senderId: sender.id,
                 senderName: sender.name || sender.email,
-                type: 'CHAT_MESSAGE',
+                type: notificationType,
               },
             },
-            userLang,
+            normalizedUserLang,
           );
         } catch (error) {
           // Log error but don't fail the message creation

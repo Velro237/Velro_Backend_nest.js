@@ -8,7 +8,12 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
 import { CreateChatDto, CreateChatResponseDto } from './dto/create-chat.dto';
@@ -80,5 +85,50 @@ export class ChatController {
     @I18nLang() lang: string,
   ): Promise<GetMessagesResponseDto> {
     return this.chatService.getMessages(user.id, query, lang);
+  }
+
+  @Get('support')
+  @ApiOperation({
+    summary: 'Get or create support chat',
+    description:
+      'Get the support chat between the authenticated user and an admin. If no support chat exists, one will be created automatically. Returns the same format as getChats but only for the support chat.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Support chat retrieved successfully',
+    type: GetChatsResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No admin user found',
+  })
+  async getSupportChat(
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<GetChatsResponseDto> {
+    return this.chatService.getSupportChat(user.id, lang);
+  }
+
+  @Get('support/messages')
+  @ApiOperation({
+    summary: 'Get support chat messages',
+    description:
+      'Get messages from the support chat between the authenticated user and an admin. Uses the same format as getMessages.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Support messages retrieved successfully',
+    type: GetMessagesResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Support chat not found',
+  })
+  async getSupportMessages(
+    @Query() query: GetMessagesQueryDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<GetMessagesResponseDto> {
+    return this.chatService.getSupportMessages(user.id, query, lang);
   }
 }

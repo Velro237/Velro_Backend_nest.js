@@ -2371,14 +2371,16 @@ export class TripService {
         (destination && destination.trim() !== '')
       ) {
         try {
-          // If both departure and destination are provided, require exact country match on both
+          // If both departure and destination are provided, prioritize exact city matches
           if (
             departure &&
             departure.trim() !== '' &&
             destination &&
             destination.trim() !== ''
           ) {
-            // Require exact country match for both departure and destination
+            // First, try to match exact cities (region/city/address) for both departure and destination
+            // This will be handled in post-processing to prioritize exact matches
+            // For now, we'll search by country to get all matching trips
             baseWhereClause.AND = [
               {
                 departure: {
@@ -2484,7 +2486,15 @@ export class TripService {
         }
       }
 
-      // Get trips with normal Prisma pagination
+      // If both departure and destination are provided, we need to fetch all trips first
+      // to properly prioritize exact city matches, then apply pagination
+      const shouldFetchAllForSorting =
+        departure &&
+        departure.trim() !== '' &&
+        destination &&
+        destination.trim() !== '';
+
+      // Get trips - fetch all if we need to sort by exact matches, otherwise use pagination
       const [allTrips, total] = await Promise.all([
         this.prisma.trip.findMany({
           where: baseWhereClause,
@@ -2567,20 +2577,104 @@ export class TripService {
             },
           },
           orderBy: { createdAt: 'desc' },
-          skip,
-          take: limit,
+          ...(shouldFetchAllForSorting ? {} : { skip, take: limit }),
         }),
         this.prisma.trip.count({ where: baseWhereClause }),
       ]);
 
       let trips: any[] = allTrips;
 
-      // If country is specified and no departure/destination search, reorder to put matching trips at the top
+      // If both departure and destination are provided, prioritize exact city matches
       if (
+        departure &&
+        departure.trim() !== '' &&
+        destination &&
+        destination.trim() !== ''
+      ) {
+        const departureLower = departure.trim().toLowerCase();
+        const destinationLower = destination.trim().toLowerCase();
+
+        // Separate trips into exact city matches and country-only matches
+        const exactCityMatches: any[] = [];
+        const countryOnlyMatches: any[] = [];
+
+        allTrips.forEach((trip) => {
+          const tripDeparture = trip.departure as any;
+          const tripDestination = trip.destination as any;
+
+          // Check if departure city matches (region, city, or address)
+          // First check for exact matches, then for contains matches
+          const departureMatches =
+            tripDeparture &&
+            typeof tripDeparture === 'object' &&
+            (departureLower === (tripDeparture.region || '').toLowerCase() ||
+              departureLower === (tripDeparture.city || '').toLowerCase() ||
+              departureLower === (tripDeparture.address || '').toLowerCase() ||
+              (tripDeparture.city || '')
+                .toLowerCase()
+                .includes(departureLower) ||
+              (tripDeparture.address || '')
+                .toLowerCase()
+                .includes(departureLower) ||
+              (tripDeparture.region || '')
+                .toLowerCase()
+                .includes(departureLower));
+
+          // Check if destination city matches (region, city, or address)
+          // First check for exact matches, then for contains matches
+          const destinationMatches =
+            tripDestination &&
+            typeof tripDestination === 'object' &&
+            (destinationLower ===
+              (tripDestination.region || '').toLowerCase() ||
+              destinationLower === (tripDestination.city || '').toLowerCase() ||
+              destinationLower ===
+                (tripDestination.address || '').toLowerCase() ||
+              (tripDestination.city || '')
+                .toLowerCase()
+                .includes(destinationLower) ||
+              (tripDestination.address || '')
+                .toLowerCase()
+                .includes(destinationLower) ||
+              (tripDestination.region || '')
+                .toLowerCase()
+                .includes(destinationLower));
+
+          if (departureMatches && destinationMatches) {
+            // Exact city match for both departure and destination
+            exactCityMatches.push(trip);
+          } else {
+            // Country match only (already filtered by country in the query)
+            countryOnlyMatches.push(trip);
+          }
+        });
+
+        // Sort both groups chronologically by departure_date
+        exactCityMatches.sort((a, b) => {
+          const dateA = new Date(a.departure_date).getTime();
+          const dateB = new Date(b.departure_date).getTime();
+          return dateA - dateB;
+        });
+
+        countryOnlyMatches.sort((a, b) => {
+          const dateA = new Date(a.departure_date).getTime();
+          const dateB = new Date(b.departure_date).getTime();
+          return dateA - dateB;
+        });
+
+        // Combine: exact city matches first, then country-only matches
+        trips = [...exactCityMatches, ...countryOnlyMatches];
+
+        // Apply pagination after sorting
+        const startIndex = skip;
+        const endIndex = skip + limit;
+        trips = trips.slice(startIndex, endIndex);
+      } else if (
         country &&
         (!departure || departure.trim() === '') &&
         (!destination || destination.trim() === '')
       ) {
+        // If country is specified and no departure/destination search, reorder to put matching trips at the top
         const countryTrips = allTrips.filter((trip) => {
           const destinationCountry =
             trip.destination &&
@@ -2794,6 +2888,14 @@ export class TripService {
                       alt_text: true,
                     },
                   },
+                  translations: {
+                    select: {
+                      id: true,
+                      language: true,
+                      name: true,
+                      description: true,
+                    },
+                  },
                 },
               },
             },
@@ -2820,7 +2922,10 @@ export class TripService {
               price: Number(p.price),
             }))
           : [],
-        trip_item: item.trip_item,
+        trip_item: {
+          ...item.trip_item,
+          translations: item.trip_item.translations || [],
+        },
       }));
 
       // Calculate total_kg from trip items
@@ -3392,13 +3497,16 @@ export class TripService {
         try {
           if (!user.device_id) continue;
 
-          const userLang = user.lang || 'en';
+          // Normalize user language to ensure it matches i18n format (lowercase)
+          const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';
+          // Ensure it's a valid language ('en' or 'fr'), default to 'en'
+          const normalizedUserLang = userLang === 'fr' ? 'fr' : 'en';
 
           // Translate notification title and body to user's language
           const notificationTitle = await this.i18n.translate(
             'translation.trip.create.newTripNotification.title',
             {
-              lang: userLang,
+              lang: normalizedUserLang,
               defaultValue: 'New Trip Available',
             },
           );
@@ -3406,7 +3514,7 @@ export class TripService {
           const notificationBody = await this.i18n.translate(
             'translation.trip.create.newTripNotification.body',
             {
-              lang: userLang,
+              lang: normalizedUserLang,
               defaultValue: `A new trip from ${departureLocation} to ${destinationLocation} is now available`,
               args: {
                 departure: departureLocation,
@@ -3415,7 +3523,7 @@ export class TripService {
             },
           );
 
-          // Send push notification
+          // Send push notification with user's language
           await this.notificationService.sendPushNotification(
             {
               deviceId: user.device_id,
@@ -3426,7 +3534,7 @@ export class TripService {
                 type: 'NEW_TRIP',
               },
             },
-            userLang,
+            normalizedUserLang,
           );
         } catch (error) {
           // Log error but continue with other users

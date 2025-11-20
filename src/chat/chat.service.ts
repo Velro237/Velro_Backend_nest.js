@@ -235,6 +235,14 @@ export class ChatService {
       const { page = 1, limit = 10, search } = query;
       const skip = (page - 1) * limit;
 
+      // Check if user is admin
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+
+      const isAdmin = user?.role === 'ADMIN';
+
       // Try to get from cache first
       const cacheKey = `user:${userId}:chats:${page}:${limit}:${search || ''}`;
       const cachedResult = await this.redis.getChatCacheEx(cacheKey);
@@ -249,6 +257,15 @@ export class ChatService {
           },
         },
       };
+
+      // If admin, show only SUPPORT chats. If regular user, exclude SUPPORT chats
+      if (isAdmin) {
+        whereClause.type = 'SUPPORT';
+      } else {
+        whereClause.type = {
+          not: 'SUPPORT',
+        };
+      }
 
       if (search) {
         whereClause.name = {
@@ -1770,13 +1787,25 @@ export class ChatService {
         (member) => member.user_id !== senderId,
       );
 
+      // Get chat information to check if it's a SUPPORT chat
+      const chat = await this.prisma.chat.findUnique({
+        where: { id: chatId },
+        select: { type: true },
+      });
+
       // Get sender information for the notification
       const sender = await this.prisma.user.findUnique({
         where: { id: senderId },
-        select: { id: true, name: true, email: true },
+        select: { id: true, name: true, email: true, role: true },
       });
 
       if (!sender) return;
+
+      // Determine notification type: SUPPORT if chat is SUPPORT type and sender is admin, otherwise CHAT_MESSAGE
+      const notificationType =
+        chat?.type === 'SUPPORT' && sender.role === 'ADMIN'
+          ? 'SUPPORT'
+          : 'CHAT_MESSAGE';
 
       // Send push notification to each other member
       for (const member of otherMembers) {
@@ -1789,14 +1818,16 @@ export class ChatService {
 
           if (!user || !user.device_id) continue;
 
-          // Get user's language preference
-          const userLang = user.lang || 'en';
+          // Get user's language preference and normalize it
+          const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';
+          // Ensure it's a valid language ('en' or 'fr'), default to 'en'
+          const normalizedUserLang = userLang === 'fr' ? 'fr' : 'en';
 
           // Translate notification title and body to user's language
           const notificationTitle = await this.i18n.translate(
             'translation.notification.chat.newMessage.title',
             {
-              lang: userLang,
+              lang: normalizedUserLang,
               defaultValue: `New message from ${sender.name || sender.email}`,
               args: {
                 senderName: sender.name || sender.email,
@@ -1822,7 +1853,7 @@ export class ChatService {
             messageContent = await this.i18n.translate(
               'translation.notification.chat.newMessage.newMessageDefault',
               {
-                lang: userLang,
+                lang: normalizedUserLang,
                 defaultValue: 'New message',
               },
             );
@@ -1831,7 +1862,7 @@ export class ChatService {
           // Send message content directly in body (no translation)
           const notificationBody = messageContent;
 
-          // Send push notification
+          // Send push notification with user's language
           await this.notificationService.sendPushNotification(
             {
               deviceId: user.device_id,
@@ -1842,10 +1873,10 @@ export class ChatService {
                 messageId: message.id,
                 senderId: sender.id,
                 senderName: sender.name || sender.email,
-                type: 'CHAT_MESSAGE',
+                type: notificationType,
               },
             },
-            userLang,
+            normalizedUserLang,
           );
         } catch (error) {
           // Log error but don't fail the message creation
@@ -1861,6 +1892,404 @@ export class ChatService {
         `Failed to send push notifications for chat ${chatId}:`,
         error,
       );
+    }
+  }
+
+  /**
+   * Get or create support chat between user and admin
+   * User can only have one support chat
+   */
+  async getSupportChat(
+    userId: string,
+    lang?: string,
+  ): Promise<GetChatsResponseDto> {
+    try {
+      // Find existing support chat for this user
+      let supportChat = await this.prisma.chat.findFirst({
+        where: {
+          type: 'SUPPORT',
+          members: {
+            some: {
+              user_id: userId,
+            },
+          },
+        },
+        include: {
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  role: true,
+                  picture: true,
+                },
+              },
+            },
+          },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  picture: true,
+                },
+              },
+            },
+          },
+          trip: {
+            select: {
+              id: true,
+              pickup: true,
+              departure: true,
+              destination: true,
+              departure_date: true,
+              departure_time: true,
+              currency: true,
+              airline_id: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          request: {
+            select: {
+              id: true,
+              status: true,
+              cost: true,
+              currency: true,
+              created_at: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  picture: true,
+                },
+              },
+              request_items: {
+                select: {
+                  quantity: true,
+                },
+              },
+            },
+          },
+          _count: {
+            select: {
+              messages: {
+                where: {
+                  isRead: false,
+                  sender_id: { not: userId },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // If no support chat exists, create one
+      if (!supportChat) {
+        // Find an admin user
+        const adminUser = await this.prisma.user.findFirst({
+          where: { role: 'ADMIN' },
+          select: { id: true, email: true, name: true },
+        });
+
+        if (!adminUser) {
+          const message = await this.i18n.translate(
+            'translation.chat.support.noAdmin',
+            {
+              lang,
+              defaultValue: 'No admin user found. Please contact support.',
+            },
+          );
+          throw new NotFoundException(message);
+        }
+
+        // Create support chat
+        supportChat = await this.prisma.chat.create({
+          data: {
+            type: 'SUPPORT',
+            name: 'Support',
+            members: {
+              create: [{ user_id: userId }, { user_id: adminUser.id }],
+            },
+          },
+          include: {
+            members: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    role: true,
+                    picture: true,
+                  },
+                },
+              },
+            },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              include: {
+                sender: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    picture: true,
+                  },
+                },
+              },
+            },
+            trip: {
+              select: {
+                id: true,
+                pickup: true,
+                departure: true,
+                destination: true,
+                departure_date: true,
+                departure_time: true,
+                currency: true,
+                airline_id: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+            request: {
+              select: {
+                id: true,
+                status: true,
+                cost: true,
+                currency: true,
+                created_at: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    picture: true,
+                  },
+                },
+                request_items: {
+                  select: {
+                    quantity: true,
+                  },
+                },
+              },
+            },
+            _count: {
+              select: {
+                messages: {
+                  where: {
+                    isRead: false,
+                    sender_id: { not: userId },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        // Invalidate cache for user chats (clear all chat-related cache for this user)
+        // The cache will be refreshed on next getChats call
+      }
+
+      // Transform to ChatSummaryDto format (same as getChats)
+      const lastMsg = supportChat.messages[0];
+      let messageData: Record<string, any> | null = null;
+      if (lastMsg?.data) {
+        try {
+          messageData =
+            typeof lastMsg.data === 'object' &&
+            lastMsg.data !== null &&
+            !Array.isArray(lastMsg.data)
+              ? (lastMsg.data as Record<string, any>)
+              : null;
+        } catch (e) {
+          messageData = null;
+        }
+      }
+
+      const chatSummary: ChatSummaryDto = {
+        id: supportChat.id,
+        name: supportChat.name,
+        lastMessage: lastMsg
+          ? {
+              id: lastMsg.id,
+              content: lastMsg.content || null,
+              type: lastMsg.type,
+              imageUrls: messageData?.imageUrls || null,
+              data: messageData,
+              createdAt: lastMsg.createdAt,
+              sender: lastMsg.sender
+                ? {
+                    id: lastMsg.sender.id,
+                    email: lastMsg.sender.email || '',
+                    name: lastMsg.sender.name || '',
+                    picture: lastMsg.sender.picture || null,
+                  }
+                : null,
+            }
+          : null,
+        lastMessageAt: lastMsg?.createdAt || null,
+        unreadCount: supportChat._count.messages,
+        members: supportChat.members.map((member) => ({
+          id: member.user.id,
+          email: member.user.email,
+          name: member.user.name,
+          role: member.user.role,
+          picture: member.user.picture,
+        })),
+        createdAt: supportChat.createdAt,
+        trip: supportChat.trip
+          ? {
+              id: supportChat.trip.id,
+              pickup: supportChat.trip.pickup,
+              departure: supportChat.trip.departure,
+              destination: supportChat.trip.destination,
+              departure_date: supportChat.trip.departure_date,
+              departure_time: supportChat.trip.departure_time,
+              currency: supportChat.trip.currency,
+              airline_id: supportChat.trip.airline_id,
+              user: supportChat.trip.user
+                ? {
+                    id: supportChat.trip.user.id,
+                    email: supportChat.trip.user.email,
+                  }
+                : undefined,
+            }
+          : undefined,
+        request: supportChat.request
+          ? {
+              id: supportChat.request.id,
+              status: supportChat.request.status,
+              cost: supportChat.request.cost
+                ? Number(supportChat.request.cost)
+                : null,
+              currency: supportChat.request.currency,
+              created_at: supportChat.request.created_at,
+              availableKgs: supportChat.request.request_items
+                ? supportChat.request.request_items.reduce(
+                    (total, item) => total + item.quantity,
+                    0,
+                  )
+                : 0,
+              user: supportChat.request.user
+                ? {
+                    id: supportChat.request.user.id,
+                    email: supportChat.request.user.email,
+                    name: supportChat.request.user.name,
+                    picture: supportChat.request.user.picture,
+                  }
+                : undefined,
+            }
+          : undefined,
+      };
+
+      const message = await this.i18n.translate(
+        'translation.chat.support.success',
+        {
+          lang,
+          defaultValue: 'Support chat retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        chats: [chatSummary],
+        pagination: {
+          page: 1,
+          limit: 1,
+          total: 1,
+          totalPages: 1,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.chat.support.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve support chat',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get messages from support chat
+   */
+  async getSupportMessages(
+    userId: string,
+    query: GetMessagesQueryDto,
+    lang?: string,
+  ): Promise<GetMessagesResponseDto> {
+    try {
+      // Find user's support chat
+      const supportChat = await this.prisma.chat.findFirst({
+        where: {
+          type: 'SUPPORT',
+          members: {
+            some: {
+              user_id: userId,
+            },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (!supportChat) {
+        const message = await this.i18n.translate(
+          'translation.chat.support.notFound',
+          {
+            lang,
+            defaultValue: 'Support chat not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Use the existing getMessages method with the support chat ID
+      const messagesQuery: GetMessagesQueryDto = {
+        ...query,
+        chatId: supportChat.id,
+      };
+
+      return this.getMessages(userId, messagesQuery, lang);
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException
+      ) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.chat.support.messages.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve support messages',
+        },
+      );
+      throw new InternalServerErrorException(message);
     }
   }
 }

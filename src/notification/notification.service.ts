@@ -41,6 +41,17 @@ export class NotificationService {
     @Inject('FIREBASE_ADMIN') private readonly firebaseAdmin: any,
   ) {}
 
+  /**
+   * Normalize and validate user language for i18n
+   * Ensures language is lowercase and valid ('en' or 'fr')
+   */
+  private normalizeLanguage(lang: string | null | undefined): string {
+    if (!lang) return 'en';
+    const normalized = lang.toLowerCase().trim();
+    // Only allow 'en' or 'fr', default to 'en' if invalid
+    return normalized === 'fr' ? 'fr' : 'en';
+  }
+
   async createNotification(
     createNotificationDto: CreateNotificationDto,
     lang: string,
@@ -454,11 +465,14 @@ export class NotificationService {
     notificationDto: SendPushNotificationDto,
     lang: string = 'en',
   ): Promise<SendPushNotificationResponseDto> {
+    // Normalize language to ensure it matches user's language preference
+    const normalizedLang = this.normalizeLanguage(lang);
+
     if (!Expo.isExpoPushToken(notificationDto.deviceId)) {
       this.logger.error(`Invalid Expo push token: ${notificationDto.deviceId}`);
       const message = await this.i18n.translate(
         'translation.notification.push.failed',
-        { lang },
+        { lang: normalizedLang },
       );
       throw new BadRequestException(message);
     }
@@ -485,7 +499,7 @@ export class NotificationService {
         this.logger.error('Push send error:', error);
         const message = await this.i18n.translate(
           'translation.notification.push.failed',
-          { lang },
+          { lang: normalizedLang },
         );
         throw new InternalServerErrorException(message);
       }
@@ -493,7 +507,7 @@ export class NotificationService {
 
     const message = await this.i18n.translate(
       'translation.notification.push.sent',
-      { lang },
+      { lang: normalizedLang },
     );
 
     return {

@@ -205,24 +205,28 @@ export class SchedulerService {
    */
   private async createAlertNotification(alert: any, trip: any): Promise<void> {
     try {
-      // Get alert user's language preference
+      // Get alert user's language preference and normalize it
       const alertUser = await this.prisma.user.findUnique({
         where: { id: alert.user_id },
         select: { id: true, lang: true },
       });
-      const userLang = alertUser?.lang || 'en';
+      const userLangRaw = alertUser?.lang || 'en';
+      // Normalize language to ensure it matches i18n format (lowercase)
+      const userLang = userLangRaw ? userLangRaw.toLowerCase().trim() : 'en';
+      // Ensure it's a valid language ('en' or 'fr'), default to 'en'
+      const normalizedUserLang = userLang === 'fr' ? 'fr' : 'en';
 
       const title = await this.i18n.translate(
         'translation.notification.alertMatch.title',
         {
-          lang: userLang,
+          lang: normalizedUserLang,
         },
       );
 
       const message = await this.i18n.translate(
         'translation.notification.alertMatch.message',
         {
-          lang: userLang,
+          lang: normalizedUserLang,
           args: {
             tripCreator: trip.user.name || 'Unknown',
             departure:
@@ -250,10 +254,10 @@ export class SchedulerService {
             departureTime: trip.departure_time,
           },
         },
-        userLang,
+        normalizedUserLang,
       );
 
-      // Send push notification if user has device_id
+      // Send push notification if user has device_id (with user's language)
       if (alert.user.device_id) {
         await this.notificationService.sendPushNotification(
           {
@@ -273,7 +277,7 @@ export class SchedulerService {
               departureDate: trip.departure_date.toISOString(),
             },
           },
-          userLang,
+          normalizedUserLang,
         );
       }
 
