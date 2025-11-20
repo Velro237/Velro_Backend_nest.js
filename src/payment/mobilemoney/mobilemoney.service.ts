@@ -1102,18 +1102,24 @@ export class MobilemoneyService {
 
           // Send notification to payer (successfully paid)
           if (payer?.device_id) {
-            const payerLang = payer.lang || 'en';
+            // Normalize payer language to ensure it matches i18n format
+            const payerLangRaw = payer.lang || 'en';
+            const payerLang = payerLangRaw
+              ? payerLangRaw.toLowerCase().trim()
+              : 'en';
+            const normalizedPayerLang = payerLang === 'fr' ? 'fr' : 'en';
+
             const payerTitle = await this.i18n.translate(
               'translation.notification.payment.success.title',
               {
-                lang: payerLang,
+                lang: normalizedPayerLang,
                 defaultValue: 'Payment Successful',
               },
             );
             const payerMessage = await this.i18n.translate(
               'translation.notification.payment.success.message',
               {
-                lang: payerLang,
+                lang: normalizedPayerLang,
                 defaultValue: 'Your payment has been successfully processed',
               },
             );
@@ -1125,24 +1131,31 @@ export class MobilemoneyService {
                 body: payerMessage,
                 data: notificationData,
               },
-              payerLang,
+              normalizedPayerLang,
             );
           }
 
           // Send notification to trip creator (received payment)
           if (tripCreatorWithLang?.device_id) {
-            const tripCreatorLang = tripCreatorWithLang.lang || 'en';
+            // Normalize trip creator language to ensure it matches i18n format
+            const tripCreatorLangRaw = tripCreatorWithLang.lang || 'en';
+            const tripCreatorLang = tripCreatorLangRaw
+              ? tripCreatorLangRaw.toLowerCase().trim()
+              : 'en';
+            const normalizedTripCreatorLang =
+              tripCreatorLang === 'fr' ? 'fr' : 'en';
+
             const tripCreatorTitle = await this.i18n.translate(
               'translation.notification.payment.received.title',
               {
-                lang: tripCreatorLang,
+                lang: normalizedTripCreatorLang,
                 defaultValue: 'Payment Received',
               },
             );
             const tripCreatorMessage = await this.i18n.translate(
               'translation.notification.payment.received.message',
               {
-                lang: tripCreatorLang,
+                lang: normalizedTripCreatorLang,
                 defaultValue: 'You have received payment for your trip',
               },
             );
@@ -1154,7 +1167,7 @@ export class MobilemoneyService {
                 body: tripCreatorMessage,
                 data: notificationData,
               },
-              tripCreatorLang,
+              normalizedTripCreatorLang,
             );
           }
         } catch (notificationError) {

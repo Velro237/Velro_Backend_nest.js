@@ -58,6 +58,14 @@ export class TripItemDto {
         url: 'https://example.com/images/electronics.jpg',
         alt_text: 'Electronics image',
       },
+      translations: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174001',
+          language: 'FR',
+          name: 'Électronique',
+          description: 'Appareils et gadgets électroniques',
+        },
+      ],
     },
   })
   trip_item: {
@@ -69,6 +77,12 @@ export class TripItemDto {
       url: string;
       alt_text?: string;
     };
+    translations?: Array<{
+      id: string;
+      language: string;
+      name: string;
+      description: string | null;
+    }>;
   };
 }
 
