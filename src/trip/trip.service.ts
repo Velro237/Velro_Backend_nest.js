@@ -1307,6 +1307,12 @@ export class TripService {
               trip_item_id: true,
               price: true,
               avalailble_kg: true,
+              prices: {
+                select: {
+                  currency: true,
+                  price: true,
+                },
+              },
               trip_item: {
                 select: {
                   id: true,
@@ -1329,6 +1335,7 @@ export class TripService {
               user_id: true,
               status: true,
               cost: true,
+              currency: true,
               message: true,
               created_at: true,
               updated_at: true,
@@ -1415,6 +1422,12 @@ export class TripService {
         trip_item_id: item.trip_item_id,
         price: Number(item.price),
         available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
+        prices: item.prices
+          ? item.prices.map((p) => ({
+              currency: p.currency,
+              price: Number(p.price),
+            }))
+          : [],
         trip_item: item.trip_item,
       }));
 
@@ -1424,6 +1437,7 @@ export class TripService {
         user_id: request.user_id,
         status: request.status,
         cost: request.cost ? Number(request.cost) : null,
+        currency: request.currency,
         message: request.message,
         created_at: request.created_at,
         updated_at: request.updated_at,

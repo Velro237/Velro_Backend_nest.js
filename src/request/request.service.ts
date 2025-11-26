@@ -517,6 +517,12 @@ export class RequestService {
               },
               trip_items: {
                 include: {
+                  prices: {
+                    select: {
+                      currency: true,
+                      price: true,
+                    },
+                  },
                   trip_item: {
                     include: {
                       image: true,
@@ -719,6 +725,12 @@ export class RequestService {
               available_kg: item.avalailble_kg
                 ? Number(item.avalailble_kg)
                 : null,
+              prices: item.prices
+                ? item.prices.map((p) => ({
+                    currency: p.currency,
+                    price: Number(p.price),
+                  }))
+                : [],
               trip_item: item.trip_item,
             })),
           },
@@ -970,6 +982,12 @@ export class RequestService {
               },
               trip_items: {
                 include: {
+                  prices: {
+                    select: {
+                      currency: true,
+                      price: true,
+                    },
+                  },
                   trip_item: {
                     include: {
                       image: true,
@@ -1029,6 +1047,7 @@ export class RequestService {
           status: request.status,
           message: request.message,
           cost: request.cost ? Number(request.cost) : null,
+          currency: request.currency,
           created_at: request.created_at,
           updated_at: request.updated_at,
           user: {
@@ -1075,6 +1094,12 @@ export class RequestService {
               available_kg: item.avalailble_kg
                 ? Number(item.avalailble_kg)
                 : null,
+              prices: item.prices
+                ? item.prices.map((p) => ({
+                    currency: p.currency,
+                    price: Number(p.price),
+                  }))
+                : [],
               trip_item: item.trip_item,
             })),
           },

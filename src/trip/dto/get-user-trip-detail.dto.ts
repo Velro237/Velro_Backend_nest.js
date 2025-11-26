@@ -1,6 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { TripStatus, RequestStatus } from 'generated/prisma/client';
 
+export class TripItemPriceDto {
+  @ApiProperty({
+    description: 'Currency code',
+    example: 'USD',
+    enum: ['XAF', 'USD', 'EUR', 'CAD'],
+  })
+  currency: string;
+
+  @ApiProperty({
+    description: 'Price in this currency',
+    example: 15.5,
+  })
+  price: number;
+}
+
 export class GetUserTripDetailResponseDto {
   @ApiProperty({
     description: 'Success message',
@@ -44,6 +59,12 @@ export class GetUserTripDetailResponseDto {
           trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
           price: 50.0,
           available_kg: 5.0,
+          prices: [
+            { currency: 'XAF', price: 30000 },
+            { currency: 'USD', price: 50.0 },
+            { currency: 'EUR', price: 45.5 },
+            { currency: 'CAD', price: 67.5 },
+          ],
           trip_item: {
             id: '123e4567-e89b-12d3-a456-426614174000',
             name: 'Documents',
@@ -62,6 +83,7 @@ export class GetUserTripDetailResponseDto {
           user_id: '123e4567-e89b-12d3-a456-426614174001',
           status: 'APPROVED',
           cost: 150.0,
+          currency: 'USD',
           message: 'Please handle with care',
           created_at: '2024-01-20T10:00:00.000Z',
           updated_at: '2024-01-20T10:00:00.000Z',
@@ -130,6 +152,7 @@ export class GetUserTripDetailResponseDto {
       trip_item_id: string;
       price: number;
       available_kg: number | null;
+      prices: TripItemPriceDto[];
       trip_item: {
         id: string;
         name: string;
@@ -146,6 +169,7 @@ export class GetUserTripDetailResponseDto {
       user_id: string;
       status: RequestStatus;
       cost: number | null;
+      currency: string | null;
       message: string | null;
       created_at: Date;
       updated_at: Date;
