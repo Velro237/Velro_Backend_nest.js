@@ -1031,6 +1031,12 @@ export class ChatService {
 
     try {
       const message = await this.prisma.$transaction(async (prisma) => {
+        // Get chat to check for ride_trip_id (within transaction)
+        const chat = await prisma.chat.findUnique({
+          where: { id: chatId },
+          select: { ride_trip_id: true },
+        });
+
         // Create the message
         const newMessage = await prisma.message.create({
           data: {
@@ -1038,8 +1044,9 @@ export class ChatService {
             sender_id: senderId,
             content,
             type,
-            request_id: requestId,
-            review_id: reviewId,
+            request_id: requestId || null,
+            review_id: reviewId || null,
+            ride_trip_id: chat?.ride_trip_id || null,
             data: messageData || null,
           },
           include: {

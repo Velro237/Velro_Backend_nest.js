@@ -1191,11 +1191,34 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         (member) => member.user_id !== senderId,
       );
 
-      // Get chat information to check if it's a SUPPORT chat
+      // Get chat information to check if it's a SUPPORT chat or ride trip chat
       const chat = await this.prisma.chat.findUnique({
         where: { id: chatId },
-        select: { type: true },
+        select: { 
+          type: true, 
+          ride_trip_id: true, 
+        },
       });
+
+      // Get ride trip separately if needed
+      let rideTrip = null;
+      if (chat?.ride_trip_id) {
+        rideTrip = await this.prisma.rideTrip.findUnique({
+          where: { id: chat.ride_trip_id },
+          select: {
+            departure_location: true,
+            arrival_location: true,
+            driver_id: true,
+            driver: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        });
+      }
 
       // Get sender information for the notification
       const sender = await this.prisma.user.findUnique({
@@ -1227,6 +1250,39 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           // Ensure it's a valid language ('en' or 'fr'), default to 'en'
           const normalizedUserLang = userLang === 'fr' ? 'fr' : 'en';
 
+          // Translate notification title to user's language
+          let notificationTitle = await this.i18n.translate(
+            'translation.notification.chat.newMessage.title',
+            {
+              lang: normalizedUserLang,
+              defaultValue: `New message from ${sender.name || sender.email}`,
+              args: {
+                senderName: sender.name || sender.email,
+              },
+            },
+          );
+
+          // Override title for ride trip chats
+          if (chat?.ride_trip_id && rideTrip) {
+            const departureLoc = rideTrip.departure_location as any;
+            const arrivalLoc = rideTrip.arrival_location as any;
+            const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
+            const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
+            const routeText = `${departureName} → ${arrivalName}`;
+            const tripUserName = rideTrip.driver_id === senderId
+              ? (rideTrip.driver?.name || rideTrip.driver?.email || 'Driver')
+              : (sender.name || sender.email);
+
+            notificationTitle = await this.i18n.translate(
+              'translation.notification.chat.newMessage.rideTrip.title',
+              {
+                lang: normalizedUserLang,
+                defaultValue: `New message from ${tripUserName} about your trip ${routeText}`,
+                args: { senderName: tripUserName, route: routeText },
+              },
+            );
+          }
+
           // Prepare message content for notification - send message directly without translation
           let messageContent = message.content || '';
           const imageCount = message.imageUrls?.length || 0;
@@ -1251,34 +1307,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             );
           }
 
-          // Translate notification title to user's language
-          const notificationTitle = await this.i18n.translate(
-            'translation.notification.chat.newMessage.title',
-            {
-              lang: normalizedUserLang,
-              defaultValue: `New message from ${sender.name || sender.email}`,
-              args: {
-                senderName: sender.name || sender.email,
-              },
-            },
-          );
+          // Build notification data
+          const notificationData: any = {
+            chatId,
+            messageId: message.id,
+            senderId: sender.id,
+            senderName: sender.name || sender.email,
+            type: notificationType,
+          };
 
-          // Send message content directly in body (no translation)
-          const notificationBody = messageContent;
+            // Add ride trip info if it's a ride trip
+            if (chat?.ride_trip_id && rideTrip) {
+              const departureLoc = rideTrip.departure_location as any;
+              const arrivalLoc = rideTrip.arrival_location as any;
+              const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
+              const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
+              const routeText = `${departureName} → ${arrivalName}`;
+              notificationData.ride_trip_id = chat.ride_trip_id;
+              notificationData.route = routeText;
+            }
 
-          // Send push notification with user's language
+          // Send push notification
           await this.notificationService.sendPushNotification(
             {
               deviceId: user.device_id,
               title: notificationTitle,
-              body: notificationBody,
-              data: {
-                chatId,
-                messageId: message.id,
-                senderId: sender.id,
-                senderName: sender.name || sender.email,
-                type: notificationType,
-              },
+              body: messageContent,
+              data: notificationData,
             },
             normalizedUserLang,
           );
