@@ -172,6 +172,32 @@ export class GetMessagesResponseDto {
                   nullable: true,
                   example: 'img_123',
                 },
+                translations: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      language: { type: 'string', example: 'en' },
+                      name: { type: 'string' },
+                      description: { type: 'string', nullable: true },
+                    },
+                  },
+                  example: [
+                    {
+                      id: '123e4567-e89b-12d3-a456-426614174021',
+                      language: 'en',
+                      name: 'Electronics',
+                      description: 'Electronic devices and gadgets',
+                    },
+                    {
+                      id: '123e4567-e89b-12d3-a456-426614174022',
+                      language: 'fr',
+                      name: 'Électronique',
+                      description: 'Appareils électroniques',
+                    },
+                  ],
+                },
               },
             },
           },
@@ -213,6 +239,12 @@ export class GetMessagesResponseDto {
         name: string;
         description?: string | null;
         image_id?: string | null;
+        translations?: Array<{
+          id: string;
+          language: string;
+          name: string;
+          description: string | null;
+        }>;
       };
     }>;
   };

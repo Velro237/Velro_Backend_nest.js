@@ -74,6 +74,20 @@ export class GetUserTripDetailResponseDto {
               url: 'https://example.com/image.jpg',
               alt_text: 'Documents icon',
             },
+            translations: [
+              {
+                id: '123e4567-e89b-12d3-a456-426614174001',
+                language: 'en',
+                name: 'Documents',
+                description: 'Letters and documents',
+              },
+              {
+                id: '123e4567-e89b-12d3-a456-426614174002',
+                language: 'fr',
+                name: 'Documents',
+                description: 'Lettres et documents',
+              },
+            ],
           },
         },
       ],
@@ -134,6 +148,7 @@ export class GetUserTripDetailResponseDto {
       ],
       available_earnings: 300.0,
       hold_earnings: 100.0,
+      earnings_currency: 'XAF',
       booked_kg: 12.5,
       available_kg: 37.5,
       total_kg: 50.0,
@@ -182,6 +197,12 @@ export class GetUserTripDetailResponseDto {
           url: string;
           alt_text: string | null;
         } | null;
+        translations: Array<{
+          id: string;
+          language: string;
+          name: string;
+          description: string | null;
+        }>;
       };
     }>;
     requests: Array<{
@@ -224,6 +245,7 @@ export class GetUserTripDetailResponseDto {
     }>;
     available_earnings: number;
     hold_earnings: number;
+    earnings_currency: string;
     booked_kg: number;
     available_kg: number;
     total_kg: number;

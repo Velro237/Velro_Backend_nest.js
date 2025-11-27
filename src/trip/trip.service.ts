@@ -1131,6 +1131,13 @@ export class TripService {
       const { status, page = 1, limit = 10 } = query;
       const skip = (page - 1) * limit;
 
+      // Fetch user's currency
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { currency: true },
+      });
+      const userCurrency = (user?.currency || 'XAF') as Currency;
+
       // Build where clause
       const whereClause: any = {
         user_id: userId,
@@ -1179,6 +1186,7 @@ export class TripService {
               },
               select: {
                 amount_paid: true,
+                currency: true,
               },
             },
           },
@@ -1201,11 +1209,33 @@ export class TripService {
         const average_rating =
           trip.ratings.length > 0 ? ratingsSum / trip.ratings.length : 0;
 
-        // Calculate total payment
-        const total_payment = trip.transactions.reduce(
-          (sum, transaction) => sum + Number(transaction.amount_paid),
-          0,
-        );
+        // Calculate total payment by converting all transactions to user's currency
+        const total_payment = trip.transactions.reduce((sum, transaction) => {
+          const transactionAmount = Number(transaction.amount_paid);
+          const transactionCurrency = transaction.currency as Currency;
+
+          // Convert to user's currency if different
+          if (transactionCurrency !== userCurrency) {
+            try {
+              const conversion = this.currencyService.convertCurrency(
+                transactionAmount,
+                transactionCurrency,
+                userCurrency,
+              );
+              return sum + conversion.convertedAmount;
+            } catch (conversionError) {
+              console.error(
+                `Failed to convert currency for transaction:`,
+                conversionError,
+              );
+              // If conversion fails, skip this transaction
+              return sum;
+            }
+          }
+
+          // Same currency, add directly
+          return sum + transactionAmount;
+        }, 0);
 
         return {
           id: trip.id,
@@ -1220,6 +1250,7 @@ export class TripService {
           ratings: trip.ratings,
           average_rating: Number(average_rating.toFixed(2)),
           total_payment: Number(total_payment.toFixed(2)),
+          currency: userCurrency,
           createdAt: trip.createdAt,
         };
       });
@@ -1266,6 +1297,13 @@ export class TripService {
     lang?: string,
   ): Promise<GetUserTripDetailResponseDto> {
     try {
+      // Fetch user's currency
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { currency: true },
+      });
+      const userCurrency = (user?.currency || 'XAF') as Currency;
+
       // Fetch the trip with all relations
       const trip: any = await this.prisma.trip.findUnique({
         where: { id: tripId },
@@ -1323,6 +1361,14 @@ export class TripService {
                       id: true,
                       url: true,
                       alt_text: true,
+                    },
+                  },
+                  translations: {
+                    select: {
+                      id: true,
+                      language: true,
+                      name: true,
+                      description: true,
                     },
                   },
                 },
@@ -1387,6 +1433,7 @@ export class TripService {
             select: {
               amount_paid: true,
               status: true,
+              currency: true,
             },
           },
         },
@@ -1415,15 +1462,65 @@ export class TripService {
         throw new ForbiddenException(message);
       }
 
-      // Calculate available_earnings (SUCCESS + COMPLETED)
+      // Calculate available_earnings (SUCCESS + COMPLETED) by converting to user's currency
       const available_earnings = trip.transactions
         .filter((t) => t.status === 'SUCCESS' || t.status === 'COMPLETED')
-        .reduce((sum, t) => sum + Number(t.amount_paid), 0);
+        .reduce((sum, t) => {
+          const transactionAmount = Number(t.amount_paid);
+          const transactionCurrency = t.currency as Currency;
 
-      // Calculate hold_earnings (ONHOLD)
+          // Convert to user's currency if different
+          if (transactionCurrency !== userCurrency) {
+            try {
+              const conversion = this.currencyService.convertCurrency(
+                transactionAmount,
+                transactionCurrency,
+                userCurrency,
+              );
+              return sum + conversion.convertedAmount;
+            } catch (conversionError) {
+              console.error(
+                `Failed to convert currency for transaction:`,
+                conversionError,
+              );
+              // If conversion fails, skip this transaction
+              return sum;
+            }
+          }
+
+          // Same currency, add directly
+          return sum + transactionAmount;
+        }, 0);
+
+      // Calculate hold_earnings (ONHOLD) by converting to user's currency
       const hold_earnings = trip.transactions
         .filter((t) => t.status === 'ONHOLD')
-        .reduce((sum, t) => sum + Number(t.amount_paid), 0);
+        .reduce((sum, t) => {
+          const transactionAmount = Number(t.amount_paid);
+          const transactionCurrency = t.currency as Currency;
+
+          // Convert to user's currency if different
+          if (transactionCurrency !== userCurrency) {
+            try {
+              const conversion = this.currencyService.convertCurrency(
+                transactionAmount,
+                transactionCurrency,
+                userCurrency,
+              );
+              return sum + conversion.convertedAmount;
+            } catch (conversionError) {
+              console.error(
+                `Failed to convert currency for transaction:`,
+                conversionError,
+              );
+              // If conversion fails, skip this transaction
+              return sum;
+            }
+          }
+
+          // Same currency, add directly
+          return sum + transactionAmount;
+        }, 0);
 
       // Transform trip items
       const tripItems = trip.trip_items.map((item) => ({
@@ -1436,7 +1533,12 @@ export class TripService {
               price: Number(p.price),
             }))
           : [],
-        trip_item: item.trip_item,
+        trip_item: item.trip_item
+          ? {
+              ...item.trip_item,
+              translations: item.trip_item.translations || [],
+            }
+          : null,
       }));
 
       // Create a map of trip_item_id -> prices for quick lookup
@@ -1539,6 +1641,7 @@ export class TripService {
           requests,
           available_earnings: Number(available_earnings.toFixed(2)),
           hold_earnings: Number(hold_earnings.toFixed(2)),
+          earnings_currency: userCurrency,
           booked_kg: Number(booked_kg.toFixed(2)),
           available_kg: Number(available_kg.toFixed(2)),
           total_kg: Number(total_kg.toFixed(2)),
