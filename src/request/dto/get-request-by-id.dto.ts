@@ -1,6 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { TripItemDetailsDto } from '../../shared/dto/common.dto';
 
+export class TripItemPriceDto {
+  @ApiProperty({
+    description: 'Currency code',
+    example: 'USD',
+    enum: ['XAF', 'USD', 'EUR', 'CAD'],
+  })
+  currency: string;
+
+  @ApiProperty({
+    description: 'Price in this currency',
+    example: 15.5,
+  })
+  price: number;
+}
+
 export class GetRequestByIdResponseDto {
   @ApiProperty({
     description: 'Success message',
@@ -17,6 +32,7 @@ export class GetRequestByIdResponseDto {
       status: 'PENDING',
       message: 'I would like to request these items',
       cost: 31.98,
+      currency: 'USD',
       created_at: '2024-01-15T10:30:00.000Z',
       updated_at: '2024-01-15T10:30:00.000Z',
       user: {
@@ -98,6 +114,12 @@ export class GetRequestByIdResponseDto {
             trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
             price: 15.99,
             available_kg: 5.0,
+            prices: [
+              { currency: 'XAF', price: 9600 },
+              { currency: 'USD', price: 15.99 },
+              { currency: 'EUR', price: 14.5 },
+              { currency: 'CAD', price: 21.5 },
+            ],
             trip_item: {
               id: '123e4567-e89b-12d3-a456-426614174000',
               name: 'Electronics',
@@ -139,14 +161,15 @@ export class GetRequestByIdResponseDto {
     },
   })
   request: {
-    id: string;
-    trip_id: string;
-    user_id: string;
-    status: string;
-    message?: string;
-    cost?: number;
-    created_at: Date;
-    updated_at: Date;
+      id: string;
+      trip_id: string;
+      user_id: string;
+      status: string;
+      message?: string;
+      cost?: number;
+      currency?: string | null;
+      created_at: Date;
+      updated_at: Date;
     user: {
       id: string;
       email: string;
@@ -209,6 +232,7 @@ export class GetRequestByIdResponseDto {
         trip_item_id: string;
         price: number;
         available_kg?: number;
+        prices: TripItemPriceDto[];
         trip_item: TripItemDetailsDto;
       }[];
     };

@@ -506,6 +506,7 @@ export class TripController {
               ],
               average_rating: 4.5,
               total_payment: 250.0,
+              currency: 'XAF',
               createdAt: '2024-01-15T10:00:00.000Z',
             },
           ],
@@ -561,7 +562,7 @@ export class TripController {
     summary:
       'Get detailed information about a specific trip created by the user',
     description:
-      'Retrieve complete trip details including trip items with all data, all trip requests (with requesting user info, items requested with full details, status, and cost), fully_booked status, available_earnings (sum of SUCCESS and COMPLETED transactions), and hold_earnings (sum of ONHOLD transactions). Only the trip owner can access this endpoint.',
+      "Retrieve complete trip details including trip items with all data, all trip requests (with requesting user info, items requested with full details, status, and cost), fully_booked status, available_earnings (sum of SUCCESS and COMPLETED transactions converted to user's currency), and hold_earnings (sum of ONHOLD transactions converted to user's currency). Only the trip owner can access this endpoint.",
   })
   @ApiParam({
     name: 'id',
@@ -674,6 +675,7 @@ export class TripController {
             ],
             available_earnings: 300.0,
             hold_earnings: 100.0,
+            earnings_currency: 'XAF',
           },
         },
       },

@@ -71,6 +71,7 @@ export class GetUserTripsResponseDto {
         ],
         average_rating: 4.5,
         total_payment: 150.0,
+        currency: 'XAF',
         createdAt: '2024-01-15T10:00:00.000Z',
       },
     ],
@@ -97,6 +98,7 @@ export class GetUserTripsResponseDto {
     }>;
     average_rating: number;
     total_payment: number;
+    currency: string;
     createdAt: Date;
   }>;
 

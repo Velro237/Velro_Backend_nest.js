@@ -162,6 +162,13 @@ export class UserInfoDto {
   email: string;
 
   @ApiProperty({
+    description: 'User username',
+    example: 'johndoe',
+    required: false,
+  })
+  username: string | null;
+
+  @ApiProperty({
     description: 'User role',
     example: 'USER',
     enum: ['USER', 'ADMIN'],

@@ -14,6 +14,21 @@ import {
   TripItemDetailsDto,
 } from '../../shared/dto/common.dto';
 
+export class TripItemPriceDto {
+  @ApiProperty({
+    description: 'Currency code',
+    example: 'USD',
+    enum: ['XAF', 'USD', 'EUR', 'CAD'],
+  })
+  currency: string;
+
+  @ApiProperty({
+    description: 'Price in this currency',
+    example: 15.5,
+  })
+  price: number;
+}
+
 export class TripRequestItemDto {
   @ApiProperty({
     description: 'Trip item ID',
@@ -289,6 +304,7 @@ export class CreateTripRequestResponseDto {
         trip_item_id: string;
         price: number;
         available_kg?: number;
+        prices: TripItemPriceDto[];
         trip_item: TripItemDetailsDto;
       }[];
     };

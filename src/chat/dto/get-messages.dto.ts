@@ -172,6 +172,32 @@ export class GetMessagesResponseDto {
                   nullable: true,
                   example: 'img_123',
                 },
+                translations: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      language: { type: 'string', example: 'en' },
+                      name: { type: 'string' },
+                      description: { type: 'string', nullable: true },
+                    },
+                  },
+                  example: [
+                    {
+                      id: '123e4567-e89b-12d3-a456-426614174021',
+                      language: 'en',
+                      name: 'Electronics',
+                      description: 'Electronic devices and gadgets',
+                    },
+                    {
+                      id: '123e4567-e89b-12d3-a456-426614174022',
+                      language: 'fr',
+                      name: 'Électronique',
+                      description: 'Appareils électroniques',
+                    },
+                  ],
+                },
               },
             },
           },
@@ -213,6 +239,12 @@ export class GetMessagesResponseDto {
         name: string;
         description?: string | null;
         image_id?: string | null;
+        translations?: Array<{
+          id: string;
+          language: string;
+          name: string;
+          description: string | null;
+        }>;
       };
     }>;
   };
@@ -314,7 +346,8 @@ export class GetMessagesResponseDto {
               type: 'string',
               format: 'date-time',
               nullable: true,
-              description: 'Last time this member viewed the chat',
+              description:
+                'Last time this member was active (general, not per chat)',
               example: '2024-01-15T10:30:00.000Z',
             },
             average_message_response_time: {

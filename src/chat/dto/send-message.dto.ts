@@ -185,6 +185,15 @@ export class MessageResponseDto {
         id: string;
         name: string;
         description: string | null;
+        image_id?: string | null;
+        createdAt?: Date;
+        updatedAt?: Date;
+        translations?: Array<{
+          id: string;
+          language: string;
+          name: string;
+          description: string | null;
+        }>;
       };
     }>;
     user?: {

@@ -19,6 +19,7 @@ import {
   MessageType as PrismaMessageType,
   UserRole,
   Currency,
+  NotificationType,
 } from 'generated/prisma';
 import { MessageType } from '../chat/dto/send-message.dto';
 import {
@@ -516,6 +517,12 @@ export class RequestService {
               },
               trip_items: {
                 include: {
+                  prices: {
+                    select: {
+                      currency: true,
+                      price: true,
+                    },
+                  },
                   trip_item: {
                     include: {
                       image: true,
@@ -718,6 +725,12 @@ export class RequestService {
               available_kg: item.avalailble_kg
                 ? Number(item.avalailble_kg)
                 : null,
+              prices: item.prices
+                ? item.prices.map((p) => ({
+                    currency: p.currency,
+                    price: Number(p.price),
+                  }))
+                : [],
               trip_item: item.trip_item,
             })),
           },
@@ -969,6 +982,12 @@ export class RequestService {
               },
               trip_items: {
                 include: {
+                  prices: {
+                    select: {
+                      currency: true,
+                      price: true,
+                    },
+                  },
                   trip_item: {
                     include: {
                       image: true,
@@ -1028,6 +1047,7 @@ export class RequestService {
           status: request.status,
           message: request.message,
           cost: request.cost ? Number(request.cost) : null,
+          currency: request.currency,
           created_at: request.created_at,
           updated_at: request.updated_at,
           user: {
@@ -1074,6 +1094,12 @@ export class RequestService {
               available_kg: item.avalailble_kg
                 ? Number(item.avalailble_kg)
                 : null,
+              prices: item.prices
+                ? item.prices.map((p) => ({
+                    currency: p.currency,
+                    price: Number(p.price),
+                  }))
+                : [],
               trip_item: item.trip_item,
             })),
           },
@@ -1914,6 +1940,60 @@ export class RequestService {
         try {
           await this.walletService.moveToAvailable(orderId);
           earningsReleased = true;
+
+          // Get traveler's language preference and device_id
+          const traveler = await this.prisma.user.findUnique({
+            where: { id: order.trip.user_id },
+            select: { lang: true, device_id: true },
+          });
+          const travelerLang = traveler?.lang || lang || 'en';
+
+          // Notification data
+          const currency = order.trip.currency || order.currency || 'XAF';
+          const amount = Number(order.cost || 0);
+          const moneyReleasedTitle = 'Money Released';
+          const moneyReleasedMessage = `Your earnings of ${currency} ${amount.toFixed(2)} from order ${order.id} have been released to your available balance!`;
+          const moneyReleasedData = {
+            type: 'money_released',
+            order_id: order.id,
+            trip_id: order.trip_id,
+            amount: amount,
+            currency: currency,
+          };
+
+          // Create in-app notification and send push notification to traveler about money being released
+          try {
+            // Create in-app notification (always)
+            await this.notificationService.createNotification(
+              {
+                user_id: order.trip.user_id, // traveler
+                title: moneyReleasedTitle,
+                message: moneyReleasedMessage,
+                type: NotificationType.REQUEST,
+                trip_id: order.trip_id,
+                request_id: order.id,
+                data: moneyReleasedData,
+              },
+              travelerLang,
+            );
+
+            // Send push notification if device_id exists
+            if (traveler?.device_id) {
+              await this.notificationService.sendPushNotificationToUser(
+                order.trip.user_id, // traveler
+                moneyReleasedTitle,
+                moneyReleasedMessage,
+                moneyReleasedData,
+                travelerLang,
+              );
+            }
+          } catch (error) {
+            console.error(
+              'Failed to create/send money released notification:',
+              error,
+            );
+            // Don't fail the confirmation if notification fails
+          }
         } catch (error) {
           console.error('Failed to release earnings:', error);
           // Don't fail the confirmation if wallet update fails
@@ -2138,6 +2218,17 @@ export class RequestService {
                   picture: true,
                 },
               },
+              trip_items: {
+                select: {
+                  trip_item_id: true,
+                  prices: {
+                    select: {
+                      currency: true,
+                      price: true,
+                    },
+                  },
+                },
+              },
             },
           },
           request_items: {
@@ -2155,6 +2246,14 @@ export class RequestService {
                       id: true,
                       url: true,
                       alt_text: true,
+                    },
+                  },
+                  translations: {
+                    select: {
+                      id: true,
+                      language: true,
+                      name: true,
+                      description: true,
                     },
                   },
                 },
@@ -2197,29 +2296,87 @@ export class RequestService {
         ]),
       );
 
+      // Get user's currency
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { currency: true },
+      });
+      const userCurrency = (user?.currency || 'XAF').toUpperCase();
+
       // Transform requests
-      const transformedRequests = requests.map((request) => ({
-        id: request.id,
-        trip_id: request.trip_id,
-        user_id: request.user_id,
-        status: request.status,
-        cost: request.cost ? Number(request.cost) : null,
-        currency: request.currency,
-        message: request.message,
-        created_at: request.created_at,
-        updated_at: request.updated_at,
-        user: request.user,
-        trip: request.trip,
-        request_items: request.request_items.map((item) => ({
-          trip_item_id: item.trip_item_id,
-          quantity: item.quantity,
-          special_notes: item.special_notes,
-          trip_item: item.trip_item,
-        })),
-        chat_info: request.chat_id
-          ? chatInfoMap.get(request.chat_id) || null
-          : null,
-      }));
+      const transformedRequests = requests.map((request) => {
+        // Create a map of trip_item_id -> prices for quick lookup
+        const tripItemPricesMap = new Map(
+          request.trip.trip_items.map((tripItem) => [
+            tripItem.trip_item_id,
+            tripItem.prices.map((p) => ({
+              currency: p.currency,
+              price: Number(p.price),
+            })),
+          ]),
+        );
+
+        // Convert cost to user's currency if needed
+        let cost = request.cost ? Number(request.cost) : null;
+        let currency: Currency | null = request.currency || ('XAF' as Currency);
+
+        if (cost && currency && currency.toUpperCase() !== userCurrency) {
+          try {
+            const conversion = this.currencyService.convertCurrency(
+              cost,
+              currency.toUpperCase(),
+              userCurrency,
+            );
+            cost = conversion.convertedAmount;
+            currency = userCurrency as Currency;
+          } catch (error) {
+            console.error(
+              `Failed to convert currency for request ${request.id}:`,
+              error,
+            );
+            // Keep original cost and currency if conversion fails
+          }
+        } else if (currency) {
+          // Ensure currency is uppercase
+          currency = currency.toUpperCase() as Currency;
+        }
+
+        return {
+          id: request.id,
+          trip_id: request.trip_id,
+          user_id: request.user_id,
+          status: request.status,
+          cost,
+          currency,
+          message: request.message,
+          created_at: request.created_at,
+          updated_at: request.updated_at,
+          user: request.user,
+          trip: {
+            id: request.trip.id,
+            departure: request.trip.departure,
+            destination: request.trip.destination,
+            departure_date: request.trip.departure_date,
+            status: request.trip.status,
+            user: request.trip.user,
+          },
+          request_items: request.request_items.map((item) => ({
+            trip_item_id: item.trip_item_id,
+            quantity: item.quantity,
+            special_notes: item.special_notes,
+            trip_item: item.trip_item
+              ? {
+                  ...item.trip_item,
+                  translations: item.trip_item.translations || [],
+                }
+              : null,
+            prices: tripItemPricesMap.get(item.trip_item_id) || [],
+          })),
+          chat_info: request.chat_id
+            ? chatInfoMap.get(request.chat_id) || null
+            : null,
+        };
+      });
 
       const message = await this.i18n.translate(
         'translation.request.getUserRequests.success',

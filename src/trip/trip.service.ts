@@ -195,6 +195,32 @@ export class TripService {
     // Set status: use DRAFT if provided, otherwise default to SCHEDULED
     const tripStatus = tripData.status || TripStatus.SCHEDULED;
 
+    // Validate that destination country is not the same as departure country
+    const departure = tripData.departure as any;
+    const destination = tripData.destination as any;
+
+    // Check if both locations have country information
+    const departureCountry = departure?.country || departure?.country_code;
+    const destinationCountry =
+      destination?.country || destination?.country_code;
+
+    // If both have country information and they match, throw error
+    if (
+      departureCountry &&
+      destinationCountry &&
+      departureCountry.toLowerCase() === destinationCountry.toLowerCase()
+    ) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.sameCountry',
+        {
+          lang,
+          defaultValue:
+            'Destination country cannot be the same as departure country',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
     try {
       // Create trip with trip items in a transaction
       const result = await this.prisma.$transaction(async (prisma) => {
@@ -1131,6 +1157,13 @@ export class TripService {
       const { status, page = 1, limit = 10 } = query;
       const skip = (page - 1) * limit;
 
+      // Fetch user's currency
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { currency: true },
+      });
+      const userCurrency = (user?.currency || 'XAF') as Currency;
+
       // Build where clause
       const whereClause: any = {
         user_id: userId,
@@ -1179,6 +1212,7 @@ export class TripService {
               },
               select: {
                 amount_paid: true,
+                currency: true,
               },
             },
           },
@@ -1201,11 +1235,33 @@ export class TripService {
         const average_rating =
           trip.ratings.length > 0 ? ratingsSum / trip.ratings.length : 0;
 
-        // Calculate total payment
-        const total_payment = trip.transactions.reduce(
-          (sum, transaction) => sum + Number(transaction.amount_paid),
-          0,
-        );
+        // Calculate total payment by converting all transactions to user's currency
+        const total_payment = trip.transactions.reduce((sum, transaction) => {
+          const transactionAmount = Number(transaction.amount_paid);
+          const transactionCurrency = transaction.currency as Currency;
+
+          // Convert to user's currency if different
+          if (transactionCurrency !== userCurrency) {
+            try {
+              const conversion = this.currencyService.convertCurrency(
+                transactionAmount,
+                transactionCurrency,
+                userCurrency,
+              );
+              return sum + conversion.convertedAmount;
+            } catch (conversionError) {
+              console.error(
+                `Failed to convert currency for transaction:`,
+                conversionError,
+              );
+              // If conversion fails, skip this transaction
+              return sum;
+            }
+          }
+
+          // Same currency, add directly
+          return sum + transactionAmount;
+        }, 0);
 
         return {
           id: trip.id,
@@ -1220,6 +1276,7 @@ export class TripService {
           ratings: trip.ratings,
           average_rating: Number(average_rating.toFixed(2)),
           total_payment: Number(total_payment.toFixed(2)),
+          currency: userCurrency,
           createdAt: trip.createdAt,
         };
       });
@@ -1266,6 +1323,13 @@ export class TripService {
     lang?: string,
   ): Promise<GetUserTripDetailResponseDto> {
     try {
+      // Fetch user's currency
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { currency: true },
+      });
+      const userCurrency = (user?.currency || 'XAF') as Currency;
+
       // Fetch the trip with all relations
       const trip: any = await this.prisma.trip.findUnique({
         where: { id: tripId },
@@ -1307,6 +1371,12 @@ export class TripService {
               trip_item_id: true,
               price: true,
               avalailble_kg: true,
+              prices: {
+                select: {
+                  currency: true,
+                  price: true,
+                },
+              },
               trip_item: {
                 select: {
                   id: true,
@@ -1319,6 +1389,14 @@ export class TripService {
                       alt_text: true,
                     },
                   },
+                  translations: {
+                    select: {
+                      id: true,
+                      language: true,
+                      name: true,
+                      description: true,
+                    },
+                  },
                 },
               },
             },
@@ -1329,6 +1407,7 @@ export class TripService {
               user_id: true,
               status: true,
               cost: true,
+              currency: true,
               message: true,
               created_at: true,
               updated_at: true,
@@ -1357,6 +1436,14 @@ export class TripService {
                           alt_text: true,
                         },
                       },
+                      translations: {
+                        select: {
+                          id: true,
+                          language: true,
+                          name: true,
+                          description: true,
+                        },
+                      },
                     },
                   },
                 },
@@ -1372,6 +1459,7 @@ export class TripService {
             select: {
               amount_paid: true,
               status: true,
+              currency: true,
             },
           },
         },
@@ -1400,23 +1488,95 @@ export class TripService {
         throw new ForbiddenException(message);
       }
 
-      // Calculate available_earnings (SUCCESS + COMPLETED)
+      // Calculate available_earnings (SUCCESS + COMPLETED) by converting to user's currency
       const available_earnings = trip.transactions
         .filter((t) => t.status === 'SUCCESS' || t.status === 'COMPLETED')
-        .reduce((sum, t) => sum + Number(t.amount_paid), 0);
+        .reduce((sum, t) => {
+          const transactionAmount = Number(t.amount_paid);
+          const transactionCurrency = t.currency as Currency;
 
-      // Calculate hold_earnings (ONHOLD)
+          // Convert to user's currency if different
+          if (transactionCurrency !== userCurrency) {
+            try {
+              const conversion = this.currencyService.convertCurrency(
+                transactionAmount,
+                transactionCurrency,
+                userCurrency,
+              );
+              return sum + conversion.convertedAmount;
+            } catch (conversionError) {
+              console.error(
+                `Failed to convert currency for transaction:`,
+                conversionError,
+              );
+              // If conversion fails, skip this transaction
+              return sum;
+            }
+          }
+
+          // Same currency, add directly
+          return sum + transactionAmount;
+        }, 0);
+
+      // Calculate hold_earnings (ONHOLD) by converting to user's currency
       const hold_earnings = trip.transactions
         .filter((t) => t.status === 'ONHOLD')
-        .reduce((sum, t) => sum + Number(t.amount_paid), 0);
+        .reduce((sum, t) => {
+          const transactionAmount = Number(t.amount_paid);
+          const transactionCurrency = t.currency as Currency;
+
+          // Convert to user's currency if different
+          if (transactionCurrency !== userCurrency) {
+            try {
+              const conversion = this.currencyService.convertCurrency(
+                transactionAmount,
+                transactionCurrency,
+                userCurrency,
+              );
+              return sum + conversion.convertedAmount;
+            } catch (conversionError) {
+              console.error(
+                `Failed to convert currency for transaction:`,
+                conversionError,
+              );
+              // If conversion fails, skip this transaction
+              return sum;
+            }
+          }
+
+          // Same currency, add directly
+          return sum + transactionAmount;
+        }, 0);
 
       // Transform trip items
       const tripItems = trip.trip_items.map((item) => ({
         trip_item_id: item.trip_item_id,
         price: Number(item.price),
         available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
-        trip_item: item.trip_item,
+        prices: item.prices
+          ? item.prices.map((p) => ({
+              currency: p.currency,
+              price: Number(p.price),
+            }))
+          : [],
+        trip_item: item.trip_item
+          ? {
+              ...item.trip_item,
+              translations: item.trip_item.translations || [],
+            }
+          : null,
       }));
+
+      // Create a map of trip_item_id -> prices for quick lookup
+      const tripItemPricesMap = new Map(
+        trip.trip_items.map((tripItem) => [
+          tripItem.trip_item_id,
+          tripItem.prices.map((p) => ({
+            currency: p.currency,
+            price: Number(p.price),
+          })),
+        ]),
+      );
 
       // Transform requests
       const requests = trip.requests.map((request) => ({
@@ -1424,6 +1584,7 @@ export class TripService {
         user_id: request.user_id,
         status: request.status,
         cost: request.cost ? Number(request.cost) : null,
+        currency: request.currency,
         message: request.message,
         created_at: request.created_at,
         updated_at: request.updated_at,
@@ -1432,7 +1593,13 @@ export class TripService {
           trip_item_id: item.trip_item_id,
           quantity: item.quantity,
           special_notes: item.special_notes,
-          trip_item: item.trip_item,
+          trip_item: item.trip_item
+            ? {
+                ...item.trip_item,
+                translations: item.trip_item.translations || [],
+              }
+            : null,
+          prices: tripItemPricesMap.get(item.trip_item_id) || [],
         })),
       }));
 
@@ -1500,6 +1667,7 @@ export class TripService {
           requests,
           available_earnings: Number(available_earnings.toFixed(2)),
           hold_earnings: Number(hold_earnings.toFixed(2)),
+          earnings_currency: userCurrency,
           booked_kg: Number(booked_kg.toFixed(2)),
           available_kg: Number(available_kg.toFixed(2)),
           total_kg: Number(total_kg.toFixed(2)),
@@ -2371,17 +2539,15 @@ export class TripService {
         (destination && destination.trim() !== '')
       ) {
         try {
-          // If both departure and destination are provided, prioritize exact city matches
+          // If both departure and destination are provided, search in both fields
           if (
             departure &&
             departure.trim() !== '' &&
             destination &&
             destination.trim() !== ''
           ) {
-            // First, try to match exact cities (region/city/address) for both departure and destination
-            // This will be handled in post-processing to prioritize exact matches
-            // For now, we'll search by country to get all matching trips
-            baseWhereClause.AND = [
+            // Search for departure matches (country, country_code, region, address)
+            const departureFilters = [
               {
                 departure: {
                   path: ['country'],
@@ -2390,11 +2556,67 @@ export class TripService {
                 },
               },
               {
+                departure: {
+                  path: ['country_code'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                departure: {
+                  path: ['region'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                departure: {
+                  path: ['address'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              },
+            ];
+
+            // Search for destination matches (country, country_code, region, address)
+            const destinationFilters = [
+              {
                 destination: {
                   path: ['country'],
                   string_contains: destination.trim(),
                   mode: 'insensitive',
                 },
+              },
+              {
+                destination: {
+                  path: ['country_code'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                destination: {
+                  path: ['region'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                destination: {
+                  path: ['address'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              },
+            ];
+
+            // Both departure AND destination must match (one of their respective filters)
+            baseWhereClause.AND = [
+              {
+                OR: departureFilters,
+              },
+              {
+                OR: destinationFilters,
               },
             ];
           } else {
@@ -2406,6 +2628,14 @@ export class TripService {
               searchFilters.push({
                 departure: {
                   path: ['country'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              });
+
+              searchFilters.push({
+                departure: {
+                  path: ['country_code'],
                   string_contains: departure.trim(),
                   mode: 'insensitive',
                 },
@@ -2440,6 +2670,14 @@ export class TripService {
 
               searchFilters.push({
                 destination: {
+                  path: ['country_code'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              });
+
+              searchFilters.push({
+                destination: {
                   path: ['region'],
                   string_contains: destination.trim(),
                   mode: 'insensitive',
@@ -2456,7 +2694,9 @@ export class TripService {
             }
 
             // Add OR condition for all search filters
-            baseWhereClause.OR = searchFilters;
+            if (searchFilters.length > 0) {
+              baseWhereClause.OR = searchFilters;
+            }
           }
         } catch (error) {
           // If search filter creation fails, log error but continue without search
@@ -2519,6 +2759,7 @@ export class TripService {
               select: {
                 id: true,
                 email: true,
+                username: true,
                 role: true,
                 isFreightForwarder: true,
                 picture: true,
@@ -2576,7 +2817,7 @@ export class TripService {
               },
             },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { departure_date: 'asc' },
           ...(shouldFetchAllForSorting ? {} : { skip, take: limit }),
         }),
         this.prisma.trip.count({ where: baseWhereClause }),
@@ -2697,8 +2938,34 @@ export class TripService {
           return destinationCountry?.toLowerCase() !== country.toLowerCase();
         });
 
+        // Sort both groups by departure_date (closest to today first)
+        countryTrips.sort((a, b) => {
+          const dateA = new Date(a.departure_date).getTime();
+          const dateB = new Date(b.departure_date).getTime();
+          return dateA - dateB;
+        });
+
+        otherTrips.sort((a, b) => {
+          const dateA = new Date(a.departure_date).getTime();
+          const dateB = new Date(b.departure_date).getTime();
+          return dateA - dateB;
+        });
+
         // Put country-specific trips at the top, then other trips
         trips = [...countryTrips, ...otherTrips];
+
+        // Apply pagination after sorting
+        const startIndex = skip;
+        const endIndex = skip + limit;
+        trips = trips.slice(startIndex, endIndex);
+      } else {
+        // No special sorting needed, but ensure trips are sorted by departure_date
+        // (already sorted by the query, but let's make sure)
+        trips.sort((a, b) => {
+          const dateA = new Date(a.departure_date).getTime();
+          const dateB = new Date(b.departure_date).getTime();
+          return dateA - dateB;
+        });
       }
 
       // Fetch chat info for all trips where user is a member (when userId provided)
@@ -2747,6 +3014,7 @@ export class TripService {
           ? {
               id: trip.user.id,
               email: trip.user.email,
+              username: trip.user.username,
               role: trip.user.role,
               isFreightForwarder: trip.user.isFreightForwarder,
               picture: trip.user.picture,

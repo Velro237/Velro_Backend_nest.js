@@ -54,6 +54,21 @@ export class GetUserRequestsQueryDto {
   limit?: number = 10;
 }
 
+export class TripItemPriceDto {
+  @ApiProperty({
+    description: 'Currency code',
+    example: 'USD',
+    enum: ['XAF', 'USD', 'EUR', 'CAD'],
+  })
+  currency: string;
+
+  @ApiProperty({
+    description: 'Price in this currency',
+    example: 15.5,
+  })
+  price: number;
+}
+
 export class UserRequestItemDto {
   @ApiProperty({
     description: 'Trip item ID',
@@ -85,6 +100,20 @@ export class UserRequestItemDto {
         url: 'https://example.com/image.jpg',
         alt_text: 'Electronics',
       },
+      translations: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174001',
+          language: 'en',
+          name: 'Electronics',
+          description: 'Electronic devices',
+        },
+        {
+          id: '123e4567-e89b-12d3-a456-426614174002',
+          language: 'fr',
+          name: 'Électronique',
+          description: 'Appareils électroniques',
+        },
+      ],
     },
   })
   trip_item: {
@@ -96,7 +125,25 @@ export class UserRequestItemDto {
       url: string;
       alt_text: string | null;
     } | null;
+    translations: Array<{
+      id: string;
+      language: string;
+      name: string;
+      description: string | null;
+    }>;
   };
+
+  @ApiProperty({
+    description: 'Prices in different currencies',
+    type: [TripItemPriceDto],
+    example: [
+      { currency: 'XAF', price: 30000 },
+      { currency: 'USD', price: 50.0 },
+      { currency: 'EUR', price: 45.5 },
+      { currency: 'CAD', price: 67.5 },
+    ],
+  })
+  prices: TripItemPriceDto[];
 }
 
 export class UserRequestDto {

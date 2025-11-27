@@ -144,6 +144,27 @@ export class ChatSummaryDto {
       id: string;
       email: string;
     };
+    trip_items?: Array<{
+      trip_item_id: string;
+      price: number | null;
+      available_kg: number | null;
+      prices: Array<{
+        currency: string;
+        price: number;
+      }>;
+      trip_item: {
+        id: string;
+        name: string;
+        description: string | null;
+        image_id: string | null;
+        translations: Array<{
+          id: string;
+          language: string;
+          name: string;
+          description: string | null;
+        }>;
+      } | null;
+    }>;
   };
 
   @ApiProperty({
@@ -162,6 +183,33 @@ export class ChatSummaryDto {
         name: 'John Doe',
         picture: 'https://example.com/avatar.jpg',
       },
+      requestItems: [
+        {
+          trip_item_id: '123e4567-e89b-12d3-a456-426614174002',
+          quantity: 5,
+          special_notes: 'Handle with care',
+          trip_item: {
+            id: '123e4567-e89b-12d3-a456-426614174002',
+            name: 'Documents',
+            description: 'Letters and documents',
+            image_id: '123e4567-e89b-12d3-a456-426614174003',
+            translations: [
+              {
+                id: '123e4567-e89b-12d3-a456-426614174004',
+                language: 'en',
+                name: 'Documents',
+                description: 'Letters and documents',
+              },
+              {
+                id: '123e4567-e89b-12d3-a456-426614174005',
+                language: 'fr',
+                name: 'Documents',
+                description: 'Lettres et documents',
+              },
+            ],
+          },
+        },
+      ],
     },
   })
   request?: {
@@ -177,6 +225,23 @@ export class ChatSummaryDto {
       name: string;
       picture: string;
     };
+    requestItems?: Array<{
+      trip_item_id: string;
+      quantity: number;
+      special_notes: string | null;
+      trip_item: {
+        id: string;
+        name: string;
+        description: string | null;
+        image_id: string | null;
+        translations: Array<{
+          id: string;
+          language: string;
+          name: string;
+          description: string | null;
+        }>;
+      } | null;
+    }>;
   };
 }
 

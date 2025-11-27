@@ -3,13 +3,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { StripeService } from '../payment/stripe.service';
 import { WalletService } from '../wallet/wallet.service';
+import { NotificationService } from '../notification/notification.service';
 import { 
   CancelRequestDto, 
   CancellationType,
   UnpaidCancellationReason,
   PaidCancellationReason,
 } from './dto/cancel-request.dto';
-import { RequestStatus, PaymentStatus } from 'generated/prisma';
+import { RequestStatus, PaymentStatus, NotificationType } from 'generated/prisma';
 
 @Injectable()
 export class CancellationService {
@@ -20,6 +21,7 @@ export class CancellationService {
     private readonly configService: ConfigService,
     private readonly stripeService: StripeService,
     private readonly walletService: WalletService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -320,11 +322,107 @@ export class CancellationService {
     // Credit traveler with compensation
     if (travelerCompensation > 0) {
       await this.creditTravelerCompensation(request.trip.user_id, travelerCompensation, request.id, currency);
+      
+      // Notify traveler about compensation
+      try {
+        const traveler = await this.prisma.user.findUnique({
+          where: { id: request.trip.user_id },
+          select: { lang: true, device_id: true },
+        });
+        const travelerLang = traveler?.lang || 'en';
+        
+        const compensationTitle = 'Cancellation Compensation';
+        const compensationMessage = `The sender cancelled the request. You've received ${currency} ${travelerCompensation.toFixed(2)} as compensation.`;
+        const compensationData = {
+          type: 'cancellation_compensation',
+          request_id: request.id,
+          trip_id: request.trip_id,
+          amount: travelerCompensation,
+          currency: currency,
+        };
+        
+        // Create in-app notification (always)
+        await this.notificationService.createNotification(
+          {
+            user_id: request.trip.user_id,
+            title: compensationTitle,
+            message: compensationMessage,
+            type: NotificationType.REQUEST,
+            trip_id: request.trip_id,
+            request_id: request.id,
+            data: compensationData,
+          },
+          travelerLang,
+        );
+        
+        // Send push notification if device_id exists
+        if (traveler?.device_id) {
+          await this.notificationService.sendPushNotificationToUser(
+            request.trip.user_id,
+            compensationTitle,
+            compensationMessage,
+            compensationData,
+            travelerLang,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to notify traveler about compensation: ${error.message}`);
+      }
     }
 
     // Record Velro fee
     if (velroFee > 0) {
       await this.recordVelroFee(velroFee, request.id, currency);
+    }
+
+    // Get sender's language preference and device_id
+    const sender = await this.prisma.user.findUnique({
+      where: { id: request.user_id },
+      select: { lang: true, device_id: true },
+    });
+    const senderLang = sender?.lang || 'en';
+    
+    // Notification data
+    const refundTitle = 'Refund Processed';
+    const refundMessage = `Your request has been cancelled. A refund of ${currency} ${refundAmount.toFixed(2)} will be processed to your payment method (cancellation fee: ${currency} ${cancellationFee.toFixed(2)}).`;
+    const refundData = {
+      type: 'refund_processed',
+      request_id: request.id,
+      trip_id: request.trip_id,
+      refund_amount: refundAmount,
+      cancellation_fee: cancellationFee,
+      currency: currency,
+    };
+    
+    // Create in-app notification and send push notification to sender about refund
+    try {
+      // Create in-app notification (always)
+      await this.notificationService.createNotification(
+        {
+          user_id: request.user_id, // sender
+          title: refundTitle,
+          message: refundMessage,
+          type: NotificationType.REQUEST,
+          trip_id: request.trip_id,
+          request_id: request.id,
+          data: refundData,
+        },
+        senderLang,
+      );
+      
+      // Send push notification if device_id exists
+      if (sender?.device_id) {
+        await this.notificationService.sendPushNotificationToUser(
+          request.user_id, // sender
+          refundTitle,
+          refundMessage,
+          refundData,
+          senderLang,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to create/send refund notification: ${error.message}`);
+      // Don't fail the cancellation if notification fails
     }
 
     return {
@@ -390,8 +488,104 @@ export class CancellationService {
     // Release any hold from traveler's wallet
     try {
       await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+      
+      // Notify traveler about hold release
+      try {
+        const traveler = await this.prisma.user.findUnique({
+          where: { id: request.trip.user_id },
+          select: { lang: true, device_id: true },
+        });
+        const travelerLang = traveler?.lang || 'en';
+        
+        const holdReleaseTitle = 'Request Cancelled';
+        const holdReleaseMessage = `You cancelled the request. The hold of ${currency} ${deliveryFee.toFixed(2)} has been released from your wallet.`;
+        const holdReleaseData = {
+          type: 'hold_released',
+          request_id: request.id,
+          trip_id: request.trip_id,
+          amount: deliveryFee,
+          currency: currency,
+        };
+        
+        // Create in-app notification (always)
+        await this.notificationService.createNotification(
+          {
+            user_id: request.trip.user_id,
+            title: holdReleaseTitle,
+            message: holdReleaseMessage,
+            type: NotificationType.REQUEST,
+            trip_id: request.trip_id,
+            request_id: request.id,
+            data: holdReleaseData,
+          },
+          travelerLang,
+        );
+        
+        // Send push notification if device_id exists
+        if (traveler?.device_id) {
+          await this.notificationService.sendPushNotificationToUser(
+            request.trip.user_id,
+            holdReleaseTitle,
+            holdReleaseMessage,
+            holdReleaseData,
+            travelerLang,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to notify traveler about hold release: ${error.message}`);
+      }
     } catch (e) {
       this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
+    // Get sender's language preference and device_id
+    const sender = await this.prisma.user.findUnique({
+      where: { id: request.user_id },
+      select: { lang: true, device_id: true },
+    });
+    const senderLang = sender?.lang || 'en';
+    
+    // Notification data
+    const refundTitle = 'Full Refund Processed';
+    const refundMessage = `The traveler cancelled your request. A full refund of ${currency} ${actualPaymentAmount.toFixed(2)} will be processed to your payment method.`;
+    const refundData = {
+      type: 'refund_processed',
+      request_id: request.id,
+      trip_id: request.trip_id,
+      refund_amount: actualPaymentAmount,
+      cancellation_fee: 0,
+      currency: currency,
+    };
+    
+    // Create in-app notification and send push notification to sender about full refund
+    try {
+      // Create in-app notification (always)
+      await this.notificationService.createNotification(
+        {
+          user_id: request.user_id, // sender
+          title: refundTitle,
+          message: refundMessage,
+          type: NotificationType.REQUEST,
+          trip_id: request.trip_id,
+          request_id: request.id,
+          data: refundData,
+        },
+        senderLang,
+      );
+      
+      // Send push notification if device_id exists
+      if (sender?.device_id) {
+        await this.notificationService.sendPushNotificationToUser(
+          request.user_id, // sender
+          refundTitle,
+          refundMessage,
+          refundData,
+          senderLang,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to create/send refund notification: ${error.message}`);
+      // Don't fail the cancellation if notification fails
     }
 
     return {
@@ -439,8 +633,104 @@ export class CancellationService {
     // Release any hold from traveler's wallet
     try {
       await this.releaseHold(request.trip.user_id, deliveryFee, currency, request.id);
+      
+      // Notify traveler about hold release
+      try {
+        const traveler = await this.prisma.user.findUnique({
+          where: { id: request.trip.user_id },
+          select: { lang: true, device_id: true },
+        });
+        const travelerLang = traveler?.lang || 'en';
+        
+        const holdReleaseTitle = 'Request Cancelled';
+        const holdReleaseMessage = `The request has been cancelled by the system. The hold of ${currency} ${deliveryFee.toFixed(2)} has been released from your wallet.`;
+        const holdReleaseData = {
+          type: 'hold_released',
+          request_id: request.id,
+          trip_id: request.trip_id,
+          amount: deliveryFee,
+          currency: currency,
+        };
+        
+        // Create in-app notification (always)
+        await this.notificationService.createNotification(
+          {
+            user_id: request.trip.user_id,
+            title: holdReleaseTitle,
+            message: holdReleaseMessage,
+            type: NotificationType.REQUEST,
+            trip_id: request.trip_id,
+            request_id: request.id,
+            data: holdReleaseData,
+          },
+          travelerLang,
+        );
+        
+        // Send push notification if device_id exists
+        if (traveler?.device_id) {
+          await this.notificationService.sendPushNotificationToUser(
+            request.trip.user_id,
+            holdReleaseTitle,
+            holdReleaseMessage,
+            holdReleaseData,
+            travelerLang,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to notify traveler about hold release: ${error.message}`);
+      }
     } catch (e) {
       this.logger.warn(`Failed to release hold for request ${request.id}: ${e.message}`);
+    }
+
+    // Get sender's language preference and device_id
+    const sender = await this.prisma.user.findUnique({
+      where: { id: request.user_id },
+      select: { lang: true, device_id: true },
+    });
+    const senderLang = sender?.lang || 'en';
+    
+    // Notification data
+    const refundTitle = 'Refund Processed';
+    const refundMessage = `Your request has been cancelled by the system. A full refund of ${currency} ${actualPaymentAmount.toFixed(2)} will be processed to your payment method.`;
+    const refundData = {
+      type: 'refund_processed',
+      request_id: request.id,
+      trip_id: request.trip_id,
+      refund_amount: actualPaymentAmount,
+      cancellation_fee: 0,
+      currency: currency,
+    };
+    
+    // Create in-app notification and send push notification to sender about refund
+    try {
+      // Create in-app notification (always)
+      await this.notificationService.createNotification(
+        {
+          user_id: request.user_id, // sender
+          title: refundTitle,
+          message: refundMessage,
+          type: NotificationType.REQUEST,
+          trip_id: request.trip_id,
+          request_id: request.id,
+          data: refundData,
+        },
+        senderLang,
+      );
+      
+      // Send push notification if device_id exists
+      if (sender?.device_id) {
+        await this.notificationService.sendPushNotificationToUser(
+          request.user_id, // sender
+          refundTitle,
+          refundMessage,
+          refundData,
+          senderLang,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to create/send refund notification: ${error.message}`);
+      // Don't fail the cancellation if notification fails
     }
 
     return {

@@ -321,6 +321,32 @@ export class ChatService {
                     email: true,
                   },
                 },
+                trip_items: {
+                  include: {
+                    trip_item: {
+                      select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_id: true,
+                        translations: {
+                          select: {
+                            id: true,
+                            language: true,
+                            name: true,
+                            description: true,
+                          },
+                        },
+                      },
+                    },
+                    prices: {
+                      select: {
+                        currency: true,
+                        price: true,
+                      },
+                    },
+                  },
+                },
               },
             },
             request: {
@@ -340,7 +366,25 @@ export class ChatService {
                 },
                 request_items: {
                   select: {
+                    trip_item_id: true,
                     quantity: true,
+                    special_notes: true,
+                    trip_item: {
+                      select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_id: true,
+                        translations: {
+                          select: {
+                            id: true,
+                            language: true,
+                            name: true,
+                            description: true,
+                          },
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -430,6 +474,27 @@ export class ChatService {
                       email: chat.trip.user.email,
                     }
                   : undefined,
+                trip_items: (chat.trip as any).trip_items
+                  ? (chat.trip as any).trip_items.map((ti: any) => ({
+                      trip_item_id: ti.trip_item_id,
+                      price: ti.price ? Number(ti.price) : null,
+                      available_kg: ti.avalailble_kg
+                        ? Number(ti.avalailble_kg)
+                        : null,
+                      prices: ti.prices
+                        ? ti.prices.map((p: any) => ({
+                            currency: p.currency,
+                            price: Number(p.price),
+                          }))
+                        : [],
+                      trip_item: ti.trip_item
+                        ? {
+                            ...ti.trip_item,
+                            translations: ti.trip_item.translations || [],
+                          }
+                        : null,
+                    }))
+                  : undefined,
               }
             : undefined,
           request: chat.request
@@ -452,6 +517,19 @@ export class ChatService {
                       name: chat.request.user.name,
                       picture: chat.request.user.picture,
                     }
+                  : undefined,
+                requestItems: chat.request.request_items
+                  ? chat.request.request_items.map((item: any) => ({
+                      trip_item_id: item.trip_item_id,
+                      quantity: item.quantity,
+                      special_notes: item.special_notes,
+                      trip_item: item.trip_item
+                        ? {
+                            ...item.trip_item,
+                            translations: item.trip_item.translations || [],
+                          }
+                        : null,
+                    }))
                   : undefined,
               }
             : undefined,
@@ -588,7 +666,24 @@ export class ChatService {
                 },
                 request_items: {
                   include: {
-                    trip_item: true,
+                    trip_item: {
+                      select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_id: true,
+                        created_at: true,
+                        updated_at: true,
+                        translations: {
+                          select: {
+                            id: true,
+                            language: true,
+                            name: true,
+                            description: true,
+                          },
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -796,9 +891,16 @@ export class ChatService {
                                     image_id: item.trip_item.image_id,
                                     createdAt: item.trip_item.created_at,
                                     updatedAt: item.trip_item.updated_at,
-                                    translations:
-                                      (item.trip_item as any).translations ||
-                                      [],
+                                    translations: item.trip_item.translations
+                                      ? item.trip_item.translations.map(
+                                          (t: any) => ({
+                                            id: t.id,
+                                            language: t.language,
+                                            name: t.name,
+                                            description: t.description,
+                                          }),
+                                        )
+                                      : [],
                                   }
                                 : undefined,
                             };
@@ -865,14 +967,13 @@ export class ChatService {
       // Get chat request and trip data
       const chatData = await this.getChatWithRequestAndTripData(chatId);
 
-      // Update last_seen for the current user when they get messages
+      // Update last_seen for the current user when they get messages (general, not per chat)
       // Also mark all messages as read if user is viewing the first page (most recent messages)
       // This ensures that when a user opens a chat, all messages are marked as read
       try {
-        await this.prisma.chatMember.updateMany({
+        await this.prisma.user.update({
           where: {
-            chat_id: chatId,
-            user_id: userId,
+            id: userId,
           },
           data: {
             last_seen: new Date(),
@@ -926,7 +1027,7 @@ export class ChatService {
         // Continue even if update fails
       }
 
-      // Get chat info including members with last_seen
+      // Get chat info including members with last_seen (from User, not ChatMember)
       const chat = await this.prisma.chat.findUnique({
         where: { id: chatId },
         select: {
@@ -936,7 +1037,6 @@ export class ChatService {
           updatedAt: true,
           members: {
             select: {
-              last_seen: true,
               user: {
                 select: {
                   id: true,
@@ -944,6 +1044,7 @@ export class ChatService {
                   name: true,
                   picture: true,
                   role: true,
+                  last_seen: true,
                 },
               },
             },
@@ -963,7 +1064,7 @@ export class ChatService {
               name: member.user.name,
               picture: member.user.picture,
               role: member.user.role,
-              last_seen: member.last_seen,
+              last_seen: member.user.last_seen,
               average_message_response_time: averageResponseTimes.has(
                 member.user.id,
               )
@@ -1335,8 +1436,7 @@ export class ChatService {
                               image_id: item.trip_item.image_id,
                               createdAt: item.trip_item.created_at,
                               updatedAt: item.trip_item.updated_at,
-                              translations:
-                                (item.trip_item as any).translations || [],
+                              translations: item.trip_item.translations || [],
                             }
                           : undefined,
                       };
@@ -1587,6 +1687,14 @@ export class ChatService {
                     image_id: true,
                     created_at: true,
                     updated_at: true,
+                    translations: {
+                      select: {
+                        id: true,
+                        language: true,
+                        name: true,
+                        description: true,
+                      },
+                    },
                   },
                 },
               },
@@ -1635,6 +1743,14 @@ export class ChatService {
                         image_id: item.trip_item.image_id,
                         created_at: item.trip_item.created_at,
                         updated_at: item.trip_item.updated_at,
+                        translations: item.trip_item.translations
+                          ? item.trip_item.translations.map((t: any) => ({
+                              id: t.id,
+                              language: t.language,
+                              name: t.name,
+                              description: t.description,
+                            }))
+                          : [],
                       }
                     : undefined,
                 };
