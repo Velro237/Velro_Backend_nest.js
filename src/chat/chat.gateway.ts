@@ -585,11 +585,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Mark all messages as read when user joins the chat
     try {
-      // Update last_seen for the user when they join the chat
-      await this.prisma.chatMember.updateMany({
+      // Update last_seen for the user when they join the chat (general, not per chat)
+      await this.prisma.user.update({
         where: {
-          chat_id: chatId,
-          user_id: user.sub,
+          id: user.sub,
         },
         data: {
           last_seen: new Date(),
@@ -976,12 +975,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Only mark as read if message exists and user is not the sender
     if (message && message.sender_id !== user.sub) {
-      // Update last_seen when user reads a message
+      // Update last_seen when user reads a message (general, not per chat)
       try {
-        await this.prisma.chatMember.updateMany({
+        await this.prisma.user.update({
           where: {
-            chat_id: payload.chatId,
-            user_id: user.sub,
+            id: user.sub,
           },
           data: {
             last_seen: new Date(),
@@ -1039,12 +1037,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       email?: string;
     };
     try {
-      // Update last_seen when user marks all messages as read
+      // Update last_seen when user marks all messages as read (general, not per chat)
       try {
-        await this.prisma.chatMember.updateMany({
+        await this.prisma.user.update({
           where: {
-            chat_id: payload.chatId,
-            user_id: user.sub,
+            id: user.sub,
           },
           data: {
             last_seen: new Date(),

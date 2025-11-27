@@ -101,6 +101,7 @@ model User {
   companyAddress     String?
   device_id          String?
   role               UserRole           @default(USER)
+  last_seen          DateTime? // Last time user was active (general, not per chat)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   trips              Trip[]
@@ -187,8 +188,7 @@ model ChatMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  joinedAt  DateTime  @default(now())
-  last_seen DateTime? // Last time user viewed this chat
+  joinedAt DateTime @default(now())
 
   // Relations
   chat Chat @relation(fields: [chat_id], references: [id], onDelete: Cascade)

@@ -865,14 +865,13 @@ export class ChatService {
       // Get chat request and trip data
       const chatData = await this.getChatWithRequestAndTripData(chatId);
 
-      // Update last_seen for the current user when they get messages
+      // Update last_seen for the current user when they get messages (general, not per chat)
       // Also mark all messages as read if user is viewing the first page (most recent messages)
       // This ensures that when a user opens a chat, all messages are marked as read
       try {
-        await this.prisma.chatMember.updateMany({
+        await this.prisma.user.update({
           where: {
-            chat_id: chatId,
-            user_id: userId,
+            id: userId,
           },
           data: {
             last_seen: new Date(),
@@ -926,7 +925,7 @@ export class ChatService {
         // Continue even if update fails
       }
 
-      // Get chat info including members with last_seen
+      // Get chat info including members with last_seen (from User, not ChatMember)
       const chat = await this.prisma.chat.findUnique({
         where: { id: chatId },
         select: {
@@ -936,7 +935,6 @@ export class ChatService {
           updatedAt: true,
           members: {
             select: {
-              last_seen: true,
               user: {
                 select: {
                   id: true,
@@ -944,6 +942,7 @@ export class ChatService {
                   name: true,
                   picture: true,
                   role: true,
+                  last_seen: true,
                 },
               },
             },
@@ -963,7 +962,7 @@ export class ChatService {
               name: member.user.name,
               picture: member.user.picture,
               role: member.user.role,
-              last_seen: member.last_seen,
+              last_seen: member.user.last_seen,
               average_message_response_time: averageResponseTimes.has(
                 member.user.id,
               )

@@ -2545,6 +2545,7 @@ export class TripService {
               select: {
                 id: true,
                 email: true,
+                username: true,
                 role: true,
                 isFreightForwarder: true,
                 picture: true,
@@ -2773,6 +2774,7 @@ export class TripService {
           ? {
               id: trip.user.id,
               email: trip.user.email,
+              username: trip.user.username,
               role: trip.user.role,
               isFreightForwarder: trip.user.isFreightForwarder,
               picture: trip.user.picture,

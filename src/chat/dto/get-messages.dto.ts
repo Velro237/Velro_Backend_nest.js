@@ -314,7 +314,8 @@ export class GetMessagesResponseDto {
               type: 'string',
               format: 'date-time',
               nullable: true,
-              description: 'Last time this member viewed the chat',
+              description:
+                'Last time this member was active (general, not per chat)',
               example: '2024-01-15T10:30:00.000Z',
             },
             average_message_response_time: {
