@@ -98,6 +98,12 @@ export class GetUserTripDetailResponseDto {
               trip_item_id: '123e4567-e89b-12d3-a456-426614174000',
               quantity: 2,
               special_notes: 'Handle with care',
+              prices: [
+                { currency: 'XAF', price: 30000 },
+                { currency: 'USD', price: 50.0 },
+                { currency: 'EUR', price: 45.5 },
+                { currency: 'CAD', price: 67.5 },
+              ],
               trip_item: {
                 id: '123e4567-e89b-12d3-a456-426614174000',
                 name: 'Documents',
@@ -183,6 +189,7 @@ export class GetUserTripDetailResponseDto {
         trip_item_id: string;
         quantity: number;
         special_notes: string | null;
+        prices: TripItemPriceDto[];
         trip_item: {
           id: string;
           name: string;

@@ -1947,7 +1947,7 @@ export class RequestService {
             select: { lang: true, device_id: true },
           });
           const travelerLang = traveler?.lang || lang || 'en';
-          
+
           // Notification data
           const currency = order.trip.currency || order.currency || 'XAF';
           const amount = Number(order.cost || 0);
@@ -1960,7 +1960,7 @@ export class RequestService {
             amount: amount,
             currency: currency,
           };
-          
+
           // Create in-app notification and send push notification to traveler about money being released
           try {
             // Create in-app notification (always)
@@ -1969,14 +1969,14 @@ export class RequestService {
                 user_id: order.trip.user_id, // traveler
                 title: moneyReleasedTitle,
                 message: moneyReleasedMessage,
-            type: NotificationType.REQUEST,
+                type: NotificationType.REQUEST,
                 trip_id: order.trip_id,
                 request_id: order.id,
                 data: moneyReleasedData,
               },
               travelerLang,
             );
-            
+
             // Send push notification if device_id exists
             if (traveler?.device_id) {
               await this.notificationService.sendPushNotificationToUser(
@@ -1988,7 +1988,10 @@ export class RequestService {
               );
             }
           } catch (error) {
-            console.error('Failed to create/send money released notification:', error);
+            console.error(
+              'Failed to create/send money released notification:',
+              error,
+            );
             // Don't fail the confirmation if notification fails
           }
         } catch (error) {
@@ -2215,6 +2218,17 @@ export class RequestService {
                   picture: true,
                 },
               },
+              trip_items: {
+                select: {
+                  trip_item_id: true,
+                  prices: {
+                    select: {
+                      currency: true,
+                      price: true,
+                    },
+                  },
+                },
+              },
             },
           },
           request_items: {
@@ -2275,28 +2289,49 @@ export class RequestService {
       );
 
       // Transform requests
-      const transformedRequests = requests.map((request) => ({
-        id: request.id,
-        trip_id: request.trip_id,
-        user_id: request.user_id,
-        status: request.status,
-        cost: request.cost ? Number(request.cost) : null,
-        currency: request.currency,
-        message: request.message,
-        created_at: request.created_at,
-        updated_at: request.updated_at,
-        user: request.user,
-        trip: request.trip,
-        request_items: request.request_items.map((item) => ({
-          trip_item_id: item.trip_item_id,
-          quantity: item.quantity,
-          special_notes: item.special_notes,
-          trip_item: item.trip_item,
-        })),
-        chat_info: request.chat_id
-          ? chatInfoMap.get(request.chat_id) || null
-          : null,
-      }));
+      const transformedRequests = requests.map((request) => {
+        // Create a map of trip_item_id -> prices for quick lookup
+        const tripItemPricesMap = new Map(
+          request.trip.trip_items.map((tripItem) => [
+            tripItem.trip_item_id,
+            tripItem.prices.map((p) => ({
+              currency: p.currency,
+              price: Number(p.price),
+            })),
+          ]),
+        );
+
+        return {
+          id: request.id,
+          trip_id: request.trip_id,
+          user_id: request.user_id,
+          status: request.status,
+          cost: request.cost ? Number(request.cost) : null,
+          currency: request.currency,
+          message: request.message,
+          created_at: request.created_at,
+          updated_at: request.updated_at,
+          user: request.user,
+          trip: {
+            id: request.trip.id,
+            departure: request.trip.departure,
+            destination: request.trip.destination,
+            departure_date: request.trip.departure_date,
+            status: request.trip.status,
+            user: request.trip.user,
+          },
+          request_items: request.request_items.map((item) => ({
+            trip_item_id: item.trip_item_id,
+            quantity: item.quantity,
+            special_notes: item.special_notes,
+            trip_item: item.trip_item,
+            prices: tripItemPricesMap.get(item.trip_item_id) || [],
+          })),
+          chat_info: request.chat_id
+            ? chatInfoMap.get(request.chat_id) || null
+            : null,
+        };
+      });
 
       const message = await this.i18n.translate(
         'translation.request.getUserRequests.success',

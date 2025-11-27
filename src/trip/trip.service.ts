@@ -1431,6 +1431,17 @@ export class TripService {
         trip_item: item.trip_item,
       }));
 
+      // Create a map of trip_item_id -> prices for quick lookup
+      const tripItemPricesMap = new Map(
+        trip.trip_items.map((tripItem) => [
+          tripItem.trip_item_id,
+          tripItem.prices.map((p) => ({
+            currency: p.currency,
+            price: Number(p.price),
+          })),
+        ]),
+      );
+
       // Transform requests
       const requests = trip.requests.map((request) => ({
         id: request.id,
@@ -1447,6 +1458,7 @@ export class TripService {
           quantity: item.quantity,
           special_notes: item.special_notes,
           trip_item: item.trip_item,
+          prices: tripItemPricesMap.get(item.trip_item_id) || [],
         })),
       }));
 
