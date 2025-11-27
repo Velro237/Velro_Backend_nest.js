@@ -2248,6 +2248,14 @@ export class RequestService {
                       alt_text: true,
                     },
                   },
+                  translations: {
+                    select: {
+                      id: true,
+                      language: true,
+                      name: true,
+                      description: true,
+                    },
+                  },
                 },
               },
             },
@@ -2288,6 +2296,13 @@ export class RequestService {
         ]),
       );
 
+      // Get user's currency
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { currency: true },
+      });
+      const userCurrency = (user?.currency || 'XAF').toUpperCase();
+
       // Transform requests
       const transformedRequests = requests.map((request) => {
         // Create a map of trip_item_id -> prices for quick lookup
@@ -2301,13 +2316,38 @@ export class RequestService {
           ]),
         );
 
+        // Convert cost to user's currency if needed
+        let cost = request.cost ? Number(request.cost) : null;
+        let currency: Currency | null = request.currency || ('XAF' as Currency);
+
+        if (cost && currency && currency.toUpperCase() !== userCurrency) {
+          try {
+            const conversion = this.currencyService.convertCurrency(
+              cost,
+              currency.toUpperCase(),
+              userCurrency,
+            );
+            cost = conversion.convertedAmount;
+            currency = userCurrency as Currency;
+          } catch (error) {
+            console.error(
+              `Failed to convert currency for request ${request.id}:`,
+              error,
+            );
+            // Keep original cost and currency if conversion fails
+          }
+        } else if (currency) {
+          // Ensure currency is uppercase
+          currency = currency.toUpperCase() as Currency;
+        }
+
         return {
           id: request.id,
           trip_id: request.trip_id,
           user_id: request.user_id,
           status: request.status,
-          cost: request.cost ? Number(request.cost) : null,
-          currency: request.currency,
+          cost,
+          currency,
           message: request.message,
           created_at: request.created_at,
           updated_at: request.updated_at,
@@ -2324,7 +2364,12 @@ export class RequestService {
             trip_item_id: item.trip_item_id,
             quantity: item.quantity,
             special_notes: item.special_notes,
-            trip_item: item.trip_item,
+            trip_item: item.trip_item
+              ? {
+                  ...item.trip_item,
+                  translations: item.trip_item.translations || [],
+                }
+              : null,
             prices: tripItemPricesMap.get(item.trip_item_id) || [],
           })),
           chat_info: request.chat_id

@@ -113,6 +113,20 @@ export class GetUserTripDetailResponseDto {
                   url: 'https://example.com/image.jpg',
                   alt_text: 'Documents icon',
                 },
+                translations: [
+                  {
+                    id: '123e4567-e89b-12d3-a456-426614174001',
+                    language: 'en',
+                    name: 'Documents',
+                    description: 'Letters and documents',
+                  },
+                  {
+                    id: '123e4567-e89b-12d3-a456-426614174002',
+                    language: 'fr',
+                    name: 'Documents',
+                    description: 'Lettres et documents',
+                  },
+                ],
               },
             },
           ],
@@ -199,6 +213,12 @@ export class GetUserTripDetailResponseDto {
             url: string;
             alt_text: string | null;
           } | null;
+          translations: Array<{
+            id: string;
+            language: string;
+            name: string;
+            description: string | null;
+          }>;
         };
       }>;
     }>;

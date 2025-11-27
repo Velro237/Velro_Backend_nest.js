@@ -100,6 +100,20 @@ export class UserRequestItemDto {
         url: 'https://example.com/image.jpg',
         alt_text: 'Electronics',
       },
+      translations: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174001',
+          language: 'en',
+          name: 'Electronics',
+          description: 'Electronic devices',
+        },
+        {
+          id: '123e4567-e89b-12d3-a456-426614174002',
+          language: 'fr',
+          name: 'Électronique',
+          description: 'Appareils électroniques',
+        },
+      ],
     },
   })
   trip_item: {
@@ -111,6 +125,12 @@ export class UserRequestItemDto {
       url: string;
       alt_text: string | null;
     } | null;
+    translations: Array<{
+      id: string;
+      language: string;
+      name: string;
+      description: string | null;
+    }>;
   };
 
   @ApiProperty({

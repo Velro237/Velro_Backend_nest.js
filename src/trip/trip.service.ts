@@ -1364,6 +1364,14 @@ export class TripService {
                           alt_text: true,
                         },
                       },
+                      translations: {
+                        select: {
+                          id: true,
+                          language: true,
+                          name: true,
+                          description: true,
+                        },
+                      },
                     },
                   },
                 },
@@ -1457,7 +1465,12 @@ export class TripService {
           trip_item_id: item.trip_item_id,
           quantity: item.quantity,
           special_notes: item.special_notes,
-          trip_item: item.trip_item,
+          trip_item: item.trip_item
+            ? {
+                ...item.trip_item,
+                translations: item.trip_item.translations || [],
+              }
+            : null,
           prices: tripItemPricesMap.get(item.trip_item_id) || [],
         })),
       }));
