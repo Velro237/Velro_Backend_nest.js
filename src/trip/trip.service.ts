@@ -195,6 +195,32 @@ export class TripService {
     // Set status: use DRAFT if provided, otherwise default to SCHEDULED
     const tripStatus = tripData.status || TripStatus.SCHEDULED;
 
+    // Validate that destination country is not the same as departure country
+    const departure = tripData.departure as any;
+    const destination = tripData.destination as any;
+
+    // Check if both locations have country information
+    const departureCountry = departure?.country || departure?.country_code;
+    const destinationCountry =
+      destination?.country || destination?.country_code;
+
+    // If both have country information and they match, throw error
+    if (
+      departureCountry &&
+      destinationCountry &&
+      departureCountry.toLowerCase() === destinationCountry.toLowerCase()
+    ) {
+      const message = await this.i18n.translate(
+        'translation.trip.create.sameCountry',
+        {
+          lang,
+          defaultValue:
+            'Destination country cannot be the same as departure country',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
     try {
       // Create trip with trip items in a transaction
       const result = await this.prisma.$transaction(async (prisma) => {
@@ -2513,17 +2539,15 @@ export class TripService {
         (destination && destination.trim() !== '')
       ) {
         try {
-          // If both departure and destination are provided, prioritize exact city matches
+          // If both departure and destination are provided, search in both fields
           if (
             departure &&
             departure.trim() !== '' &&
             destination &&
             destination.trim() !== ''
           ) {
-            // First, try to match exact cities (region/city/address) for both departure and destination
-            // This will be handled in post-processing to prioritize exact matches
-            // For now, we'll search by country to get all matching trips
-            baseWhereClause.AND = [
+            // Search for departure matches (country, country_code, region, address)
+            const departureFilters = [
               {
                 departure: {
                   path: ['country'],
@@ -2532,11 +2556,67 @@ export class TripService {
                 },
               },
               {
+                departure: {
+                  path: ['country_code'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                departure: {
+                  path: ['region'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                departure: {
+                  path: ['address'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              },
+            ];
+
+            // Search for destination matches (country, country_code, region, address)
+            const destinationFilters = [
+              {
                 destination: {
                   path: ['country'],
                   string_contains: destination.trim(),
                   mode: 'insensitive',
                 },
+              },
+              {
+                destination: {
+                  path: ['country_code'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                destination: {
+                  path: ['region'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                destination: {
+                  path: ['address'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              },
+            ];
+
+            // Both departure AND destination must match (one of their respective filters)
+            baseWhereClause.AND = [
+              {
+                OR: departureFilters,
+              },
+              {
+                OR: destinationFilters,
               },
             ];
           } else {
@@ -2548,6 +2628,14 @@ export class TripService {
               searchFilters.push({
                 departure: {
                   path: ['country'],
+                  string_contains: departure.trim(),
+                  mode: 'insensitive',
+                },
+              });
+
+              searchFilters.push({
+                departure: {
+                  path: ['country_code'],
                   string_contains: departure.trim(),
                   mode: 'insensitive',
                 },
@@ -2582,6 +2670,14 @@ export class TripService {
 
               searchFilters.push({
                 destination: {
+                  path: ['country_code'],
+                  string_contains: destination.trim(),
+                  mode: 'insensitive',
+                },
+              });
+
+              searchFilters.push({
+                destination: {
                   path: ['region'],
                   string_contains: destination.trim(),
                   mode: 'insensitive',
@@ -2598,7 +2694,9 @@ export class TripService {
             }
 
             // Add OR condition for all search filters
-            baseWhereClause.OR = searchFilters;
+            if (searchFilters.length > 0) {
+              baseWhereClause.OR = searchFilters;
+            }
           }
         } catch (error) {
           // If search filter creation fails, log error but continue without search
@@ -2719,7 +2817,7 @@ export class TripService {
               },
             },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { departure_date: 'asc' },
           ...(shouldFetchAllForSorting ? {} : { skip, take: limit }),
         }),
         this.prisma.trip.count({ where: baseWhereClause }),
@@ -2840,8 +2938,34 @@ export class TripService {
           return destinationCountry?.toLowerCase() !== country.toLowerCase();
         });
 
+        // Sort both groups by departure_date (closest to today first)
+        countryTrips.sort((a, b) => {
+          const dateA = new Date(a.departure_date).getTime();
+          const dateB = new Date(b.departure_date).getTime();
+          return dateA - dateB;
+        });
+
+        otherTrips.sort((a, b) => {
+          const dateA = new Date(a.departure_date).getTime();
+          const dateB = new Date(b.departure_date).getTime();
+          return dateA - dateB;
+        });
+
         // Put country-specific trips at the top, then other trips
         trips = [...countryTrips, ...otherTrips];
+
+        // Apply pagination after sorting
+        const startIndex = skip;
+        const endIndex = skip + limit;
+        trips = trips.slice(startIndex, endIndex);
+      } else {
+        // No special sorting needed, but ensure trips are sorted by departure_date
+        // (already sorted by the query, but let's make sure)
+        trips.sort((a, b) => {
+          const dateA = new Date(a.departure_date).getTime();
+          const dateB = new Date(b.departure_date).getTime();
+          return dateA - dateB;
+        });
       }
 
       // Fetch chat info for all trips where user is a member (when userId provided)
