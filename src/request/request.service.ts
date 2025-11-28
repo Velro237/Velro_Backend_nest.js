@@ -20,6 +20,7 @@ import {
   UserRole,
   Currency,
   NotificationType,
+  RequestStatus,
 } from 'generated/prisma';
 import { MessageType } from '../chat/dto/send-message.dto';
 import {
@@ -156,6 +157,34 @@ export class RequestService {
         'translation.trip.request.cannotRequestOwnTrip',
         {
           lang,
+        },
+      );
+      throw new ConflictException(message);
+    }
+
+    // Check if a request already exists between this user and this trip
+    // Exclude cancelled, expired, and refunded requests
+    const existingRequest = await this.prisma.tripRequest.findFirst({
+      where: {
+        trip_id: trip_id,
+        user_id: userId,
+        status: {
+          notIn: [
+            RequestStatus.CANCELLED,
+            RequestStatus.EXPIRED,
+            RequestStatus.REFUNDED,
+          ],
+        },
+      },
+    });
+
+    if (existingRequest) {
+      const message = await this.i18n.translate(
+        'translation.trip.request.alreadyExists',
+        {
+          lang,
+          defaultValue:
+            'You already have an active request for this trip. Please wait for a response or cancel your existing request before creating a new one.',
         },
       );
       throw new ConflictException(message);
@@ -354,50 +383,224 @@ export class RequestService {
       if (existingChat) {
         chatId = existingChat.id;
 
-        // Update chat with trip_id if missing, and request with chat_id in parallel
-        await Promise.all([
-          existingChat.trip_id
-            ? Promise.resolve()
-            : this.prisma.chat.update({
-                where: { id: chatId },
-                data: { trip_id: trip.id },
-              }),
-          this.prisma.tripRequest.update({
-            where: { id: result.request.id },
-            data: { chat_id: chatId },
-          }),
-        ]);
-      } else {
-        // Create new chat
-        const chatResult = await this.chatService.createChat(
+        // Check if this chat is already linked to another trip request
+        const existingRequestWithChat = await this.prisma.tripRequest.findFirst(
           {
-            name: finalChatName,
-            otherUserId: trip.user_id,
-            tripId: trip.id,
+            where: {
+              chat_id: chatId,
+              id: { not: result.request.id }, // Exclude current request
+            },
           },
-          userId,
-          lang,
         );
 
-        chatId = chatResult.chat.id;
+        // If chat is already linked to another request, try to create a new chat
+        // If that fails (chat already exists), just use the existing chat without linking
+        if (existingRequestWithChat) {
+          try {
+            // Try to create new chat for this request
+            const chatResult = await this.chatService.createChat(
+              {
+                name: finalChatName,
+                otherUserId: trip.user_id,
+                tripId: trip.id,
+              },
+              userId,
+              lang,
+            );
 
-        // Update request with chat_id
-        await this.prisma.tripRequest.update({
-          where: { id: result.request.id },
-          data: { chat_id: chatId },
-        });
+            chatId = chatResult.chat.id;
 
-        // Notify chat creation (non-blocking)
-        this.chatGateway
-          .notifyChatCreated(
-            chatId,
-            [userId, trip.user_id],
-            chatResult.chat.name || 'New Chat',
-            chatResult.lastMessage,
-          )
-          .catch((error) => {
-            console.error('Failed to notify chat creation:', error);
+            // Update request with chat_id
+            await this.prisma.tripRequest.update({
+              where: { id: result.request.id },
+              data: { chat_id: chatId },
+            });
+
+            // Notify chat creation (non-blocking)
+            this.chatGateway
+              .notifyChatCreated(
+                chatId,
+                [userId, trip.user_id],
+                chatResult.chat.name || 'New Chat',
+                chatResult.lastMessage,
+              )
+              .catch((error) => {
+                console.error('Failed to notify chat creation:', error);
+              });
+          } catch (chatError: any) {
+            // If createChat fails because chat already exists, just use existing chat
+            // but don't link it to this request (to avoid unique constraint violation)
+            if (chatError instanceof ConflictException) {
+              // Use existing chat but don't link it - request will work without chat_id
+              // The chat already exists and users can communicate through it
+              chatId = existingChat.id;
+              // Don't update request with chat_id since it's already linked to another request
+              // Users can still use the existing chat for communication
+            } else {
+              // Re-throw other errors
+              throw chatError;
+            }
+          }
+        } else {
+          // Chat is not linked to another request, safe to use
+          try {
+            // Update chat with trip_id if missing, and request with chat_id in parallel
+            await Promise.all([
+              existingChat.trip_id
+                ? Promise.resolve()
+                : this.prisma.chat.update({
+                    where: { id: chatId },
+                    data: { trip_id: trip.id },
+                  }),
+              this.prisma.tripRequest.update({
+                where: { id: result.request.id },
+                data: { chat_id: chatId },
+              }),
+            ]);
+          } catch (error: any) {
+            // Handle unique constraint violation - chat might have been linked by another concurrent request
+            if (
+              error.code === 'P2002' &&
+              error.meta?.target?.includes('chat_id')
+            ) {
+              // Chat is now linked to another request, try to create a new chat
+              try {
+                const chatResult = await this.chatService.createChat(
+                  {
+                    name: finalChatName,
+                    otherUserId: trip.user_id,
+                    tripId: trip.id,
+                  },
+                  userId,
+                  lang,
+                );
+
+                chatId = chatResult.chat.id;
+
+                // Update request with new chat_id
+                await this.prisma.tripRequest.update({
+                  where: { id: result.request.id },
+                  data: { chat_id: chatId },
+                });
+
+                // Notify chat creation (non-blocking)
+                this.chatGateway
+                  .notifyChatCreated(
+                    chatId,
+                    [userId, trip.user_id],
+                    chatResult.chat.name || 'New Chat',
+                    chatResult.lastMessage,
+                  )
+                  .catch((notifyError) => {
+                    console.error(
+                      'Failed to notify chat creation:',
+                      notifyError,
+                    );
+                  });
+              } catch (chatError: any) {
+                // If createChat fails because chat already exists, just use existing chat
+                // but don't link it to this request (to avoid unique constraint violation)
+                if (chatError instanceof ConflictException) {
+                  // Use existing chat but don't link it - request will work without chat_id
+                  chatId = existingChat.id;
+                  // Don't update request with chat_id since it's already linked to another request
+                  // Users can still use the existing chat for communication
+                } else {
+                  // Re-throw other errors
+                  throw chatError;
+                }
+              }
+            } else {
+              // Re-throw if it's a different error
+              throw error;
+            }
+          }
+        }
+      } else {
+        // Create new chat
+        try {
+          const chatResult = await this.chatService.createChat(
+            {
+              name: finalChatName,
+              otherUserId: trip.user_id,
+              tripId: trip.id,
+            },
+            userId,
+            lang,
+          );
+
+          chatId = chatResult.chat.id;
+
+          // Update request with chat_id
+          await this.prisma.tripRequest.update({
+            where: { id: result.request.id },
+            data: { chat_id: chatId },
           });
+
+          // Notify chat creation (non-blocking)
+          this.chatGateway
+            .notifyChatCreated(
+              chatId,
+              [userId, trip.user_id],
+              chatResult.chat.name || 'New Chat',
+              chatResult.lastMessage,
+            )
+            .catch((error) => {
+              console.error('Failed to notify chat creation:', error);
+            });
+        } catch (chatError: any) {
+          // If createChat fails because chat already exists, find and use existing chat
+          if (chatError instanceof ConflictException) {
+            // Find the existing chat that caused the conflict
+            const conflictingChat = await this.prisma.chat.findFirst({
+              where: {
+                trip_id: trip.id,
+                members: {
+                  some: {
+                    user_id: userId,
+                  },
+                },
+                AND: {
+                  members: {
+                    some: {
+                      user_id: trip.user_id,
+                    },
+                  },
+                },
+              },
+            });
+
+            if (conflictingChat) {
+              chatId = conflictingChat.id;
+              // Try to link it, but if it fails (already linked), that's okay
+              // Request will work without chat_id
+              try {
+                await this.prisma.tripRequest.update({
+                  where: { id: result.request.id },
+                  data: { chat_id: chatId },
+                });
+              } catch (updateError: any) {
+                // If unique constraint violation, just continue without linking
+                // Users can still use the existing chat
+                if (
+                  updateError.code === 'P2002' &&
+                  updateError.meta?.target?.includes('chat_id')
+                ) {
+                  // Chat is already linked to another request, that's fine
+                  // Request will work without chat_id
+                } else {
+                  throw updateError;
+                }
+              }
+            } else {
+              // Couldn't find the chat, but request creation should still succeed
+              // Just continue without chat_id
+            }
+          } else {
+            // Re-throw other errors
+            throw chatError;
+          }
+        }
       }
 
       // Prepare message contents in parallel
@@ -603,6 +806,12 @@ export class RequestService {
                   ? Number(tripItem.avalailble_kg)
                   : null
                 : null,
+              prices: tripItem?.prices
+                ? tripItem.prices.map((p) => ({
+                    currency: p.currency,
+                    price: Number(p.price),
+                  }))
+                : [],
             };
           }),
           trip: {
@@ -616,6 +825,12 @@ export class RequestService {
               trip_item_id: ti.trip_item_id,
               price: Number(ti.price),
               available_kg: ti.avalailble_kg ? Number(ti.avalailble_kg) : null,
+              prices: ti.prices
+                ? ti.prices.map((p) => ({
+                    currency: p.currency,
+                    price: Number(p.price),
+                  }))
+                : [],
               trip_item: ti.trip_item,
             })),
           },
@@ -752,6 +967,10 @@ export class RequestService {
         average_request_response_time: averageRequestResponseTime,
       };
     } catch (error) {
+      // Don't log ConflictException from chat creation - it's already handled
+      if (!(error instanceof ConflictException)) {
+        console.error('Failed to create trip request:', error);
+      }
       const message = await this.i18n.translate(
         'translation.trip.request.createFailed',
         {

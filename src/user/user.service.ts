@@ -225,6 +225,7 @@ export class UserService {
         picture,
         role,
         otpCode: otpHash,
+        last_seen: new Date(), // Set last_seen on user creation
       },
       select: userSelect,
     });

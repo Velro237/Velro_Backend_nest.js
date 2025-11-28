@@ -235,6 +235,17 @@ export class ChatService {
       const { page = 1, limit = 10, search } = query;
       const skip = (page - 1) * limit;
 
+      // Update user's last_seen when they fetch their chats
+      // This is done in parallel with other operations to not block the request
+      this.prisma.user
+        .update({
+          where: { id: userId },
+          data: { last_seen: new Date() },
+        })
+        .catch((error) => {
+          console.error('Failed to update last_seen when fetching chats:', error);
+        });
+
       // Check if user is admin
       const user = await this.prisma.user.findUnique({
         where: { id: userId },

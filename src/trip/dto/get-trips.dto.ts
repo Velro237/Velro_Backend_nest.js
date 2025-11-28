@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsOptional,
   IsString,
@@ -26,7 +26,7 @@ export enum TripFilterEnum {
 export class GetTripsQueryDto {
   @ApiProperty({
     description:
-      'Country code to prioritize trips from this country (e.g., "US", "FR"). Returns all trips but puts matching countries at the top of the array. Note: Country prioritization is disabled when destinations is provided. Search is case-insensitive.',
+      'Country code to prioritize trips from this country (e.g., "US", "FR"). Returns all trips but puts matching destination_country at the top of the array. Note: Country prioritization is disabled when destination_city or destination_country search parameters are provided. Search is case-insensitive.',
     example: 'US',
     required: false,
   })
@@ -36,23 +36,43 @@ export class GetTripsQueryDto {
 
   @ApiProperty({
     description:
-      'Search to filter trips by departure city or country. Search is case-insensitive.',
+      'Search to filter trips by departure city. Searches in departure location city field. Trips matching departure_city will be prioritized at the top of results. Search is case-insensitive.',
     example: 'San Francisco',
     required: false,
   })
   @IsOptional()
   @IsString()
-  departure?: string;
+  departure_city?: string;
 
   @ApiProperty({
     description:
-      'Search to filter trips by destination city or country. Search is case-insensitive.',
+      'Search to filter trips by departure country. Searches in departure location country or country_code fields. Search is case-insensitive.',
+    example: 'United States',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  departure_country?: string;
+
+  @ApiProperty({
+    description:
+      'Search to filter trips by destination city. Searches in destination location city field. Trips matching destination_city will be prioritized at the top of results. Search is case-insensitive.',
+    example: 'Paris',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  destination_city?: string;
+
+  @ApiProperty({
+    description:
+      'Search to filter trips by destination country. Searches in destination location country or country_code fields. Search is case-insensitive.',
     example: 'France',
     required: false,
   })
   @IsOptional()
   @IsString()
-  destination?: string;
+  destination_country?: string;
 
   @ApiProperty({
     description:
@@ -358,48 +378,40 @@ export class TripSummaryDto {
   mode_of_transport: ModeOfTransportDto | null;
 
   @ApiProperty({
-    description: 'Departure location (FROM)',
-    example: {
-      country: 'United States',
-      country_code: 'US',
-      region: 'California',
-      address: '123 Main St, San Francisco, CA 94105',
-    },
+    description:
+      'Departure city - extracted from departure location (city, region, or address). This field is always included in the response.',
+    example: 'San Francisco',
+    type: String,
+    nullable: true,
   })
-  departure: any;
+  departure_city: string | null;
 
   @ApiProperty({
-    description: 'Destination location (TO)',
-    example: {
-      country: 'France',
-      country_code: 'FR',
-      region: 'Île-de-France',
-      address: '456 Champs-Élysées, Paris, France',
-    },
+    description:
+      'Departure country - extracted from departure location (country or country_code). This field is always included in the response.',
+    example: 'United States',
+    type: String,
+    nullable: true,
   })
-  destination: any;
+  departure_country: string | null;
 
   @ApiProperty({
-    description: 'Departure location (FROM) - alias of departure',
-    example: {
-      country: 'United States',
-      country_code: 'US',
-      region: 'California',
-      address: '123 Main St, San Francisco, CA 94105',
-    },
+    description:
+      'Destination city - extracted from destination location (city, region, or address). This field is always included in the response.',
+    example: 'Paris',
+    type: String,
+    nullable: true,
   })
-  from?: any;
+  destination_city: string | null;
 
   @ApiProperty({
-    description: 'Destination location (TO) - alias of destination',
-    example: {
-      country: 'France',
-      country_code: 'FR',
-      region: 'Île-de-France',
-      address: '456 Champs-Élysées, Paris, France',
-    },
+    description:
+      'Destination country - extracted from destination location (country or country_code). This field is always included in the response.',
+    example: 'France',
+    type: String,
+    nullable: true,
   })
-  to?: any;
+  destination_country: string | null;
 
   @ApiProperty({
     description: 'List of trip items with pricing and availability',

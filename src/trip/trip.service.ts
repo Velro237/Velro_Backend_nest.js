@@ -594,21 +594,279 @@ export class TripService {
 
         // Update trip items if provided
         if (trip_items !== undefined) {
-          // Delete existing trip items
-          await prisma.tripItemsList.deleteMany({
+          // Get existing trip items
+          const existingTripItemsList = await prisma.tripItemsList.findMany({
             where: { trip_id: tripId },
+            select: {
+              trip_item_id: true,
+              price: true,
+              avalailble_kg: true,
+            },
           });
 
-          // Create new trip items
-          if (trip_items.length > 0) {
-            await prisma.tripItemsList.createMany({
-              data: trip_items.map((item) => ({
+          const existingTripItemIds = new Set(
+            existingTripItemsList.map((item) => item.trip_item_id),
+          );
+          const newTripItemIds = new Set(
+            trip_items.map((item) => item.trip_item_id),
+          );
+
+          // Check for active requests to prevent updating or removing items that have been requested
+          const activeRequests = await prisma.tripRequest.findMany({
+            where: {
+              trip_id: tripId,
+              status: {
+                notIn: [
+                  RequestStatus.CANCELLED,
+                  RequestStatus.DECLINED,
+                  RequestStatus.EXPIRED,
+                  RequestStatus.REFUNDED,
+                ],
+              },
+            },
+            select: {
+              id: true,
+              request_items: {
+                select: {
+                  trip_item_id: true,
+                },
+              },
+            },
+          });
+
+          // Get all trip_item_ids that have active requests
+          const tripItemIdsWithActiveRequests = new Set<string>();
+          activeRequests.forEach((request) => {
+            request.request_items.forEach((item) => {
+              tripItemIdsWithActiveRequests.add(item.trip_item_id);
+            });
+          });
+
+          // Find trip items that are being removed
+          const itemsToRemove = Array.from(existingTripItemIds).filter(
+            (id) => !newTripItemIds.has(id),
+          );
+
+          // Check if any removed items have active requests
+          if (itemsToRemove.length > 0) {
+            // Filter out items that have active requests
+            const itemsToActuallyRemove = itemsToRemove.filter(
+              (itemId) => !tripItemIdsWithActiveRequests.has(itemId),
+            );
+
+            // Delete trip items that don't have active requests
+            if (itemsToActuallyRemove.length > 0) {
+              await prisma.tripItemsList.deleteMany({
+                where: {
+                  trip_id: tripId,
+                  trip_item_id: {
+                    in: itemsToActuallyRemove,
+                  },
+                },
+              });
+
+              // Delete price entries for removed items
+              await prisma.tripItemsListPrice.deleteMany({
+                where: {
+                  trip_id: tripId,
+                  trip_item_id: {
+                    in: itemsToActuallyRemove,
+                  },
+                },
+              });
+            }
+
+            // If some items couldn't be removed due to active requests, throw an error
+            const itemsWithActiveRequests = itemsToRemove.filter((itemId) =>
+              tripItemIdsWithActiveRequests.has(itemId),
+            );
+            if (itemsWithActiveRequests.length > 0) {
+              const message = await this.i18n.translate(
+                'translation.trip.update.cannotRemoveItemsWithRequests',
+                {
+                  lang,
+                  defaultValue:
+                    'Cannot remove trip items that have active requests. Please cancel or complete the requests first.',
+                },
+              );
+              throw new BadRequestException(message);
+            }
+          }
+
+          // Use the updated currency if provided, otherwise use existing trip currency
+          const tripCurrency = (tripUpdateData.currency ||
+            existingTrip.currency) as Currency;
+
+          // Update or create trip items
+          const supportedCurrencies: Currency[] = [
+            Currency.XAF,
+            Currency.USD,
+            Currency.EUR,
+            Currency.CAD,
+          ];
+
+          // Prepare all price entries for all currencies
+          const priceEntries: Array<{
+            trip_id: string;
+            trip_item_id: string;
+            currency: Currency;
+            price: number;
+          }> = [];
+
+          for (const item of trip_items) {
+            const existingItem = existingTripItemsList.find(
+              (existing) => existing.trip_item_id === item.trip_item_id,
+            );
+
+            if (existingItem) {
+              // Check if this item has active requests - if so, don't update it
+              if (tripItemIdsWithActiveRequests.has(item.trip_item_id)) {
+                const message = await this.i18n.translate(
+                  'translation.trip.update.cannotUpdateItemWithRequests',
+                  {
+                    lang,
+                    defaultValue:
+                      'Cannot update trip items that have active requests. Please cancel or complete the requests first.',
+                  },
+                );
+                throw new BadRequestException(message);
+              }
+
+              // Update existing trip item
+              await prisma.tripItemsList.update({
+                where: {
+                  trip_id_trip_item_id: {
+                    trip_id: tripId,
+                    trip_item_id: item.trip_item_id,
+                  },
+                },
+                data: {
+                  price: item.price,
+                  avalailble_kg: item.available_kg || null,
+                },
+              });
+
+              // Delete existing price entries for this item
+              await prisma.tripItemsListPrice.deleteMany({
+                where: {
+                  trip_id: tripId,
+                  trip_item_id: item.trip_item_id,
+                },
+              });
+            } else {
+              // Create new trip item
+              await prisma.tripItemsList.create({
+                data: {
+                  trip_id: tripId,
+                  trip_item_id: item.trip_item_id,
+                  price: item.price,
+                  avalailble_kg: item.available_kg || null,
+                },
+              });
+            }
+
+            // Prepare price entries for all currencies
+            for (const targetCurrency of supportedCurrencies) {
+              const conversion = this.currencyService.convertCurrency(
+                Number(item.price),
+                tripCurrency,
+                targetCurrency,
+              );
+              priceEntries.push({
                 trip_id: tripId,
                 trip_item_id: item.trip_item_id,
-                price: item.price,
-                avalailble_kg: item.available_kg || null,
-              })),
+                currency: targetCurrency,
+                price: conversion.convertedAmount,
+              });
+            }
+          }
+
+          // Create all price entries
+          if (priceEntries.length > 0) {
+            await prisma.tripItemsListPrice.createMany({
+              data: priceEntries,
             });
+          }
+        } else if (
+          tripUpdateData.currency !== undefined &&
+          tripUpdateData.currency !== existingTrip.currency
+        ) {
+          // If currency is updated but trip_items are not provided, convert existing prices and recalculate all price entries
+          const existingTripItems = await prisma.tripItemsList.findMany({
+            where: { trip_id: tripId },
+            select: {
+              trip_item_id: true,
+              price: true,
+            },
+          });
+
+          if (existingTripItems.length > 0) {
+            // Delete existing price entries
+            await prisma.tripItemsListPrice.deleteMany({
+              where: { trip_id: tripId },
+            });
+
+            // Convert prices for all supported currencies and create TripItemsListPrice entries
+            const supportedCurrencies: Currency[] = [
+              Currency.XAF,
+              Currency.USD,
+              Currency.EUR,
+              Currency.CAD,
+            ];
+            const oldTripCurrency = existingTrip.currency as Currency;
+            const newTripCurrency = tripUpdateData.currency as Currency;
+
+            // Prepare all price entries for all currencies
+            const priceEntries: Array<{
+              trip_id: string;
+              trip_item_id: string;
+              currency: Currency;
+              price: number;
+            }> = [];
+
+            for (const item of existingTripItems) {
+              // First convert the price from old currency to new currency
+              const priceInNewCurrency = this.currencyService.convertCurrency(
+                Number(item.price),
+                oldTripCurrency,
+                newTripCurrency,
+              ).convertedAmount;
+
+              // Update the price in tripItemsList to the new currency
+              await prisma.tripItemsList.update({
+                where: {
+                  trip_id_trip_item_id: {
+                    trip_id: tripId,
+                    trip_item_id: item.trip_item_id,
+                  },
+                },
+                data: {
+                  price: priceInNewCurrency,
+                },
+              });
+
+              // Then convert to all supported currencies
+              for (const targetCurrency of supportedCurrencies) {
+                const conversion = this.currencyService.convertCurrency(
+                  priceInNewCurrency,
+                  newTripCurrency,
+                  targetCurrency,
+                );
+                priceEntries.push({
+                  trip_id: tripId,
+                  trip_item_id: item.trip_item_id,
+                  currency: targetCurrency,
+                  price: conversion.convertedAmount,
+                });
+              }
+            }
+
+            // Create all price entries
+            if (priceEntries.length > 0) {
+              await prisma.tripItemsListPrice.createMany({
+                data: priceEntries,
+              });
+            }
           }
         }
 
@@ -2455,8 +2713,10 @@ export class TripService {
     try {
       const {
         country,
-        departure,
-        destination,
+        departure_city,
+        departure_country,
+        destination_city,
+        destination_country,
         filter = 'all',
         page = 1,
         limit = 10,
@@ -2502,17 +2762,18 @@ export class TripService {
           lt: tomorrow,
         };
       } else if (filter === 'tomorrow') {
-        // Show only trips departing tomorrow
+        // Show only trips departing tomorrow (from 00:00:00 to 23:59:59.999)
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
         tomorrow.setHours(0, 0, 0, 0);
 
         const dayAfterTomorrow = new Date(tomorrow);
         dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+        dayAfterTomorrow.setHours(0, 0, 0, 0);
 
         baseWhereClause.departure_date = {
           gte: tomorrow,
-          lt: dayAfterTomorrow,
+          lt: dayAfterTomorrow, // Less than the start of the day after tomorrow
         };
       } else if (filter === 'week') {
         // Show only trips departing this week (from today to end of week - Sunday)
@@ -2533,167 +2794,133 @@ export class TripService {
         };
       }
 
-      // Add search filters if departure or destination is provided
-      if (
-        (departure && departure.trim() !== '') ||
-        (destination && destination.trim() !== '')
-      ) {
+      // Add search filters if any search parameters are provided
+      const hasSearchParams =
+        (departure_city && departure_city.trim() !== '') ||
+        (departure_country && departure_country.trim() !== '') ||
+        (destination_city && destination_city.trim() !== '') ||
+        (destination_country && destination_country.trim() !== '');
+
+      if (hasSearchParams) {
         try {
-          // If both departure and destination are provided, search in both fields
+          const searchFilters: any[] = [];
+
+          // Search in departure city
+          if (departure_city && departure_city.trim() !== '') {
+            searchFilters.push({
+              departure: {
+                path: ['city'],
+                string_contains: departure_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+            // Also search in region and address for flexibility
+            searchFilters.push({
+              departure: {
+                path: ['region'],
+                string_contains: departure_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              departure: {
+                path: ['address'],
+                string_contains: departure_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+          }
+
+          // Search in departure country
+          if (departure_country && departure_country.trim() !== '') {
+            searchFilters.push({
+              departure: {
+                path: ['country'],
+                string_contains: departure_country.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              departure: {
+                path: ['country_code'],
+                string_contains: departure_country.trim(),
+                mode: 'insensitive',
+              },
+            });
+          }
+
+          // Search in destination city
+          if (destination_city && destination_city.trim() !== '') {
+            searchFilters.push({
+              destination: {
+                path: ['city'],
+                string_contains: destination_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+            // Also search in region and address for flexibility
+            searchFilters.push({
+              destination: {
+                path: ['region'],
+                string_contains: destination_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              destination: {
+                path: ['address'],
+                string_contains: destination_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+          }
+
+          // Search in destination country
+          if (destination_country && destination_country.trim() !== '') {
+            searchFilters.push({
+              destination: {
+                path: ['country'],
+                string_contains: destination_country.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              destination: {
+                path: ['country_code'],
+                string_contains: destination_country.trim(),
+                mode: 'insensitive',
+              },
+            });
+          }
+
+          // If multiple search params are provided, use AND logic
+          // Otherwise use OR logic
           if (
-            departure &&
-            departure.trim() !== '' &&
-            destination &&
-            destination.trim() !== ''
+            ((departure_city && departure_city.trim() !== '') ||
+              (departure_country && departure_country.trim() !== '')) &&
+            ((destination_city && destination_city.trim() !== '') ||
+              (destination_country && destination_country.trim() !== ''))
           ) {
-            // Search for departure matches (country, country_code, region, address)
-            const departureFilters = [
-              {
-                departure: {
-                  path: ['country'],
-                  string_contains: departure.trim(),
-                  mode: 'insensitive',
-                },
-              },
-              {
-                departure: {
-                  path: ['country_code'],
-                  string_contains: departure.trim(),
-                  mode: 'insensitive',
-                },
-              },
-              {
-                departure: {
-                  path: ['region'],
-                  string_contains: departure.trim(),
-                  mode: 'insensitive',
-                },
-              },
-              {
-                departure: {
-                  path: ['address'],
-                  string_contains: departure.trim(),
-                  mode: 'insensitive',
-                },
-              },
-            ];
+            // Both departure and destination searches - use AND
+            const departureFilters = searchFilters.filter(
+              (f) => f.departure !== undefined,
+            );
+            const destinationFilters = searchFilters.filter(
+              (f) => f.destination !== undefined,
+            );
 
-            // Search for destination matches (country, country_code, region, address)
-            const destinationFilters = [
-              {
-                destination: {
-                  path: ['country'],
-                  string_contains: destination.trim(),
-                  mode: 'insensitive',
-                },
-              },
-              {
-                destination: {
-                  path: ['country_code'],
-                  string_contains: destination.trim(),
-                  mode: 'insensitive',
-                },
-              },
-              {
-                destination: {
-                  path: ['region'],
-                  string_contains: destination.trim(),
-                  mode: 'insensitive',
-                },
-              },
-              {
-                destination: {
-                  path: ['address'],
-                  string_contains: destination.trim(),
-                  mode: 'insensitive',
-                },
-              },
-            ];
-
-            // Both departure AND destination must match (one of their respective filters)
-            baseWhereClause.AND = [
-              {
-                OR: departureFilters,
-              },
-              {
-                OR: destinationFilters,
-              },
-            ];
+            if (departureFilters.length > 0 && destinationFilters.length > 0) {
+              baseWhereClause.AND = [
+                { OR: departureFilters },
+                { OR: destinationFilters },
+              ];
+            } else if (departureFilters.length > 0) {
+              baseWhereClause.OR = departureFilters;
+            } else if (destinationFilters.length > 0) {
+              baseWhereClause.OR = destinationFilters;
+            }
           } else {
-            // If only one is provided, use OR conditions for flexible search
-            const searchFilters = [];
-
-            // Search in departure location if departure parameter is provided
-            if (departure && departure.trim() !== '') {
-              searchFilters.push({
-                departure: {
-                  path: ['country'],
-                  string_contains: departure.trim(),
-                  mode: 'insensitive',
-                },
-              });
-
-              searchFilters.push({
-                departure: {
-                  path: ['country_code'],
-                  string_contains: departure.trim(),
-                  mode: 'insensitive',
-                },
-              });
-
-              searchFilters.push({
-                departure: {
-                  path: ['region'],
-                  string_contains: departure.trim(),
-                  mode: 'insensitive',
-                },
-              });
-
-              searchFilters.push({
-                departure: {
-                  path: ['address'],
-                  string_contains: departure.trim(),
-                  mode: 'insensitive',
-                },
-              });
-            }
-
-            // Search in destination location if destination parameter is provided
-            if (destination && destination.trim() !== '') {
-              searchFilters.push({
-                destination: {
-                  path: ['country'],
-                  string_contains: destination.trim(),
-                  mode: 'insensitive',
-                },
-              });
-
-              searchFilters.push({
-                destination: {
-                  path: ['country_code'],
-                  string_contains: destination.trim(),
-                  mode: 'insensitive',
-                },
-              });
-
-              searchFilters.push({
-                destination: {
-                  path: ['region'],
-                  string_contains: destination.trim(),
-                  mode: 'insensitive',
-                },
-              });
-
-              searchFilters.push({
-                destination: {
-                  path: ['address'],
-                  string_contains: destination.trim(),
-                  mode: 'insensitive',
-                },
-              });
-            }
-
-            // Add OR condition for all search filters
+            // Single search parameter - use OR
             if (searchFilters.length > 0) {
               baseWhereClause.OR = searchFilters;
             }
@@ -2726,13 +2953,9 @@ export class TripService {
         }
       }
 
-      // If both departure and destination are provided, we need to fetch all trips first
-      // to properly prioritize exact city matches, then apply pagination
-      const shouldFetchAllForSorting =
-        departure &&
-        departure.trim() !== '' &&
-        destination &&
-        destination.trim() !== '';
+      // If any search parameters are provided, we need to fetch all trips first
+      // to properly prioritize matches (departure_city > destination_city > departure_country > destination_country), then apply pagination
+      const shouldFetchAllForSorting = hasSearchParams;
 
       // Get trips - fetch all if we need to sort by exact matches, otherwise use pagination
       const [allTrips, total] = await Promise.all([
@@ -2825,96 +3048,129 @@ export class TripService {
 
       let trips: any[] = allTrips;
 
-      // If both departure and destination are provided, prioritize exact city matches
-      if (
-        departure &&
-        departure.trim() !== '' &&
-        destination &&
-        destination.trim() !== ''
-      ) {
-        const departureLower = departure.trim().toLowerCase();
-        const destinationLower = destination.trim().toLowerCase();
+      // If any search parameters are provided, prioritize matches
+      if (hasSearchParams) {
+        const departureCityLower = departure_city?.trim().toLowerCase() || '';
+        const departureCountryLower =
+          departure_country?.trim().toLowerCase() || '';
+        const destinationCityLower =
+          destination_city?.trim().toLowerCase() || '';
+        const destinationCountryLower =
+          destination_country?.trim().toLowerCase() || '';
 
-        // Separate trips into exact city matches and country-only matches
-        const exactCityMatches: any[] = [];
-        const countryOnlyMatches: any[] = [];
+        // Separate trips into priority groups:
+        // 1. departure_city matches (highest priority)
+        // 2. destination_city matches
+        // 3. departure_country matches
+        // 4. destination_country matches
+        // 5. other matches (lowest priority)
+        const departureCityMatches: any[] = [];
+        const destinationCityMatches: any[] = [];
+        const departureCountryMatches: any[] = [];
+        const destinationCountryMatches: any[] = [];
+        const otherMatches: any[] = [];
 
         allTrips.forEach((trip) => {
           const tripDeparture = trip.departure as any;
           const tripDestination = trip.destination as any;
 
-          // Check if departure city matches (region, city, or address)
-          // First check for exact matches, then for contains matches
-          const departureMatches =
+          // Check departure city match (only if departure_city search is provided)
+          const departureCityMatch =
+            departureCityLower &&
             tripDeparture &&
             typeof tripDeparture === 'object' &&
-            (departureLower === (tripDeparture.region || '').toLowerCase() ||
-              departureLower === (tripDeparture.city || '').toLowerCase() ||
-              departureLower === (tripDeparture.address || '').toLowerCase() ||
-              (tripDeparture.city || '')
-                .toLowerCase()
-                .includes(departureLower) ||
-              (tripDeparture.address || '')
-                .toLowerCase()
-                .includes(departureLower) ||
+            ((tripDeparture.city || '')
+              .toLowerCase()
+              .includes(departureCityLower) ||
               (tripDeparture.region || '')
                 .toLowerCase()
-                .includes(departureLower));
+                .includes(departureCityLower) ||
+              (tripDeparture.address || '')
+                .toLowerCase()
+                .includes(departureCityLower));
 
-          // Check if destination city matches (region, city, or address)
-          // First check for exact matches, then for contains matches
-          const destinationMatches =
+          // Check destination city match (only if destination_city search is provided)
+          const destinationCityMatch =
+            destinationCityLower &&
             tripDestination &&
             typeof tripDestination === 'object' &&
-            (destinationLower ===
-              (tripDestination.region || '').toLowerCase() ||
-              destinationLower === (tripDestination.city || '').toLowerCase() ||
-              destinationLower ===
-                (tripDestination.address || '').toLowerCase() ||
-              (tripDestination.city || '')
-                .toLowerCase()
-                .includes(destinationLower) ||
-              (tripDestination.address || '')
-                .toLowerCase()
-                .includes(destinationLower) ||
+            ((tripDestination.city || '')
+              .toLowerCase()
+              .includes(destinationCityLower) ||
               (tripDestination.region || '')
                 .toLowerCase()
-                .includes(destinationLower));
+                .includes(destinationCityLower) ||
+              (tripDestination.address || '')
+                .toLowerCase()
+                .includes(destinationCityLower));
 
-          if (departureMatches && destinationMatches) {
-            // Exact city match for both departure and destination
-            exactCityMatches.push(trip);
+          // Check departure country match (only if departure_country search is provided)
+          const departureCountryMatch =
+            departureCountryLower &&
+            tripDeparture &&
+            typeof tripDeparture === 'object' &&
+            ((tripDeparture.country || '')
+              .toLowerCase()
+              .includes(departureCountryLower) ||
+              (tripDeparture.country_code || '')
+                .toLowerCase()
+                .includes(departureCountryLower));
+
+          // Check destination country match (only if destination_country search is provided)
+          const destinationCountryMatch =
+            destinationCountryLower &&
+            tripDestination &&
+            typeof tripDestination === 'object' &&
+            ((tripDestination.country || '')
+              .toLowerCase()
+              .includes(destinationCountryLower) ||
+              (tripDestination.country_code || '')
+                .toLowerCase()
+                .includes(destinationCountryLower));
+
+          // Prioritize: departure_city > destination_city > departure_country > destination_country
+          // Only prioritize if there's a search term for that field
+          if (departureCityLower && departureCityMatch) {
+            departureCityMatches.push(trip);
+          } else if (destinationCityLower && destinationCityMatch) {
+            destinationCityMatches.push(trip);
+          } else if (departureCountryLower && departureCountryMatch) {
+            departureCountryMatches.push(trip);
+          } else if (destinationCountryLower && destinationCountryMatch) {
+            destinationCountryMatches.push(trip);
           } else {
-            // Country match only (already filtered by country in the query)
-            countryOnlyMatches.push(trip);
+            // Trip matches the search but doesn't fit into priority categories
+            otherMatches.push(trip);
           }
         });
 
-        // Sort both groups chronologically by departure_date
-        exactCityMatches.sort((a, b) => {
+        // Sort all groups chronologically by departure_date
+        const sortByDate = (a: any, b: any) => {
           const dateA = new Date(a.departure_date).getTime();
           const dateB = new Date(b.departure_date).getTime();
           return dateA - dateB;
-        });
+        };
 
-        countryOnlyMatches.sort((a, b) => {
-          const dateA = new Date(a.departure_date).getTime();
-          const dateB = new Date(b.departure_date).getTime();
-          return dateA - dateB;
-        });
+        departureCityMatches.sort(sortByDate);
+        destinationCityMatches.sort(sortByDate);
+        departureCountryMatches.sort(sortByDate);
+        destinationCountryMatches.sort(sortByDate);
+        otherMatches.sort(sortByDate);
 
-        // Combine: exact city matches first, then country-only matches
-        trips = [...exactCityMatches, ...countryOnlyMatches];
+        // Combine in priority order
+        trips = [
+          ...departureCityMatches,
+          ...destinationCityMatches,
+          ...departureCountryMatches,
+          ...destinationCountryMatches,
+          ...otherMatches,
+        ];
 
         // Apply pagination after sorting
         const startIndex = skip;
         const endIndex = skip + limit;
         trips = trips.slice(startIndex, endIndex);
-      } else if (
-        country &&
-        (!departure || departure.trim() === '') &&
-        (!destination || destination.trim() === '')
-      ) {
+      } else if (country && !hasSearchParams) {
         // If country is specified and no departure/destination search, reorder to put matching trips at the top
         const countryTrips = allTrips.filter((trip) => {
           const destinationCountry =
@@ -3008,50 +3264,81 @@ export class TripService {
       }
 
       // Transform trips to summary format
-      const tripSummaries = trips.map((trip) => ({
-        id: trip.id,
-        user: trip.user
-          ? {
-              id: trip.user.id,
-              email: trip.user.email,
-              username: trip.user.username,
-              role: trip.user.role,
-              isFreightForwarder: trip.user.isFreightForwarder,
-              picture: trip.user.picture,
-              kycRecords: trip.user.kycRecords || [],
-            }
-          : null,
-        departure_date: trip.departure_date,
-        departure_time: trip.departure_time,
-        arrival_date: trip.arrival_date,
-        arrival_time: trip.arrival_time,
-        currency: trip.currency,
-        mode_of_transport: trip.mode_of_transport
-          ? {
-              id: trip.mode_of_transport.id,
-              name: trip.mode_of_transport.name,
-              description: trip.mode_of_transport.description,
-            }
-          : null,
-        departure: trip.departure,
-        destination: trip.destination,
-        from: trip.departure, // Alias for departure
-        to: trip.destination, // Alias for destination
-        trip_items: trip.trip_items.map((item) => ({
-          trip_item_id: item.trip_item_id,
-          price: Number(item.price),
-          available_kg: item.avalailble_kg ? Number(item.avalailble_kg) : null,
-          prices: item.prices
-            ? item.prices.map((p) => ({
-                currency: p.currency,
-                price: Number(p.price),
-              }))
-            : [],
-          trip_item: item.trip_item,
-        })),
-        createdAt: trip.createdAt,
-        chat_info: chatInfoMap.get(trip.id) || null,
-      }));
+      const tripSummaries = trips.map((trip) => {
+        const departure = trip.departure as any;
+        const destination = trip.destination as any;
+
+        // Extract city and country from departure
+        const departure_city =
+          departure && typeof departure === 'object'
+            ? departure.city || departure.region || departure.address || null
+            : null;
+        const departure_country =
+          departure && typeof departure === 'object'
+            ? departure.country || departure.country_code || null
+            : null;
+
+        // Extract city and country from destination
+        const destination_city =
+          destination && typeof destination === 'object'
+            ? destination.city ||
+              destination.region ||
+              destination.address ||
+              null
+            : null;
+        const destination_country =
+          destination && typeof destination === 'object'
+            ? destination.country || destination.country_code || null
+            : null;
+
+        return {
+          id: trip.id,
+          user: trip.user
+            ? {
+                id: trip.user.id,
+                email: trip.user.email,
+                username: trip.user.username,
+                role: trip.user.role,
+                isFreightForwarder: trip.user.isFreightForwarder,
+                picture: trip.user.picture,
+                kycRecords: trip.user.kycRecords || [],
+              }
+            : null,
+          departure_date: trip.departure_date,
+          departure_time: trip.departure_time,
+          arrival_date: trip.arrival_date,
+          arrival_time: trip.arrival_time,
+          currency: trip.currency,
+          mode_of_transport: trip.mode_of_transport
+            ? {
+                id: trip.mode_of_transport.id,
+                name: trip.mode_of_transport.name,
+                description: trip.mode_of_transport.description,
+              }
+            : null,
+          // Separated fields
+          departure_city,
+          departure_country,
+          destination_city,
+          destination_country,
+          trip_items: trip.trip_items.map((item) => ({
+            trip_item_id: item.trip_item_id,
+            price: Number(item.price),
+            available_kg: item.avalailble_kg
+              ? Number(item.avalailble_kg)
+              : null,
+            prices: item.prices
+              ? item.prices.map((p) => ({
+                  currency: p.currency,
+                  price: Number(p.price),
+                }))
+              : [],
+            trip_item: item.trip_item,
+          })),
+          createdAt: trip.createdAt,
+          chat_info: chatInfoMap.get(trip.id) || null,
+        };
+      });
 
       const totalPages = Math.ceil(total / limit);
 
