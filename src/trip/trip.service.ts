@@ -3265,32 +3265,6 @@ export class TripService {
 
       // Transform trips to summary format
       const tripSummaries = trips.map((trip) => {
-        const departure = trip.departure as any;
-        const destination = trip.destination as any;
-
-        // Extract city and country from departure
-        const departure_city =
-          departure && typeof departure === 'object'
-            ? departure.city || departure.region || departure.address || null
-            : null;
-        const departure_country =
-          departure && typeof departure === 'object'
-            ? departure.country || departure.country_code || null
-            : null;
-
-        // Extract city and country from destination
-        const destination_city =
-          destination && typeof destination === 'object'
-            ? destination.city ||
-              destination.region ||
-              destination.address ||
-              null
-            : null;
-        const destination_country =
-          destination && typeof destination === 'object'
-            ? destination.country || destination.country_code || null
-            : null;
-
         return {
           id: trip.id,
           user: trip.user
@@ -3316,11 +3290,9 @@ export class TripService {
                 description: trip.mode_of_transport.description,
               }
             : null,
-          // Separated fields
-          departure_city,
-          departure_country,
-          destination_city,
-          destination_country,
+          // Return full objects as stored in database
+          departure: trip.departure,
+          destination: trip.destination,
           trip_items: trip.trip_items.map((item) => ({
             trip_item_id: item.trip_item_id,
             price: Number(item.price),

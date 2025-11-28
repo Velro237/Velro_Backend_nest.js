@@ -379,39 +379,31 @@ export class TripSummaryDto {
 
   @ApiProperty({
     description:
-      'Departure city - extracted from departure location (city, region, or address). This field is always included in the response.',
-    example: 'San Francisco',
-    type: String,
-    nullable: true,
+      'Departure location (FROM) - full JSON object as stored in database',
+    example: {
+      country: 'United States',
+      country_code: 'US',
+      region: 'California',
+      city: 'San Francisco',
+      address: '123 Main St, San Francisco, CA 94105',
+    },
+    type: Object,
   })
-  departure_city: string | null;
+  departure: any;
 
   @ApiProperty({
     description:
-      'Departure country - extracted from departure location (country or country_code). This field is always included in the response.',
-    example: 'United States',
-    type: String,
-    nullable: true,
+      'Destination location (TO) - full JSON object as stored in database',
+    example: {
+      country: 'France',
+      country_code: 'FR',
+      region: 'Île-de-France',
+      city: 'Paris',
+      address: '456 Champs-Élysées, Paris, France',
+    },
+    type: Object,
   })
-  departure_country: string | null;
-
-  @ApiProperty({
-    description:
-      'Destination city - extracted from destination location (city, region, or address). This field is always included in the response.',
-    example: 'Paris',
-    type: String,
-    nullable: true,
-  })
-  destination_city: string | null;
-
-  @ApiProperty({
-    description:
-      'Destination country - extracted from destination location (country or country_code). This field is always included in the response.',
-    example: 'France',
-    type: String,
-    nullable: true,
-  })
-  destination_country: string | null;
+  destination: any;
 
   @ApiProperty({
     description: 'List of trip items with pricing and availability',

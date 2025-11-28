@@ -395,12 +395,12 @@ export class TripController {
     summary:
       'Get trips with pagination, filtering, search, and country prioritization',
     description:
-      'Retrieve all published trips with optional filter (today/tomorrow/week/all), search, country prioritization, date range filtering, and pagination. Each trip includes departure_city, departure_country, destination_city, and destination_country fields, trip items with pricing and availability, transport details, and chat_info (if user is a member of a chat for this trip). Filter options: "today" (trips departing today), "tomorrow" (trips departing tomorrow), "week" (trips departing this week), "all" (all future trips, default). Search using departure_city, departure_country, destination_city, and/or destination_country parameters. Trips matching departure_city and destination_city are prioritized at the top of results, followed by departure_country and destination_country matches. All searches are case-insensitive. Date range: specify departure_date_from and departure_date_to to filter trips by departure date range. When country is specified (without search), trips with matching destination country are shown first, followed by all other trips. When search is used, country prioritization is disabled. Perfect for mobile app infinite scroll.',
+      'Retrieve all published trips with optional filter (today/tomorrow/week/all), search, country prioritization, date range filtering, and pagination. Each trip includes departure and destination location objects (as stored in database), trip items with pricing and availability, transport details, and chat_info (if user is a member of a chat for this trip). Filter options: "today" (trips departing today), "tomorrow" (trips departing tomorrow), "week" (trips departing this week), "all" (all future trips, default). Search using departure_city, departure_country, destination_city, and/or destination_country parameters. Trips matching departure_city and destination_city are prioritized at the top of results, followed by departure_country and destination_country matches. All searches are case-insensitive. Date range: specify departure_date_from and departure_date_to to filter trips by departure date range. When country is specified (without search), trips with matching destination country are shown first, followed by all other trips. When search is used, country prioritization is disabled. Perfect for mobile app infinite scroll.',
   })
   @ApiResponse({
     status: 200,
     description:
-      'Trips retrieved successfully (message will be translated). Each trip includes departure_city, departure_country, destination_city, and destination_country fields (departure and destination fields have been removed).',
+      'Trips retrieved successfully (message will be translated). Each trip includes departure and destination location objects as stored in the database.',
     type: GetTripsResponseDto,
   })
   @ApiResponse({
