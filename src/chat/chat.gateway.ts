@@ -1188,25 +1188,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         (member) => member.user_id !== senderId,
       );
 
-      // Get chat information to check if it's a SUPPORT chat or ride trip chat
+      // Get chat information to check if it's a SUPPORT chat or trip chat
       const chat = await this.prisma.chat.findUnique({
         where: { id: chatId },
         select: { 
           type: true, 
-          ride_trip_id: true, 
+          trip_id: true, 
         },
       });
 
-      // Get ride trip separately if needed
-      let rideTrip = null;
-      if (chat?.ride_trip_id) {
-        rideTrip = await this.prisma.rideTrip.findUnique({
-          where: { id: chat.ride_trip_id },
+      // Get trip separately if needed (for ride trips)
+      let trip = null;
+      if (chat?.trip_id) {
+        trip = await this.prisma.trip.findUnique({
+          where: { id: chat.trip_id },
           select: {
-            departure_location: true,
-            arrival_location: true,
-            driver_id: true,
-            driver: {
+            departure: true,
+            destination: true,
+            user_id: true,
+            notes: true,
+            user: {
               select: {
                 id: true,
                 name: true,
@@ -1260,24 +1261,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           );
 
           // Override title for ride trip chats
-          if (chat?.ride_trip_id && rideTrip) {
-            const departureLoc = rideTrip.departure_location as any;
-            const arrivalLoc = rideTrip.arrival_location as any;
-            const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
-            const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
-            const routeText = `${departureName} → ${arrivalName}`;
-            const tripUserName = rideTrip.driver_id === senderId
-              ? (rideTrip.driver?.name || rideTrip.driver?.email || 'Driver')
-              : (sender.name || sender.email);
+          if (chat?.trip_id && trip) {
+            // Check if this is a ride trip (has notes with ride data)
+            const rideData = trip.notes ? (typeof trip.notes === 'string' ? JSON.parse(trip.notes) : trip.notes) : null;
+            const isRideTrip = rideData && (rideData.seats_available || rideData.base_price_per_seat);
+            
+            if (isRideTrip) {
+              const departureLoc = trip.departure as any;
+              const arrivalLoc = trip.destination as any;
+              const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
+              const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
+              const routeText = `${departureName} → ${arrivalName}`;
+              const tripUserName = trip.user_id === senderId
+                ? (trip.user?.name || trip.user?.email || 'Driver')
+                : (sender.name || sender.email);
 
-            notificationTitle = await this.i18n.translate(
-              'translation.notification.chat.newMessage.rideTrip.title',
-              {
-                lang: normalizedUserLang,
-                defaultValue: `New message from ${tripUserName} about your trip ${routeText}`,
-                args: { senderName: tripUserName, route: routeText },
-              },
-            );
+              notificationTitle = await this.i18n.translate(
+                'translation.notification.chat.newMessage.rideTrip.title',
+                {
+                  lang: normalizedUserLang,
+                  defaultValue: `New message from ${tripUserName} about your trip ${routeText}`,
+                  args: { senderName: tripUserName, route: routeText },
+                },
+              );
+            }
           }
 
           // Prepare message content for notification - send message directly without translation
@@ -1314,14 +1321,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           };
 
             // Add ride trip info if it's a ride trip
-            if (chat?.ride_trip_id && rideTrip) {
-              const departureLoc = rideTrip.departure_location as any;
-              const arrivalLoc = rideTrip.arrival_location as any;
-              const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
-              const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
-              const routeText = `${departureName} → ${arrivalName}`;
-              notificationData.ride_trip_id = chat.ride_trip_id;
-              notificationData.route = routeText;
+            if (chat?.trip_id && trip) {
+              const rideData = trip.notes ? (typeof trip.notes === 'string' ? JSON.parse(trip.notes) : trip.notes) : null;
+              const isRideTrip = rideData && (rideData.seats_available || rideData.base_price_per_seat);
+              
+              if (isRideTrip) {
+                const departureLoc = trip.departure as any;
+                const arrivalLoc = trip.destination as any;
+                const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
+                const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
+                const routeText = `${departureName} → ${arrivalName}`;
+                notificationData.trip_id = chat.trip_id;
+                notificationData.route = routeText;
+              }
             }
 
           // Send push notification

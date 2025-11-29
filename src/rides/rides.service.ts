@@ -23,10 +23,12 @@ import { GetMyRideTripsDto, GetMyRideTripsResponseDto, MyTripsFilter } from './d
 import { CancelRideTripResponseDto } from './dto/cancel-ride-trip.dto';
 import { CreateIssueReportDto, CreateIssueReportResponseDto } from './dto/create-issue-report.dto';
 import { CreateChatForRideDto, CreateChatForRideResponseDto } from './dto/create-chat-for-ride.dto';
+import { TripStatus } from 'generated/prisma/client';
 
 @Injectable()
 export class RidesService {
   private readonly logger = new Logger(RidesService.name);
+  private readonly RIDE_AIRLINE_NAME = 'Ride Service'; // Default airline for ride trips
 
   constructor(
     private readonly prisma: PrismaService,
@@ -34,12 +36,126 @@ export class RidesService {
     private readonly chatService: ChatService,
   ) {}
 
+  /**
+   * Get or create default airline for ride trips
+   */
+  private async getOrCreateRideAirline(): Promise<string> {
+    let airline = await this.prisma.airline.findFirst({
+      where: { name: this.RIDE_AIRLINE_NAME },
+    });
+
+    if (!airline) {
+      airline = await this.prisma.airline.create({
+        data: {
+          name: this.RIDE_AIRLINE_NAME,
+          description: 'Default airline for ride trips',
+        },
+      });
+    }
+
+    return airline.id;
+  }
+
+  /**
+   * Get or create transport type for ride trips
+   */
+  private async getOrCreateTransportType(transportMode: TransportMode): Promise<string | null> {
+    const transportTypeMap: Record<TransportMode, { name: string; description: string }> = {
+      [TransportMode.CAR]: { name: 'Car', description: 'Car ride sharing' },
+      [TransportMode.AIRPLANE]: { name: 'Airplane', description: 'Airplane ride sharing' },
+    };
+
+    const typeInfo = transportTypeMap[transportMode];
+    if (!typeInfo) return null;
+
+    let transportType = await this.prisma.transportType.findFirst({
+      where: { name: typeInfo.name },
+    });
+
+    if (!transportType) {
+      transportType = await this.prisma.transportType.create({
+        data: {
+          name: typeInfo.name,
+          description: typeInfo.description,
+        },
+      });
+    }
+
+    return transportType.id;
+  }
+
+  /**
+   * Extract ride-specific data from notes JSON
+   */
+  private extractRideData(notes: any): {
+    seats_available?: number;
+    base_price_per_seat?: number;
+    stops?: Array<{ stop_order: number; stop_location: any; price_per_seat_to_stop?: number }>;
+    driver_message?: string;
+  } {
+    if (!notes) return {};
+    try {
+      // Handle Prisma JsonValue type (can be string, object, or null)
+      let parsed: any;
+      if (typeof notes === 'string') {
+        parsed = JSON.parse(notes);
+      } else if (notes && typeof notes === 'object') {
+        parsed = notes;
+      } else {
+        return {};
+      }
+
+      return {
+        seats_available: parsed.seats_available !== undefined ? Number(parsed.seats_available) : undefined,
+        base_price_per_seat: parsed.base_price_per_seat !== undefined ? Number(parsed.base_price_per_seat) : undefined,
+        stops: parsed.stops || [],
+        driver_message: parsed.driver_message,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Store ride-specific data in notes JSON
+   */
+  private createRideNotes(data: {
+    seats_available: number;
+    base_price_per_seat: number;
+    stops?: Array<{ stop_location: any; price_per_seat_to_stop?: number }>;
+    driver_message?: string;
+  }): string {
+    return JSON.stringify({
+      seats_available: data.seats_available,
+      base_price_per_seat: data.base_price_per_seat,
+      stops: (data.stops || []).map((stop, index) => ({
+        stop_order: index,
+        stop_location: stop.stop_location,
+        price_per_seat_to_stop: stop.price_per_seat_to_stop || null,
+      })),
+      driver_message: data.driver_message || null,
+    });
+  }
+
+  /**
+   * Convert departure_datetime to departure_date and departure_time
+   */
+  private parseDepartureDateTime(datetime: string): { date: Date; time: string } {
+    const date = new Date(datetime);
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    const time = `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+    return { date, time };
+  }
+
   private mapTransportMode(mode: string): TransportMode {
     return mode as TransportMode;
   }
 
   /**
-   * Create a new ride trip
+   * Create a new ride trip (using Trip table)
    */
   async createRideTrip(
     userId: string,
@@ -54,181 +170,199 @@ export class RidesService {
       throw new BadRequestException('Departure datetime must be in the future');
     }
 
-    // Create trip with stops in a transaction
-    const trip = await this.prisma.$transaction(async (prisma) => {
-      const newTrip = await prisma.rideTrip.create({
-        data: {
-          driver_id: userId,
-          transport_mode: createDto.transport_mode as any,
-          departure_location: createDto.departure_location,
-          arrival_location: createDto.arrival_location,
-          departure_datetime: departureDate,
-          seats_available: createDto.seats_available,
-          base_price_per_seat: createDto.base_price_per_seat,
-          driver_message: createDto.driver_message || null,
-          status: 'PUBLISHED' as any,
-        },
-        select: {
-          id: true,
-          driver_id: true,
-          transport_mode: true,
-          departure_location: true,
-          arrival_location: true,
-          departure_datetime: true,
-          seats_available: true,
-          base_price_per_seat: true,
-          status: true,
-        },
-      });
+    // Get or create default airline for rides
+    const airlineId = await this.getOrCreateRideAirline();
 
-      // Create stops if provided
-      if (createDto.stops && createDto.stops.length > 0) {
-        await prisma.rideTripStop.createMany({
-          data: createDto.stops.map((stop, index) => ({
-            ride_trip_id: newTrip.id,
-            stop_order: index,
-            stop_location: stop.stop_location,
-            price_per_seat_to_stop: stop.price_per_seat_to_stop || null,
-          })),
-        });
-      }
+    // Parse departure datetime
+    const { date: departureDateObj, time: departureTime } = this.parseDepartureDateTime(createDto.departure_datetime);
 
-      return newTrip;
+    // Store ride-specific data in notes JSON
+    const rideNotes = this.createRideNotes({
+      seats_available: createDto.seats_available,
+      base_price_per_seat: createDto.base_price_per_seat,
+      stops: createDto.stops || [],
+      driver_message: createDto.driver_message,
     });
+
+    // Get or create transport type for this transport mode
+    const transportTypeId = await this.getOrCreateTransportType(createDto.transport_mode);
+
+    // Create trip using Trip table
+    const trip = await this.prisma.trip.create({
+      data: {
+        user_id: userId,
+        departure: createDto.departure_location,
+        destination: createDto.arrival_location,
+        departure_date: departureDateObj,
+        departure_time: departureTime,
+        airline_id: airlineId,
+        mode_of_transport_id: transportTypeId,
+        currency: 'USD', // Default currency for rides
+        status: TripStatus.PUBLISHED,
+        notes: rideNotes,
+      },
+      select: {
+        id: true,
+        user_id: true,
+        departure: true,
+        destination: true,
+        departure_date: true,
+        departure_time: true,
+        status: true,
+        notes: true,
+      },
+    });
+
+    // Extract ride data from notes for response
+    const rideData = this.extractRideData(trip.notes);
 
     return {
       message: 'Trip created successfully',
       trip: {
         id: trip.id,
-        driver_id: trip.driver_id,
-        transport_mode: this.mapTransportMode(trip.transport_mode),
-        departure_location: trip.departure_location as any,
-        arrival_location: trip.arrival_location as any,
-        departure_datetime: trip.departure_datetime,
-        seats_available: trip.seats_available,
-        base_price_per_seat: Number(trip.base_price_per_seat),
+        driver_id: trip.user_id,
+        transport_mode: createDto.transport_mode,
+        departure_location: trip.departure as any,
+        arrival_location: trip.destination as any,
+        departure_datetime: trip.departure_date,
+        seats_available: rideData.seats_available || 0,
+        base_price_per_seat: rideData.base_price_per_seat || 0,
         status: trip.status,
       } as any,
     };
   }
 
   /**
-   * Search ride trips
+   * Search ride trips (using Trip table)
    */
   async searchRideTrips(
     searchDto: SearchRideTripsDto,
   ): Promise<SearchRideTripsResponseDto> {
-    // Build where clause
+    // Get transport type IDs for ride trips (CAR and AIRPLANE)
+    const carTransportType = await this.prisma.transportType.findFirst({
+      where: { name: 'Car' },
+    });
+    const airplaneTransportType = await this.prisma.transportType.findFirst({
+      where: { name: 'Airplane' },
+    });
+
+    // Build where clause - filter for ride trips (have mode_of_transport_id and notes with ride data)
     const where: any = {
-      status: 'PUBLISHED' as any,
+      status: TripStatus.PUBLISHED,
+      mode_of_transport_id: { not: null }, // Ride trips have transport type
+      notes: { not: null }, // Ride trips have notes with ride data
     };
 
+    // Filter by transport mode if specified
     if (searchDto.transport_mode) {
-      where.transport_mode = searchDto.transport_mode as any;
+      if (searchDto.transport_mode === TransportMode.CAR && carTransportType) {
+        where.mode_of_transport_id = carTransportType.id;
+      } else if (searchDto.transport_mode === TransportMode.AIRPLANE && airplaneTransportType) {
+        where.mode_of_transport_id = airplaneTransportType.id;
+      } else {
+        // If transport mode is specified but transport type doesn't exist, 
+        // don't filter by transport mode (show all ride trips)
+        // where.mode_of_transport_id remains { not: null } to show all ride trips
+      }
     }
 
     // Handle date filtering: support both single date and date range
     if (searchDto.from_date && searchDto.to_date) {
-      // Date range filter
       const fromDate = new Date(searchDto.from_date);
       fromDate.setHours(0, 0, 0, 0);
       const toDate = new Date(searchDto.to_date);
       toDate.setHours(23, 59, 59, 999);
-      where.departure_datetime = {
+      where.departure_date = {
         gte: fromDate,
         lte: toDate,
       };
     } else if (searchDto.from_date) {
-      // Only from_date provided
       const fromDate = new Date(searchDto.from_date);
       fromDate.setHours(0, 0, 0, 0);
-      where.departure_datetime = {
-        gte: fromDate,
-      };
+      where.departure_date = { gte: fromDate };
     } else if (searchDto.to_date) {
-      // Only to_date provided
       const toDate = new Date(searchDto.to_date);
       toDate.setHours(23, 59, 59, 999);
-      where.departure_datetime = {
-        lte: toDate,
-      };
+      where.departure_date = { lte: toDate };
     } else if (searchDto.date) {
-      // Single date filter (backward compatibility)
       const date = new Date(searchDto.date);
       const nextDay = new Date(date);
       nextDay.setDate(nextDay.getDate() + 1);
-      where.departure_datetime = {
+      where.departure_date = {
         gte: date,
         lt: nextDay,
       };
     }
 
-    // Filter by minimum seats available
-    if (searchDto.seats_needed !== undefined && searchDto.seats_needed > 0) {
-      where.seats_available = {
-        gte: searchDto.seats_needed,
-      };
-    }
-
-    // Get all published trips matching filters
-    const trips = await this.prisma.rideTrip.findMany({
+    // Get all published ride trips matching filters
+    const trips = await this.prisma.trip.findMany({
       where,
       include: {
-        stops: {
-          orderBy: {
-            stop_order: 'asc',
-          },
-        },
-        driver: {
+        user: {
           select: {
             id: true,
             name: true,
             picture: true,
           },
         },
+        mode_of_transport: true,
       },
       orderBy: {
-        departure_datetime: 'asc',
+        departure_date: 'asc',
       },
     });
 
-    // Filter trips by location text if provided
-    let filteredTrips = trips;
-    if (searchDto.from_text || searchDto.to_text) {
-      filteredTrips = trips.filter((trip) => {
-        const departureLoc = trip.departure_location as any;
-        const arrivalLoc = trip.arrival_location as any;
-        
-        // Check from_text match
-        if (searchDto.from_text) {
-          const fromText = searchDto.from_text.toLowerCase();
-          const departureMatch = 
-            (departureLoc?.country?.toLowerCase().includes(fromText) ||
-             departureLoc?.region?.toLowerCase().includes(fromText) ||
-             departureLoc?.address?.toLowerCase().includes(fromText) ||
-             departureLoc?.city?.toLowerCase().includes(fromText));
-          
-          if (!departureMatch) return false;
+    // Filter trips by location text and seats if provided, and extract ride data
+      let filteredTrips = trips
+        .map((trip) => {
+          const rideData = this.extractRideData(trip.notes);
+          return { ...trip, rideData };
+        })
+      .filter((trip) => {
+        // Filter by minimum seats available
+        if (searchDto.seats_needed !== undefined && searchDto.seats_needed > 0) {
+          if (!trip.rideData.seats_available || trip.rideData.seats_available < searchDto.seats_needed) {
+            return false;
+          }
         }
-        
-        // Check to_text match
-        if (searchDto.to_text) {
-          const toText = searchDto.to_text.toLowerCase();
-          const arrivalMatch = 
-            (arrivalLoc?.country?.toLowerCase().includes(toText) ||
-             arrivalLoc?.region?.toLowerCase().includes(toText) ||
-             arrivalLoc?.address?.toLowerCase().includes(toText) ||
-             arrivalLoc?.city?.toLowerCase().includes(toText));
+
+        // Filter by location text if provided
+        if (searchDto.from_text || searchDto.to_text) {
+          const departureLoc = trip.departure as any;
+          const arrivalLoc = trip.destination as any;
           
-          if (!arrivalMatch) return false;
+          if (searchDto.from_text) {
+            const fromText = searchDto.from_text.toLowerCase();
+            const departureMatch = 
+              (departureLoc?.country?.toLowerCase().includes(fromText) ||
+               departureLoc?.region?.toLowerCase().includes(fromText) ||
+               departureLoc?.address?.toLowerCase().includes(fromText) ||
+               departureLoc?.city?.toLowerCase().includes(fromText));
+            
+            if (!departureMatch) {
+              return false;
+            }
+          }
+          
+          if (searchDto.to_text) {
+            const toText = searchDto.to_text.toLowerCase();
+            const arrivalMatch = 
+              (arrivalLoc?.country?.toLowerCase().includes(toText) ||
+               arrivalLoc?.region?.toLowerCase().includes(toText) ||
+               arrivalLoc?.address?.toLowerCase().includes(toText) ||
+               arrivalLoc?.city?.toLowerCase().includes(toText));
+            
+            if (!arrivalMatch) {
+              return false;
+            }
+          }
         }
         
         return true;
       });
-    }
 
     // Batch KYC checks and ratings for all drivers
-    const driverIds = [...new Set(filteredTrips.map((t) => t.driver_id))];
+    const driverIds = [...new Set(filteredTrips.map((t) => t.user_id))];
     const [kycRecords, driverRatings, driverTripCounts] = await Promise.all([
       this.prisma.userKYC.findMany({
         where: {
@@ -237,7 +371,6 @@ export class RidesService {
         },
         select: { userId: true },
       }),
-      // Get all ratings for these drivers (from regular trips - Rating model)
       this.prisma.rating.findMany({
         where: {
           receiver_id: { in: driverIds },
@@ -247,11 +380,13 @@ export class RidesService {
           rating: true,
         },
       }),
-      // Count ride trips for each driver
-      this.prisma.rideTrip.groupBy({
-        by: ['driver_id'],
+      // Count ride trips for each driver (trips with mode_of_transport_id and notes)
+      this.prisma.trip.groupBy({
+        by: ['user_id'],
         where: {
-          driver_id: { in: driverIds },
+          user_id: { in: driverIds },
+          mode_of_transport_id: { not: null },
+          notes: { not: null },
         },
         _count: true,
       }),
@@ -271,46 +406,53 @@ export class RidesService {
     // Create trip count map
     const driverTripCountMap = new Map<string, number>();
     driverTripCounts.forEach((count) => {
-      driverTripCountMap.set(count.driver_id, count._count);
+      driverTripCountMap.set(count.user_id, count._count);
     });
 
-    // Calculate segment price for each trip (for now, just base price or stop price if any)
+    // Map to response format
     const results: RideTripSearchResultDto[] = filteredTrips.map((trip) => {
-      let segmentPrice = Number(trip.base_price_per_seat);
-      if (trip.stops.length > 0) {
-        const lastStop = trip.stops[trip.stops.length - 1];
-        if (lastStop.price_per_seat_to_stop !== null) {
-          segmentPrice = Number(lastStop.price_per_seat_to_stop);
+      const rideData = trip.rideData;
+      const stops = rideData.stops || [];
+      
+      // Determine transport mode from transport type name
+      let transportMode = TransportMode.CAR;
+      if (trip.mode_of_transport?.name?.toLowerCase().includes('airplane')) {
+        transportMode = TransportMode.AIRPLANE;
+      }
+
+      // Calculate segment price
+      let segmentPrice = rideData.base_price_per_seat || 0;
+      if (stops.length > 0) {
+        const lastStop = stops[stops.length - 1];
+        if (lastStop.price_per_seat_to_stop) {
+          segmentPrice = lastStop.price_per_seat_to_stop;
         }
       }
 
-      const driverRating = driverRatingMap.get(trip.driver_id) || { average: 0, count: 0 };
-      const totalTrips = driverTripCountMap.get(trip.driver_id) || 0;
+      const driverRating = driverRatingMap.get(trip.user_id) || { average: 0, count: 0 };
+      const totalTrips = driverTripCountMap.get(trip.user_id) || 0;
       
       return {
         id: trip.id,
         driver: {
-          id: trip.driver.id,
-          name: trip.driver.name || 'Unknown',
-          picture: trip.driver.picture || null,
-          is_kyc_verified: verifiedDriverIds.has(trip.driver_id),
+          id: trip.user.id,
+          name: trip.user.name || 'Unknown',
+          picture: trip.user.picture || null,
+          is_kyc_verified: verifiedDriverIds.has(trip.user_id),
           average_rating: driverRating.average > 0 ? Number(driverRating.average.toFixed(1)) : undefined,
           total_trips: totalTrips > 0 ? totalTrips : undefined,
         },
-        transport_mode: this.mapTransportMode(trip.transport_mode),
+        transport_mode: transportMode,
         route: {
-          departure_location: trip.departure_location as any,
-          arrival_location: trip.arrival_location as any,
-          stops: trip.stops.map((s) => ({
-            stop_location: s.stop_location as any,
-            price_per_seat_to_stop:
-              s.price_per_seat_to_stop !== null
-                ? Number(s.price_per_seat_to_stop)
-                : undefined,
+          departure_location: trip.departure as any,
+          arrival_location: trip.destination as any,
+          stops: stops.map((s: any) => ({
+            stop_location: s.stop_location,
+            price_per_seat_to_stop: s.price_per_seat_to_stop || undefined,
           })),
         },
-        departure_datetime: trip.departure_datetime,
-        seats_available: trip.seats_available,
+        departure_datetime: trip.departure_date,
+        seats_available: rideData.seats_available || 0,
         segment_price: segmentPrice,
         status: trip.status,
       };
@@ -323,24 +465,20 @@ export class RidesService {
   }
 
   /**
-   * Get ride trip detail
+   * Get ride trip detail (using Trip table)
    */
   async getRideTripDetail(tripId: string): Promise<GetRideTripDetailResponseDto> {
-    const trip = await this.prisma.rideTrip.findUnique({
+    const trip = await this.prisma.trip.findUnique({
       where: { id: tripId },
       include: {
-        stops: {
-          orderBy: {
-            stop_order: 'asc',
-          },
-        },
-        driver: {
+        user: {
           select: {
             id: true,
             name: true,
             picture: true,
           },
         },
+        mode_of_transport: true,
       },
     });
 
@@ -348,27 +486,40 @@ export class RidesService {
       throw new NotFoundException('Trip not found');
     }
 
+    // Verify this is a ride trip (has notes with ride data)
+    const rideData = this.extractRideData(trip.notes);
+    if (!rideData.seats_available && !rideData.base_price_per_seat) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    // Determine transport mode from transport type
+    let transportMode = TransportMode.CAR;
+    if (trip.mode_of_transport?.name?.toLowerCase().includes('airplane')) {
+      transportMode = TransportMode.AIRPLANE;
+    }
+
     // Get driver stats (KYC, ratings, trip count)
     const [kycRecord, driverRatings, driverTripCount] = await Promise.all([
       this.prisma.userKYC.findFirst({
         where: {
-          userId: trip.driver_id,
+          userId: trip.user_id,
           status: 'APPROVED',
         },
       }),
-      // Get all ratings for this driver (from regular trips)
       this.prisma.rating.findMany({
         where: {
-          receiver_id: trip.driver_id,
+          receiver_id: trip.user_id,
         },
         select: {
           rating: true,
         },
       }),
       // Count ride trips for this driver
-      this.prisma.rideTrip.count({
+      this.prisma.trip.count({
         where: {
-          driver_id: trip.driver_id,
+          user_id: trip.user_id,
+          mode_of_transport_id: { not: null },
+          notes: { not: null },
         },
       }),
     ]);
@@ -378,33 +529,32 @@ export class RidesService {
       ? driverRatings.reduce((sum, r) => sum + r.rating, 0) / driverRatings.length
       : 0;
 
+    const stops = rideData.stops || [];
+
     return {
       trip: {
         id: trip.id,
         driver: {
-          id: trip.driver.id,
-          name: trip.driver.name || 'Unknown',
-          picture: trip.driver.picture || null,
+          id: trip.user.id,
+          name: trip.user.name || 'Unknown',
+          picture: trip.user.picture || null,
           is_kyc_verified: !!kycRecord,
           average_rating: averageRating > 0 ? Number(averageRating.toFixed(1)) : undefined,
           total_trips: driverTripCount > 0 ? driverTripCount : undefined,
         },
-        transport_mode: this.mapTransportMode(trip.transport_mode),
+        transport_mode: transportMode,
         route: {
-          departure_location: trip.departure_location as any,
-          arrival_location: trip.arrival_location as any,
-          stops: trip.stops.map((s) => ({
-            stop_order: s.stop_order,
-            stop_location: s.stop_location as any,
-            price_per_seat_to_stop:
-              s.price_per_seat_to_stop !== null
-                ? Number(s.price_per_seat_to_stop)
-                : undefined,
+          departure_location: trip.departure as any,
+          arrival_location: trip.destination as any,
+          stops: stops.map((s: any, index: number) => ({
+            stop_order: s.stop_order !== undefined ? s.stop_order : index,
+            stop_location: s.stop_location,
+            price_per_seat_to_stop: s.price_per_seat_to_stop || undefined,
           })),
         },
-        departure_datetime: trip.departure_datetime,
-        seats_available: trip.seats_available,
-        base_price_per_seat: Number(trip.base_price_per_seat),
+        departure_datetime: trip.departure_date,
+        seats_available: rideData.seats_available || 0,
+        base_price_per_seat: rideData.base_price_per_seat || 0,
         status: trip.status,
         createdAt: trip.createdAt,
       },
@@ -412,7 +562,7 @@ export class RidesService {
   }
 
   /**
-   * Get my trips (driver view)
+   * Get my trips (driver view) - using Trip table
    */
   async getMyRideTrips(
     userId: string,
@@ -421,66 +571,89 @@ export class RidesService {
     const filter = query.filter || MyTripsFilter.UPCOMING;
     const now = new Date();
 
+    // Get transport type IDs
+    const carTransportType = await this.prisma.transportType.findFirst({
+      where: { name: 'Car' },
+    });
+    const airplaneTransportType = await this.prisma.transportType.findFirst({
+      where: { name: 'Airplane' },
+    });
+
     const where: any = {
-      driver_id: userId,
+      user_id: userId,
+      mode_of_transport_id: { not: null }, // Ride trips have transport type
+      notes: { not: null }, // Ride trips have notes
     };
 
     // Filter by transport mode if specified
     if (query.transport_mode) {
-      where.transport_mode = query.transport_mode as any;
+      if (query.transport_mode === TransportMode.CAR && carTransportType) {
+        where.mode_of_transport_id = carTransportType.id;
+      } else if (query.transport_mode === TransportMode.AIRPLANE && airplaneTransportType) {
+        where.mode_of_transport_id = airplaneTransportType.id;
+      }
     }
 
     // Apply status/date filters
     if (filter === MyTripsFilter.UPCOMING) {
-      where.departure_datetime = { gte: now };
-      where.status = { in: ['PUBLISHED', 'SCHEDULED', 'RESCHEDULED'] as any };
+      where.departure_date = { gte: now };
+      where.status = { in: [TripStatus.PUBLISHED, TripStatus.SCHEDULED, TripStatus.RESCHEDULED] };
     } else if (filter === MyTripsFilter.PAST) {
       where.OR = [
-        { departure_datetime: { lt: now } },
-        { status: { in: ['COMPLETED', 'CANCELLED'] as any } },
+        { departure_date: { lt: now } },
+        { status: { in: [TripStatus.COMPLETED, TripStatus.CANCELLED] } },
       ];
-    } else if (filter === MyTripsFilter.CAR_RIDES) {
-      where.transport_mode = 'CAR' as any;
-      // Don't filter by date for transport mode filters
-    } else if (filter === MyTripsFilter.FLIGHT_BAGGAGE) {
-      where.transport_mode = 'AIRPLANE' as any;
-      // Don't filter by date for transport mode filters
+    } else if (filter === MyTripsFilter.CAR_RIDES && carTransportType) {
+      where.mode_of_transport_id = carTransportType.id;
+    } else if (filter === MyTripsFilter.FLIGHT_BAGGAGE && airplaneTransportType) {
+      where.mode_of_transport_id = airplaneTransportType.id;
     }
     // ALL: no additional filters
 
-    const trips = await this.prisma.rideTrip.findMany({
+    const trips = await this.prisma.trip.findMany({
       where,
+      include: {
+        mode_of_transport: true,
+      },
       orderBy: {
-        departure_datetime: 'desc',
+        departure_date: 'desc',
       },
     });
 
     return {
-      trips: trips.map((trip) => ({
-        id: trip.id,
-        transport_mode: this.mapTransportMode(trip.transport_mode),
-        route: {
-          departure_location: trip.departure_location as any,
-          arrival_location: trip.arrival_location as any,
-        },
-        departure_datetime: trip.departure_datetime,
-        seats_available: trip.seats_available,
-        base_price_per_seat: Number(trip.base_price_per_seat),
-        status: trip.status,
-        createdAt: trip.createdAt,
-      })),
+      trips: trips.map((trip) => {
+        const rideData = this.extractRideData(trip.notes);
+        let transportMode = TransportMode.CAR;
+        if (trip.mode_of_transport?.name?.toLowerCase().includes('airplane')) {
+          transportMode = TransportMode.AIRPLANE;
+        }
+
+        return {
+          id: trip.id,
+          transport_mode: transportMode,
+          route: {
+            departure_location: trip.departure as any,
+            arrival_location: trip.destination as any,
+          },
+          departure_datetime: trip.departure_date,
+          seats_available: rideData.seats_available || 0,
+          base_price_per_seat: rideData.base_price_per_seat || 0,
+          status: trip.status,
+          createdAt: trip.createdAt,
+        };
+      }),
       total: trips.length,
     };
   }
 
   /**
-   * Cancel a ride trip
+   * Cancel a ride trip (using Trip table)
    */
   async cancelRideTrip(
     userId: string,
     tripId: string,
   ): Promise<CancelRideTripResponseDto> {
-    const trip = await this.prisma.rideTrip.findUnique({
+    const trip = await this.prisma.trip.findUnique({
       where: { id: tripId },
       include: {
         chats: {
@@ -499,19 +672,25 @@ export class RidesService {
       throw new NotFoundException('Trip not found');
     }
 
-    if (trip.driver_id !== userId) {
+    // Verify this is a ride trip
+    const rideData = this.extractRideData(trip.notes);
+    if (!rideData.seats_available && !rideData.base_price_per_seat) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    if (trip.user_id !== userId) {
       throw new ForbiddenException('Only the driver can cancel this trip');
     }
 
-    if (trip.status === 'CANCELLED') {
+    if (trip.status === TripStatus.CANCELLED) {
       throw new BadRequestException('Trip is already cancelled');
     }
 
     // Update trip status
-    await this.prisma.rideTrip.update({
+    await this.prisma.trip.update({
       where: { id: tripId },
       data: {
-        status: 'CANCELLED' as any,
+        status: TripStatus.CANCELLED,
       },
     });
 
@@ -526,13 +705,12 @@ export class RidesService {
     }
 
     // Send push notifications to all participants
-    const departureLoc = trip.departure_location as any;
-    const arrivalLoc = trip.arrival_location as any;
+    const departureLoc = trip.departure as any;
+    const arrivalLoc = trip.destination as any;
     const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
     const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
     const routeText = `${departureName} → ${arrivalName}`;
     const notificationPromises = Array.from(participantUserIds).map(async (participantId) => {
-      // Get user's language preference
       const user = await this.prisma.user.findUnique({
         where: { id: participantId },
         select: { lang: true },
@@ -553,9 +731,6 @@ export class RidesService {
 
     await Promise.allSettled(notificationPromises);
 
-    // Optionally: Insert system message in each chat
-    // This can be done via chat gateway if needed
-
     return {
       message: 'Trip cancelled successfully',
       tripId: tripId,
@@ -563,19 +738,25 @@ export class RidesService {
   }
 
   /**
-   * Create issue report for a trip
+   * Create issue report for a ride trip (using Trip table and Report model)
    */
   async createIssueReport(
     userId: string,
     createDto: CreateIssueReportDto,
   ): Promise<CreateIssueReportResponseDto> {
-    // Check if trip exists
-    const trip = await this.prisma.rideTrip.findUnique({
+    // Check if trip exists and is a ride trip
+    const trip = await this.prisma.trip.findUnique({
       where: { id: createDto.trip_id },
-      select: { driver_id: true },
+      select: { user_id: true, notes: true },
     });
 
     if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    // Verify this is a ride trip
+    const rideData = this.extractRideData(trip.notes);
+    if (!rideData.seats_available && !rideData.base_price_per_seat) {
       throw new NotFoundException('Trip not found');
     }
 
@@ -595,63 +776,14 @@ export class RidesService {
     }
 
     // Create report using the unified Report model
-    // For ride trips, we need to provide a valid trip_id (required by schema)
-    // We'll use a placeholder approach: create a minimal Trip record or use existing
-    // Actually, since trip_id is required, we can't use null. Let's check if we can make it work differently.
-    // The cleanest solution: Keep trip_id required for existing, and for ride trips we'll need
-    // to either create a dummy trip or handle it at the application level.
-    // For now, let's use a workaround: We'll need to handle ride trip reports differently
-    // OR make trip_id truly optional and update existing code to handle null
-    
-    // Since user wants to use same model and not break existing, let's make trip_id optional
-    // but ensure existing code still works by always providing trip_id for package delivery trips
-    // For ride trips, we'll set trip_id to a special value or handle it differently
-    
-    // Actually, the best approach: Make trip_id optional in schema but keep relation optional too
-    // Then update existing code to handle null. But user said don't change existing code.
-    
-    // Final solution: For ride trips, we cannot use the same Report model if trip_id is required
-    // We need to either:
-    // 1. Make trip_id optional and update existing code (breaks "don't change existing")
-    // 2. Keep trip_id required and use a workaround for ride trips
-    // 3. Use separate model for ride trip reports
-    
-    // Since user wants unified model, let's make trip_id optional and relation optional
-    // Existing code will still work because it always provides trip_id
-    // We just need to handle the case where trip might be null in the response
-    
-    // Wait, but the user already changed relation back to required. So they want it required.
-    // That means trip_id must be required too.
-    
-    // Final decision: Keep trip_id required (String) to match required relation
-    // For ride trips, we cannot use null. We need a different approach.
-    
-    // Actually, let me check - if I make trip_id required, then ride trips can't use it.
-    // So I should keep trip_id optional but make relation optional too, and existing code
-    // will still work because it always provides trip_id.
-    
-    // But user changed relation to required, so they want it that way.
-    
-    // I think the issue is: I need to make both optional OR both required.
-    // Since user changed relation to required, I should make trip_id required too.
-    // But then ride trips can't work.
-    
-    // Let me just make trip_id required to match the relation, and note that ride trips
-    // will need a different approach or we need to handle it at application level.
-    
-    // Actually, wait - let me re-read the user's question. They asked if we can use trip
-    // in place of rideTrip. They want to unify. But trip_id pointing to Trip model won't
-    // work for RideTrip model because they're different tables.
-    
-    // Create report using the new RideTripReport model
-    const report = await this.prisma.rideTripReport.create({
+    const report = await this.prisma.report.create({
       data: {
         user_id: userId,
-        reported_id: trip.driver_id,
-        ride_trip_id: createDto.trip_id,
+        reported_id: trip.user_id, // Driver is the reported user
+        trip_id: createDto.trip_id,
         type: createDto.type as any,
         text: createDto.description || null,
-        priority: 'LOW', // Default priority for ride trip reports
+        priority: 'LOW',
         status: 'PENDING',
       },
     });
@@ -663,18 +795,17 @@ export class RidesService {
   }
 
   /**
-   * Create or find chat for a ride trip
+   * Create or find chat for a ride trip (using Trip table)
    */
   async createChatForRide(
     userId: string,
     createDto: CreateChatForRideDto,
   ): Promise<CreateChatForRideResponseDto> {
-
     // Get trip with driver
-    const trip = await this.prisma.rideTrip.findUnique({
+    const trip = await this.prisma.trip.findUnique({
       where: { id: createDto.trip_id },
       include: {
-        driver: true,
+        user: true,
       },
     });
 
@@ -682,14 +813,20 @@ export class RidesService {
       throw new NotFoundException('Trip not found');
     }
 
-    if (trip.driver_id === userId) {
+    // Verify this is a ride trip
+    const rideData = this.extractRideData(trip.notes);
+    if (!rideData.seats_available && !rideData.base_price_per_seat) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    if (trip.user_id === userId) {
       throw new BadRequestException('Cannot chat with yourself');
     }
 
     // Check if chat already exists for this trip with both users
     const existingChat = await this.prisma.chat.findFirst({
       where: {
-        ride_trip_id: createDto.trip_id,
+        trip_id: createDto.trip_id,
         members: {
           some: {
             user_id: userId,
@@ -708,7 +845,7 @@ export class RidesService {
     if (existingChat) {
       const memberUserIds = existingChat.members.map((m) => m.user_id);
       const bothUsersAreMembers =
-        memberUserIds.includes(userId) && memberUserIds.includes(trip.driver_id);
+        memberUserIds.includes(userId) && memberUserIds.includes(trip.user_id);
 
       if (bothUsersAreMembers) {
         return {
@@ -721,12 +858,12 @@ export class RidesService {
     // Create new chat
     const chat = await this.prisma.chat.create({
       data: {
-        ride_trip_id: createDto.trip_id,
+        trip_id: createDto.trip_id,
         type: 'TRIP',
         members: {
           create: [
             { user_id: userId },
-            { user_id: trip.driver_id },
+            { user_id: trip.user_id },
           ],
         },
       },

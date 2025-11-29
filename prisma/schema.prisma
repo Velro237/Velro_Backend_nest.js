@@ -105,7 +105,6 @@ model User {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   trips              Trip[]
-  rideTrips          RideTrip[]
   requests           TripRequest[]
   messages           Message[]
   chats              ChatMember[]
@@ -121,22 +120,19 @@ model User {
   services CompanyService[] @relation("UserServices")
   cities   CompanyCity[]    @relation("UserCities")
 
-  reportsSubmitted         Report[]               @relation("ReportReporter")
-  reportsReceived          Report[]               @relation("ReportReported")
-  reportsReplied           Report[]               @relation("ReportReplier")
-  rideTripReportsSubmitted RideTripReport[]       @relation("RideTripReportReporter")
-  rideTripReportsReceived  RideTripReport[]       @relation("RideTripReportReported")
-  rideTripReportsReplied   RideTripReport[]       @relation("RideTripReportReplier")
-  refreshTokens            RefreshToken[]
-  accounts                 Account[]
-  kycRecords               UserKYC[]
-  alerts                   Alert[]
-  ratingsGiven             Rating[]               @relation("RatingGiver")
-  ratingsReceived          Rating[]               @relation("RatingReceiver")
-  notifications            Notification[]
-  wallet                   Wallet?
-  transactions             Transaction[]
-  accountDeleteRequests    AccountDeleteRequest[]
+  reportsSubmitted      Report[]               @relation("ReportReporter")
+  reportsReceived       Report[]               @relation("ReportReported")
+  reportsReplied        Report[]               @relation("ReportReplier")
+  refreshTokens         RefreshToken[]
+  accounts              Account[]
+  kycRecords            UserKYC[]
+  alerts                Alert[]
+  ratingsGiven          Rating[]               @relation("RatingGiver")
+  ratingsReceived       Rating[]               @relation("RatingReceiver")
+  notifications         Notification[]
+  wallet                Wallet?
+  transactions          Transaction[]
+  accountDeleteRequests AccountDeleteRequest[]
 }
 
 model Account {
@@ -170,10 +166,9 @@ enum ChatType {
 }
 
 model Chat {
-  id           String  @id @default(uuid())
-  name         String?
-  trip_id      String? // Optional: link to trip (multiple chats allowed per trip)
-  ride_trip_id String? // Optional: link to ride trip
+  id      String  @id @default(uuid())
+  name    String?
+  trip_id String? // Optional: link to trip (multiple chats allowed per trip)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -183,7 +178,6 @@ model Chat {
   members  ChatMember[]
   messages Message[]
   trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  rideTrip RideTrip?    @relation(fields: [ride_trip_id], references: [id], onDelete: Cascade)
   request  TripRequest? // One-to-one reverse relation
 }
 
@@ -212,11 +206,10 @@ model Message {
   sender    User   @relation(fields: [sender_id], references: [id], onDelete: Cascade)
   data      Json?
 
-  content      String? // Text message
-  image_url    String? // Optional for media messages
-  request_id   String? // Optional for request messages
-  review_id    String? // Optional for review messages
-  ride_trip_id String? // Optional for ride trip messages
+  content    String? // Text message
+  image_url  String? // Optional for media messages
+  request_id String? // Optional for request messages
+  review_id  String? // Optional for review messages
 
   type MessageType @default(TEXT)
 
@@ -229,8 +222,7 @@ model Message {
   replies     Message[] @relation("MessageReplies")
 
   // Relation to TripRequest (if the message references a trip request)
-  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
-  rideTrip RideTrip?    @relation(fields: [ride_trip_id], references: [id], onDelete: Cascade)
+  request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
 }
 
 enum MessageType {
@@ -492,19 +484,6 @@ enum ReportType {
   TRAVEL_ISSUES
   OTHER_ISSUES
   RESPONSE_TO_REPORT
-  COMMUNICATION_PROBLEM
-  PACKAGE_ISSUE
-  PAYMENT_PROBLEM
-  POLICY_VIOLATION
-  APP_TECHNICAL
-
-  // Ride trip specific report types (matching frontend)
-  DRIVER_WAS_LATE
-  UNSAFE_DRIVING
-  WRONG_ROUTE_TAKEN
-  VEHICLE_CONDITION_ISSUE
-  INAPPROPRIATE_BEHAVIOR
-  OTHER
 }
 
 enum ReportPriority {
@@ -542,36 +521,6 @@ model Report {
   trip     Trip         @relation(fields: [trip_id], references: [id], onDelete: Cascade)
   request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
   replier  User?        @relation("ReportReplier", fields: [replied_by], references: [id])
-
-  @@index([trip_id])
-}
-
-// Ride Trip Reports - Separate model for ride trip reporting
-model RideTripReport {
-  id           String         @id @default(uuid())
-  user_id      String // User reporting
-  reported_id  String // User being reported
-  reply_to_id  String? // ID of report we are replying to (not required)
-  ride_trip_id String // Ride trip ID (required)
-  type         ReportType
-  text         String? // Report text (not required)
-  priority     ReportPriority
-  status       ReportStatus   @default(PENDING)
-  data         Json? // Additional data in JSON format
-  replied_by   String? // ID of user replying to report (not required)
-  created_at   DateTime       @default(now())
-  updated_at   DateTime       @updatedAt
-  images       Json?
-
-  // Relations
-  user     User             @relation("RideTripReportReporter", fields: [user_id], references: [id], onDelete: Cascade)
-  reported User             @relation("RideTripReportReported", fields: [reported_id], references: [id], onDelete: Cascade)
-  replyTo  RideTripReport?  @relation("RideTripReportReplies", fields: [reply_to_id], references: [id])
-  replies  RideTripReport[] @relation("RideTripReportReplies")
-  rideTrip RideTrip         @relation(fields: [ride_trip_id], references: [id], onDelete: Cascade)
-  replier  User?            @relation("RideTripReportReplier", fields: [replied_by], references: [id])
-
-  @@index([ride_trip_id])
 }
 
 // KYC Verification Models
@@ -846,68 +795,4 @@ enum deleteRequestStatus {
   PENDING
   APPROVED
   REJECTED
-}
-
-// ============================================
-// Velro Rides MVP Models
-// ============================================
-
-enum TransportMode {
-  CAR
-  AIRPLANE
-}
-
-enum RideTripStatus {
-  PUBLISHED
-  SCHEDULED
-  IN_PROGRESS
-  COMPLETED
-  RESCHEDULED
-  CANCELLED
-}
-
-// Ride Trip model (separate from package delivery Trip)
-model RideTrip {
-  id                  String         @id @default(uuid())
-  driver_id           String
-  transport_mode      TransportMode
-  departure_location  Json
-  arrival_location    Json
-  departure_area_text String?
-  arrival_area_text   String?
-  departure_datetime  DateTime
-  seats_available     Int
-  base_price_per_seat Decimal        @db.Decimal(10, 2)
-  driver_message      String? // Optional message/notes from driver
-  status              RideTripStatus @default(PUBLISHED)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-
-  // Relations
-  driver   User             @relation(fields: [driver_id], references: [id], onDelete: Cascade)
-  stops    RideTripStop[]
-  chats    Chat[]
-  reports  RideTripReport[]
-  messages Message[]
-
-  @@index([driver_id])
-  @@index([status])
-  @@index([departure_datetime])
-}
-
-// Mid-stops for ride trips
-model RideTripStop {
-  id                     String   @id @default(uuid())
-  ride_trip_id           String
-  stop_order             Int // 0-based order
-  stop_location          Json
-  price_per_seat_to_stop Decimal? @db.Decimal(10, 2) // Optional: if null, use base_price_per_seat
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-
-  // Relations
-  rideTrip RideTrip @relation(fields: [ride_trip_id], references: [id], onDelete: Cascade)
-
-  @@unique([ride_trip_id, stop_order]) // Ensure unique order per trip
-  @@index([ride_trip_id])
 }
