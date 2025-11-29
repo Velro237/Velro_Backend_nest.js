@@ -42,6 +42,10 @@ import {
   CancelRequestResponseDto,
 } from './dto/cancel-request.dto';
 import { RateRequestDto, RateRequestResponseDto } from './dto/rate-request.dto';
+import {
+  AdminRequestStatisticsQueryDto,
+  AdminRequestStatisticsResponseDto,
+} from './dto/admin-request-statistics.dto';
 import { CancellationService } from './cancellation.service';
 import { CurrencyService } from '../currency/currency.service';
 
@@ -780,6 +784,7 @@ export class RequestService {
           status: fullRequest.status,
           message: fullRequest.message,
           cost: fullRequest.cost ? Number(fullRequest.cost) : null,
+          currency: fullRequest.currency,
           created_at: fullRequest.created_at,
           user: {
             id: fullRequest.user.id,
@@ -2245,6 +2250,52 @@ export class RequestService {
   }
 
   /**
+   * Private helper method to calculate converted_cost array for all supported currencies
+   * Returns array with request currency first, then other supported currencies
+   */
+  private calculateConvertedCost(
+    cost: number | null,
+    requestCurrency: string,
+  ): Array<{ currency: string; price: number }> {
+    if (!cost || cost <= 0) {
+      return [];
+    }
+
+    const supportedCurrencies: Currency[] = [
+      Currency.XAF,
+      Currency.USD,
+      Currency.EUR,
+      Currency.CAD,
+    ];
+
+    const requestCurrencyUpper = requestCurrency.toUpperCase() as Currency;
+    const convertedCosts: Array<{ currency: string; price: number }> = [];
+
+    // Add request currency first
+    convertedCosts.push({
+      currency: requestCurrencyUpper,
+      price: Number(cost),
+    });
+
+    // Add other supported currencies
+    for (const targetCurrency of supportedCurrencies) {
+      if (targetCurrency !== requestCurrencyUpper) {
+        const conversion = this.currencyService.convertCurrency(
+          cost,
+          requestCurrencyUpper,
+          targetCurrency,
+        );
+        convertedCosts.push({
+          currency: targetCurrency,
+          price: Number(conversion.convertedAmount.toFixed(2)),
+        });
+      }
+    }
+
+    return convertedCosts;
+  }
+
+  /**
    * Private helper method to create notification and send push notification for request events
    */
   private async createRequestNotification(
@@ -2272,6 +2323,16 @@ export class RequestService {
       const tripId = requestData?.trip_id || requestData?.trip?.id || null;
       const requestId = requestData?.id || null;
 
+      // Calculate converted_cost array and add it to requestData
+      const cost = requestData?.cost || null;
+      const currency = requestData?.currency || null;
+      const convertedCost =
+        cost && currency ? this.calculateConvertedCost(cost, currency) : [];
+      const enrichedRequestData = {
+        ...requestData,
+        converted_cost: convertedCost,
+      };
+
       // Create notification in database
       await this.notificationService.createNotification(
         {
@@ -2281,7 +2342,7 @@ export class RequestService {
           type: 'REQUEST',
           trip_id: tripId,
           request_id: requestId,
-          data: requestData,
+          data: enrichedRequestData,
         },
         normalizedRecipientLang,
       );
@@ -2293,7 +2354,7 @@ export class RequestService {
             deviceId,
             title,
             body: message,
-            data: requestData,
+            data: enrichedRequestData,
           },
           normalizedRecipientLang,
         );
@@ -2847,6 +2908,144 @@ export class RequestService {
         {
           lang,
           defaultValue: 'Failed to rate request',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get request statistics for admin
+   * Returns all requests for a given period with sums per status and total sum
+   */
+  async getAdminRequestStatistics(
+    query: AdminRequestStatisticsQueryDto,
+    lang?: string,
+  ): Promise<AdminRequestStatisticsResponseDto> {
+    try {
+      const { from, to } = query;
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+
+      // Validate date range
+      if (fromDate > toDate) {
+        throw new BadRequestException(
+          'From date must be before or equal to to date',
+        );
+      }
+
+      // Get all requests in the period
+      const requests = await this.prisma.tripRequest.findMany({
+        where: {
+          created_at: {
+            gte: fromDate,
+            lte: toDate,
+          },
+        },
+        select: {
+          id: true,
+          trip_id: true,
+          user_id: true,
+          status: true,
+          cost: true,
+          currency: true,
+          created_at: true,
+          updated_at: true,
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+      });
+
+      // Calculate statistics grouped by status
+      const statusMap = new Map<string, { count: number; totalCost: number }>();
+
+      // Initialize all possible statuses
+      const allStatuses: RequestStatus[] = [
+        RequestStatus.PENDING,
+        RequestStatus.ACCEPTED,
+        RequestStatus.DECLINED,
+        RequestStatus.CANCELLED,
+        RequestStatus.REFUNDED,
+        RequestStatus.EXPIRED,
+        RequestStatus.CONFIRMED,
+        RequestStatus.SENT,
+        RequestStatus.RECEIVED,
+        RequestStatus.IN_TRANSIT,
+        RequestStatus.PENDING_DELIVERY,
+        RequestStatus.DELIVERED,
+        RequestStatus.REVIEWED,
+      ];
+
+      // Initialize all statuses with zero values
+      allStatuses.forEach((status) => {
+        statusMap.set(status, { count: 0, totalCost: 0 });
+      });
+
+      // Calculate totals
+      let totalCount = 0;
+      let totalCost = 0;
+
+      // Process each request
+      requests.forEach((request) => {
+        const status = request.status;
+        const cost = request.cost ? Number(request.cost) : 0;
+
+        // Update status map
+        const statusData = statusMap.get(status) || { count: 0, totalCost: 0 };
+        statusData.count += 1;
+        statusData.totalCost += cost;
+        statusMap.set(status, statusData);
+
+        // Update totals
+        totalCount += 1;
+        totalCost += cost;
+      });
+
+      // Convert status map to array
+      const statusSummary = Array.from(statusMap.entries())
+        .map(([status, data]) => ({
+          status,
+          count: data.count,
+          totalCost: Number(data.totalCost.toFixed(2)),
+        }))
+        .filter((item) => item.count > 0) // Only include statuses with requests
+        .sort((a, b) => b.count - a.count); // Sort by count descending
+
+      const message = await this.i18n.translate(
+        'translation.request.admin.statistics.success',
+        {
+          lang,
+          defaultValue: 'Request statistics retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        requests: requests.map((request) => ({
+          id: request.id,
+          trip_id: request.trip_id,
+          user_id: request.user_id,
+          status: request.status,
+          cost: request.cost ? Number(request.cost) : null,
+          currency: request.currency,
+          created_at: request.created_at,
+          updated_at: request.updated_at,
+        })),
+        statusSummary,
+        totalCount,
+        totalCost: Number(totalCost.toFixed(2)),
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      console.error('Error getting admin request statistics:', error);
+      const message = await this.i18n.translate(
+        'translation.request.admin.statistics.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve request statistics',
         },
       );
       throw new InternalServerErrorException(message);

@@ -23,6 +23,7 @@ import {
 import { RequestService } from './request.service';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 import {
@@ -57,6 +58,10 @@ import {
 } from './dto/get-user-requests.dto';
 import { RateRequestDto, RateRequestResponseDto } from './dto/rate-request.dto';
 import {
+  AdminRequestStatisticsQueryDto,
+  AdminRequestStatisticsResponseDto,
+} from './dto/admin-request-statistics.dto';
+import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
   ApiUpdateTripRequest,
@@ -77,6 +82,8 @@ import {
   TripItemDetailsDto,
   TripRequestItemSummaryDto,
   TripRequestSummaryDto,
+  AdminRequestStatisticsQueryDto,
+  AdminRequestStatisticsResponseDto,
 )
 @ApiBearerAuth('JWT-auth')
 @Controller('request')
@@ -330,5 +337,37 @@ export class RequestController {
       user.id,
       lang,
     );
+  }
+
+  @Get('admin/statistics')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get request statistics for admin',
+    description:
+      'Retrieve all requests for a given period with sums per status and total sum. Admin only.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request statistics retrieved successfully',
+    type: AdminRequestStatisticsResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid date range or query parameters',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Access denied. Admin role required.',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getAdminRequestStatistics(
+    @Query() query: AdminRequestStatisticsQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminRequestStatisticsResponseDto> {
+    return this.requestService.getAdminRequestStatistics(query, lang);
   }
 }
