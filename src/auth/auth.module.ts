@@ -23,7 +23,6 @@ import { OtpService } from './otp/otp.service';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET') || 'your-secret-key',
-        signOptions: { expiresIn: '24h' },
       }),
       inject: [ConfigService],
     }),
