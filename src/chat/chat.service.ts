@@ -235,6 +235,17 @@ export class ChatService {
       const { page = 1, limit = 10, search } = query;
       const skip = (page - 1) * limit;
 
+      // Update user's last_seen when they fetch their chats
+      // This is done in parallel with other operations to not block the request
+      this.prisma.user
+        .update({
+          where: { id: userId },
+          data: { last_seen: new Date() },
+        })
+        .catch((error) => {
+          console.error('Failed to update last_seen when fetching chats:', error);
+        });
+
       // Check if user is admin
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -666,24 +677,7 @@ export class ChatService {
                 },
                 request_items: {
                   include: {
-                    trip_item: {
-                      select: {
-                        id: true,
-                        name: true,
-                        description: true,
-                        image_id: true,
-                        created_at: true,
-                        updated_at: true,
-                        translations: {
-                          select: {
-                            id: true,
-                            language: true,
-                            name: true,
-                            description: true,
-                          },
-                        },
-                      },
-                    },
+                    trip_item: true,
                   },
                 },
               },
@@ -1132,6 +1126,12 @@ export class ChatService {
 
     try {
       const message = await this.prisma.$transaction(async (prisma) => {
+        // Get chat to check for trip_id (within transaction)
+        const chat = await prisma.chat.findUnique({
+          where: { id: chatId },
+          select: { trip_id: true },
+        });
+
         // Create the message
         const newMessage = await prisma.message.create({
           data: {
@@ -1139,8 +1139,8 @@ export class ChatService {
             sender_id: senderId,
             content,
             type,
-            request_id: requestId,
-            review_id: reviewId,
+            request_id: requestId || null,
+            review_id: reviewId || null,
             data: messageData || null,
           },
           include: {

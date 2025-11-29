@@ -225,6 +225,7 @@ export class UserService {
         picture,
         role,
         otpCode: otpHash,
+        last_seen: new Date(), // Set last_seen on user creation
       },
       select: userSelect,
     });
@@ -662,13 +663,13 @@ export class UserService {
 
       // Prevent self-reporting (cannot report yourself as the reported user)
       // Users can create reports for trips they created, but they cannot report themselves
-      if (userId === reported_id) {
-        const message = await this.i18n.translate(
-          'translation.report.cannotReportSelf',
-          { lang },
-        );
-        throw new ConflictException(message);
-      }
+      // if (userId === reported_id) {
+      //   const message = await this.i18n.translate(
+      //     'translation.report.cannotReportSelf',
+      //     { lang },
+      //   );
+      //   throw new ConflictException(message);
+      // }
 
       // Create the report
       const report = await this.prisma.report.create({

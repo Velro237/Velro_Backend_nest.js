@@ -72,9 +72,10 @@ export class CreateReportDto {
   request_id?: string;
 
   @ApiProperty({
-    description: 'Type of report',
+    description: 'Type of report. Accepts all ReportType enum values.',
     enum: ReportType,
     example: ReportType.TRAVEL_ISSUES,
+    enumName: 'ReportType',
   })
   @IsEnum(ReportType)
   type: ReportType;

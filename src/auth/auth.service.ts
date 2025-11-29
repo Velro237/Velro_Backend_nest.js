@@ -226,6 +226,7 @@ export class AuthService {
           companyAddress,
           companyName,
           currency,
+          last_seen: new Date(), // Set last_seen on user creation
         },
         select: {
           id: true,
@@ -373,6 +374,12 @@ export class AuthService {
     // if (!user.emailVerify) {
     //   throw new BadRequestException('Email not verify');
     // }
+    // Update user's last_seen on login
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { last_seen: new Date() },
+    });
+
     // Generate JWT token
     const payload = { email: user.email, sub: user.id };
     const access_token = this.jwtService.sign(payload);
@@ -460,6 +467,7 @@ export class AuthService {
           name: oauth.name,
           picture: oauth.picture,
           otpCode: otpHash,
+          last_seen: new Date(), // Set last_seen on user creation
         },
       });
 
@@ -504,6 +512,14 @@ export class AuthService {
           state: 'BLOCKED',
           currency: 'XAF',
         },
+      });
+    }
+
+    // Update user's last_seen for existing users logging in via OAuth
+    if (user) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { last_seen: new Date() },
       });
     }
 
@@ -570,6 +586,12 @@ export class AuthService {
   async issueTokens(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
+
+    // Update user's last_seen on login (OAuth)
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { last_seen: new Date() },
+    });
 
     const { accessToken, refreshTokenPlain, refreshExpiresAt } =
       this.signTokens(user);
@@ -1008,6 +1030,7 @@ export class AuthService {
           companyName: pendingUser.companyName,
           companyAddress: pendingUser.companyAddress,
           currency,
+          last_seen: new Date(), // Set last_seen on user creation
         },
         select: {
           id: true,

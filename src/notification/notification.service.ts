@@ -185,6 +185,107 @@ export class NotificationService {
 
       const totalPages = Math.ceil(total / limit);
 
+      // Collect all unique trip IDs from notifications that have trip data
+      const tripIds = new Set<string>();
+      notifications.forEach((notification) => {
+        if (notification.data) {
+          const data = notification.data as any;
+          if (data.trip?.id) {
+            tripIds.add(data.trip.id);
+          }
+          if (data.trip_id) {
+            tripIds.add(data.trip_id);
+          }
+        }
+      });
+
+      // Fetch all trip items with prices for all trips in one batch query
+      const tripItemsWithPricesMap = new Map<string, Map<string, any[]>>();
+      if (tripIds.size > 0) {
+        const allTripItems = await this.prisma.tripItemsList.findMany({
+          where: {
+            trip_id: {
+              in: Array.from(tripIds),
+            },
+          },
+          include: {
+            prices: {
+              select: {
+                currency: true,
+                price: true,
+              },
+            },
+          },
+        });
+
+        // Group by trip_id and create a map of trip_item_id to prices
+        allTripItems.forEach((item) => {
+          if (!tripItemsWithPricesMap.has(item.trip_id)) {
+            tripItemsWithPricesMap.set(item.trip_id, new Map());
+          }
+          const tripMap = tripItemsWithPricesMap.get(item.trip_id)!;
+          tripMap.set(
+            item.trip_item_id,
+            item.prices.map((p) => ({
+              currency: p.currency,
+              price: Number(p.price),
+            })),
+          );
+        });
+      }
+
+      // Process notifications to add prices array to trip items
+      const processedNotifications = notifications.map((notification) => {
+        if (!notification.data) {
+          return notification;
+        }
+
+        const data = notification.data as any;
+        let updatedData = { ...data };
+
+        // Process trip_items in trip object
+        if (data.trip?.trip_items && Array.isArray(data.trip.trip_items)) {
+          const tripId = data.trip.id;
+          if (tripId) {
+            const pricesMap = tripItemsWithPricesMap.get(tripId);
+            if (pricesMap) {
+              // Add prices array to each trip item
+              updatedData.trip.trip_items = data.trip.trip_items.map(
+                (item: any) => ({
+                  ...item,
+                  prices: pricesMap.get(item.trip_item_id) || [],
+                }),
+              );
+            }
+          }
+        }
+
+        // Process request_items (they may also have trip_item references)
+        if (data.request_items && Array.isArray(data.request_items)) {
+          const tripId = data.trip_id || data.trip?.id;
+          if (tripId) {
+            const pricesMap = tripItemsWithPricesMap.get(tripId);
+            if (pricesMap) {
+              // Add prices array to each request item
+              updatedData.request_items = data.request_items.map(
+                (item: any) => {
+                  const prices = pricesMap.get(item.trip_item_id) || [];
+                  return {
+                    ...item,
+                    prices,
+                  };
+                },
+              );
+            }
+          }
+        }
+
+        return {
+          ...notification,
+          data: updatedData,
+        };
+      });
+
       const message = await this.i18n.translate(
         'translation.notification.getAll.success',
         {
@@ -194,7 +295,7 @@ export class NotificationService {
 
       return {
         message,
-        notifications,
+        notifications: processedNotifications,
         pagination: {
           page,
           limit,
@@ -535,13 +636,17 @@ export class NotificationService {
       });
 
       if (!user || !user.device_id) {
-        this.logger.log(`User ${userId} has no device_id, skipping push notification`);
+        this.logger.log(
+          `User ${userId} has no device_id, skipping push notification`,
+        );
         return;
       }
 
       // Validate that it's a valid Expo push token
       if (!Expo.isExpoPushToken(user.device_id)) {
-        this.logger.warn(`User ${userId} has invalid Expo push token: ${user.device_id}`);
+        this.logger.warn(
+          `User ${userId} has invalid Expo push token: ${user.device_id}`,
+        );
         return;
       }
 
@@ -561,14 +666,23 @@ export class NotificationService {
       for (const chunk of chunks) {
         try {
           const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
-          this.logger.log(`Push notification sent to user ${userId}:`, ticketChunk);
+          this.logger.log(
+            `Push notification sent to user ${userId}:`,
+            ticketChunk,
+          );
         } catch (error) {
-          this.logger.error(`Failed to send push notification to user ${userId}:`, error);
+          this.logger.error(
+            `Failed to send push notification to user ${userId}:`,
+            error,
+          );
         }
       }
     } catch (error) {
       // Log the error but don't throw - we don't want push notification failures to break the main flow
-      this.logger.error(`Error in sendPushNotificationToUser for user ${userId}:`, error);
+      this.logger.error(
+        `Error in sendPushNotificationToUser for user ${userId}:`,
+        error,
+      );
     }
   }
 }
