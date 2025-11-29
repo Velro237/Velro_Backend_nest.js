@@ -42,6 +42,10 @@ import {
   CancelRequestResponseDto,
 } from './dto/cancel-request.dto';
 import { RateRequestDto, RateRequestResponseDto } from './dto/rate-request.dto';
+import {
+  AdminRequestStatisticsQueryDto,
+  AdminRequestStatisticsResponseDto,
+} from './dto/admin-request-statistics.dto';
 import { CancellationService } from './cancellation.service';
 import { CurrencyService } from '../currency/currency.service';
 
@@ -2904,6 +2908,144 @@ export class RequestService {
         {
           lang,
           defaultValue: 'Failed to rate request',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get request statistics for admin
+   * Returns all requests for a given period with sums per status and total sum
+   */
+  async getAdminRequestStatistics(
+    query: AdminRequestStatisticsQueryDto,
+    lang?: string,
+  ): Promise<AdminRequestStatisticsResponseDto> {
+    try {
+      const { from, to } = query;
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+
+      // Validate date range
+      if (fromDate > toDate) {
+        throw new BadRequestException(
+          'From date must be before or equal to to date',
+        );
+      }
+
+      // Get all requests in the period
+      const requests = await this.prisma.tripRequest.findMany({
+        where: {
+          created_at: {
+            gte: fromDate,
+            lte: toDate,
+          },
+        },
+        select: {
+          id: true,
+          trip_id: true,
+          user_id: true,
+          status: true,
+          cost: true,
+          currency: true,
+          created_at: true,
+          updated_at: true,
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+      });
+
+      // Calculate statistics grouped by status
+      const statusMap = new Map<string, { count: number; totalCost: number }>();
+
+      // Initialize all possible statuses
+      const allStatuses: RequestStatus[] = [
+        RequestStatus.PENDING,
+        RequestStatus.ACCEPTED,
+        RequestStatus.DECLINED,
+        RequestStatus.CANCELLED,
+        RequestStatus.REFUNDED,
+        RequestStatus.EXPIRED,
+        RequestStatus.CONFIRMED,
+        RequestStatus.SENT,
+        RequestStatus.RECEIVED,
+        RequestStatus.IN_TRANSIT,
+        RequestStatus.PENDING_DELIVERY,
+        RequestStatus.DELIVERED,
+        RequestStatus.REVIEWED,
+      ];
+
+      // Initialize all statuses with zero values
+      allStatuses.forEach((status) => {
+        statusMap.set(status, { count: 0, totalCost: 0 });
+      });
+
+      // Calculate totals
+      let totalCount = 0;
+      let totalCost = 0;
+
+      // Process each request
+      requests.forEach((request) => {
+        const status = request.status;
+        const cost = request.cost ? Number(request.cost) : 0;
+
+        // Update status map
+        const statusData = statusMap.get(status) || { count: 0, totalCost: 0 };
+        statusData.count += 1;
+        statusData.totalCost += cost;
+        statusMap.set(status, statusData);
+
+        // Update totals
+        totalCount += 1;
+        totalCost += cost;
+      });
+
+      // Convert status map to array
+      const statusSummary = Array.from(statusMap.entries())
+        .map(([status, data]) => ({
+          status,
+          count: data.count,
+          totalCost: Number(data.totalCost.toFixed(2)),
+        }))
+        .filter((item) => item.count > 0) // Only include statuses with requests
+        .sort((a, b) => b.count - a.count); // Sort by count descending
+
+      const message = await this.i18n.translate(
+        'translation.request.admin.statistics.success',
+        {
+          lang,
+          defaultValue: 'Request statistics retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        requests: requests.map((request) => ({
+          id: request.id,
+          trip_id: request.trip_id,
+          user_id: request.user_id,
+          status: request.status,
+          cost: request.cost ? Number(request.cost) : null,
+          currency: request.currency,
+          created_at: request.created_at,
+          updated_at: request.updated_at,
+        })),
+        statusSummary,
+        totalCount,
+        totalCost: Number(totalCost.toFixed(2)),
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      console.error('Error getting admin request statistics:', error);
+      const message = await this.i18n.translate(
+        'translation.request.admin.statistics.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve request statistics',
         },
       );
       throw new InternalServerErrorException(message);
