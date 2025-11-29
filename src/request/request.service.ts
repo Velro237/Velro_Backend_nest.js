@@ -780,6 +780,7 @@ export class RequestService {
           status: fullRequest.status,
           message: fullRequest.message,
           cost: fullRequest.cost ? Number(fullRequest.cost) : null,
+          currency: fullRequest.currency,
           created_at: fullRequest.created_at,
           user: {
             id: fullRequest.user.id,
@@ -2245,6 +2246,52 @@ export class RequestService {
   }
 
   /**
+   * Private helper method to calculate converted_cost array for all supported currencies
+   * Returns array with request currency first, then other supported currencies
+   */
+  private calculateConvertedCost(
+    cost: number | null,
+    requestCurrency: string,
+  ): Array<{ currency: string; price: number }> {
+    if (!cost || cost <= 0) {
+      return [];
+    }
+
+    const supportedCurrencies: Currency[] = [
+      Currency.XAF,
+      Currency.USD,
+      Currency.EUR,
+      Currency.CAD,
+    ];
+
+    const requestCurrencyUpper = requestCurrency.toUpperCase() as Currency;
+    const convertedCosts: Array<{ currency: string; price: number }> = [];
+
+    // Add request currency first
+    convertedCosts.push({
+      currency: requestCurrencyUpper,
+      price: Number(cost),
+    });
+
+    // Add other supported currencies
+    for (const targetCurrency of supportedCurrencies) {
+      if (targetCurrency !== requestCurrencyUpper) {
+        const conversion = this.currencyService.convertCurrency(
+          cost,
+          requestCurrencyUpper,
+          targetCurrency,
+        );
+        convertedCosts.push({
+          currency: targetCurrency,
+          price: Number(conversion.convertedAmount.toFixed(2)),
+        });
+      }
+    }
+
+    return convertedCosts;
+  }
+
+  /**
    * Private helper method to create notification and send push notification for request events
    */
   private async createRequestNotification(
@@ -2272,6 +2319,16 @@ export class RequestService {
       const tripId = requestData?.trip_id || requestData?.trip?.id || null;
       const requestId = requestData?.id || null;
 
+      // Calculate converted_cost array and add it to requestData
+      const cost = requestData?.cost || null;
+      const currency = requestData?.currency || null;
+      const convertedCost =
+        cost && currency ? this.calculateConvertedCost(cost, currency) : [];
+      const enrichedRequestData = {
+        ...requestData,
+        converted_cost: convertedCost,
+      };
+
       // Create notification in database
       await this.notificationService.createNotification(
         {
@@ -2281,7 +2338,7 @@ export class RequestService {
           type: 'REQUEST',
           trip_id: tripId,
           request_id: requestId,
-          data: requestData,
+          data: enrichedRequestData,
         },
         normalizedRecipientLang,
       );
@@ -2293,7 +2350,7 @@ export class RequestService {
             deviceId,
             title,
             body: message,
-            data: requestData,
+            data: enrichedRequestData,
           },
           normalizedRecipientLang,
         );
