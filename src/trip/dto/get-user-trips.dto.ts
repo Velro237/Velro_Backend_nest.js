@@ -61,6 +61,11 @@ export class GetUserTripsResponseDto {
           name: 'Air France',
           description: 'French airline',
         },
+        mode_of_transport: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'Car',
+          description: 'Car ride sharing',
+        },
         ratings: [
           {
             id: '123e4567-e89b-12d3-a456-426614174000',
@@ -90,6 +95,11 @@ export class GetUserTripsResponseDto {
       name: string;
       description: string | null;
     };
+    mode_of_transport: {
+      id: string;
+      name: string;
+      description: string | null;
+    } | null;
     ratings: Array<{
       id: string;
       rating: number;
