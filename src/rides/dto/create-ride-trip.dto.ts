@@ -13,6 +13,11 @@ import {
   Validate,
 } from 'class-validator';
 import {
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  ValidationArguments,
+} from 'class-validator';
+import {
   LocationType,
   LocationWithCountryConstraint,
 } from '../../trip/dto/create-trip.dto';
@@ -22,12 +27,35 @@ export enum TransportMode {
   AIRPLANE = 'AIRPLANE',
 }
 
+@ValidatorConstraint({ name: 'StopLocationWithRegion', async: false })
+export class StopLocationWithRegionConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(location: any, _args: ValidationArguments) {
+    if (!location || typeof location !== 'object') {
+      return false;
+    }
+
+    // For ride stops we accept region-based locations (e.g. "Hesse") even without country.
+    return (
+      location.region !== undefined &&
+      location.region !== null &&
+      typeof location.region === 'string' &&
+      location.region.trim().length > 0
+    );
+  }
+
+  defaultMessage(args: ValidationArguments) {
+    return `${args.property} must be an object with at least a 'region' field`;
+  }
+}
+
 export class RideStopLocationDto {
   @ApiProperty({
     description: 'Stop location details',
     type: Object,
   })
-  @Validate(LocationWithCountryConstraint)
+  @Validate(StopLocationWithRegionConstraint)
   @IsObject()
   stop_location: LocationType;
 
