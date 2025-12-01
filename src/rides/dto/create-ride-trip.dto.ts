@@ -119,12 +119,20 @@ export class CreateRideTripDto {
   base_price_per_seat: number;
 
   @ApiPropertyOptional({
-    description: "Driver's message/notes about the trip",
+    description: "Driver's message/notes about the trip (shown to passengers)",
     example: 'I might stop in Frankfurt as well. The departure point is flexible.',
   })
   @IsString()
   @IsOptional()
   driver_message?: string;
+
+  @ApiPropertyOptional({
+    description: 'Additional notes from the driver about the ride (free text)',
+    example: 'Hi this is my note',
+  })
+  @IsString()
+  @IsOptional()
+  notes?: string;
 
   @ApiPropertyOptional({
     description: 'Mid-stops along the journey',

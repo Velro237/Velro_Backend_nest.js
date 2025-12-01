@@ -124,6 +124,7 @@ export class RidesService {
     base_price_per_seat: number;
     stops?: Array<{ stop_location: any; price_per_seat_to_stop?: number }>;
     driver_message?: string;
+    notes?: string;
   }): string {
     return JSON.stringify({
       seats_available: data.seats_available,
@@ -134,6 +135,7 @@ export class RidesService {
         price_per_seat_to_stop: stop.price_per_seat_to_stop || null,
       })),
       driver_message: data.driver_message || null,
+      notes: data.notes || null,
     });
   }
 
@@ -182,6 +184,7 @@ export class RidesService {
       base_price_per_seat: createDto.base_price_per_seat,
       stops: createDto.stops || [],
       driver_message: createDto.driver_message,
+      notes: createDto.notes,
     });
 
     // Get or create transport type for this transport mode
