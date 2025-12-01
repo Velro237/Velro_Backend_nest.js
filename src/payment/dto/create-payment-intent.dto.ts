@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsUUID, IsOptional } from 'class-validator';
 
 export class CreatePaymentIntentDto {
   @ApiProperty({
@@ -8,6 +8,15 @@ export class CreatePaymentIntentDto {
   })
   @IsUUID()
   orderId: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional device token for push notification of the payer on successful payment',
+    example: 'ExpoPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
+  })
+  @IsOptional()
+  @IsString()
+  deviceId?: string;
 
   // Security: Amount, currency, and travelerId are calculated server-side from the order
   // This prevents clients from tampering with payment amounts
