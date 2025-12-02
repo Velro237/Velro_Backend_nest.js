@@ -6,7 +6,7 @@
 */
 -- First, update any existing records that use the old enum values to use 'OTHER'
 UPDATE "public"."Report" 
-SET "type" = 'OTHER'::text 
+SET "type" = 'OTHER'::"public"."ReportType"
 WHERE "type" IN ('TRAVEL_ISSUES', 'OTHER_ISSUES');
 
 -- AlterEnum
