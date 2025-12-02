@@ -34,6 +34,7 @@ export class PaymentBreakdownDto {
   @ApiProperty({
     description: 'Currency',
     example: 'EUR',
+    enum: ['EUR', 'XAF', 'USD', 'CAD'],
   })
   currency: string;
 
