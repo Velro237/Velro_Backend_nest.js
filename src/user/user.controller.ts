@@ -38,7 +38,14 @@ import {
 import { UserStatsResponseDto } from './dto/user-stats.dto';
 import { I18nLang, I18nService } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { AdminGuard } from '../auth/guards/admin.guard';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiQuery,
+} from '@nestjs/swagger';
 import {
   ApiUserWelcome,
   ApiCreateUser,
@@ -81,12 +88,37 @@ export class UserController {
 
   @ApiFindAllUsers()
   @Get()
+  @UseGuards(JwtAuthGuard, AdminGuard)
   findAll() {
     return this.userService.findAll();
   }
 
+  @Get('email/:email')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Get user by email (Admin only)',
+    description:
+      'Retrieve a user by their email address. Admin access required.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User retrieved successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async findByEmail(@Param('email') email: string) {
+    return this.userService.findByEmail(email);
+  }
+
   @ApiFindOneUser()
   @Get(':id')
+  @UseGuards(JwtAuthGuard, AdminGuard)
   findOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.userService.findOne(id);
   }

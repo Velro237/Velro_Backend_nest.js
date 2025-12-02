@@ -63,6 +63,11 @@ import {
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
 import { OtpService } from './otp/otp.service';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { User } from 'generated/prisma';
+import { LogoutResponseDto } from './dto/logout.dto';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -455,5 +460,30 @@ export class AuthController {
       createAccountDeleteRequestDto,
       lang,
     );
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Logout user',
+    description:
+      'Logs out the authenticated user by clearing their device_id. This prevents push notifications from being sent to the device.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Logged out successfully',
+    type: LogoutResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  async logout(
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<LogoutResponseDto> {
+    return this.authService.logout(user.id, lang);
   }
 }

@@ -36,6 +36,7 @@ import {
   AdminGetDeleteRequestsQueryDto,
   AdminGetDeleteRequestsResponseDto,
 } from './dto/admin-get-delete-requests.dto';
+import { LogoutResponseDto } from './dto/logout.dto';
 
 import { I18nService, I18nContext } from 'nestjs-i18n';
 import * as bcrypt from 'bcryptjs';
@@ -1714,6 +1715,44 @@ export class AuthService {
     } catch (error) {
       console.error('Failed to extract country from phone:', error);
       return null;
+    }
+  }
+
+  /**
+   * Logout user by clearing device_id
+   */
+  async logout(
+    userId: string,
+    lang: string = 'en',
+  ): Promise<LogoutResponseDto> {
+    try {
+      // Update user to set device_id to null
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { device_id: null },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.auth.logout.success',
+        {
+          lang,
+          defaultValue: 'Logged out successfully',
+        },
+      );
+
+      return {
+        message,
+      };
+    } catch (error) {
+      console.error('Error during logout:', error);
+      const message = await this.i18n.translate(
+        'translation.auth.logout.failed',
+        {
+          lang,
+          defaultValue: 'Failed to logout',
+        },
+      );
+      throw new InternalServerErrorException(message);
     }
   }
 }

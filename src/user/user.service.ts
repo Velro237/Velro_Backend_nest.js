@@ -284,6 +284,47 @@ export class UserService {
     };
   }
 
+  async findByEmail(email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: userSelect,
+    });
+    if (!user)
+      throw new NotFoundException(`User with email ${email} not found`);
+
+    // Calculate statistics in parallel
+    const [ratings, tripsCount, requestsCount] = await Promise.all([
+      // Get all ratings received by this user
+      this.prisma.rating.findMany({
+        where: { receiver_id: user.id },
+        select: { rating: true },
+      }),
+      // Count trips created by this user
+      this.prisma.trip.count({
+        where: { user_id: user.id },
+      }),
+      // Count requests made by this user
+      this.prisma.tripRequest.count({
+        where: { user_id: user.id },
+      }),
+    ]);
+
+    // Calculate average rating
+    const totalRatings = ratings.length;
+    const averageRating =
+      totalRatings > 0
+        ? ratings.reduce((sum, r) => sum + r.rating, 0) / totalRatings
+        : 0;
+
+    return {
+      ...user,
+      averageRating: Number(averageRating.toFixed(2)),
+      totalRatings,
+      totalTrips: tripsCount,
+      totalRequests: requestsCount,
+    };
+  }
+
   async update(id: string, updateUserDto: UpdateUserDto) {
     // Helper function to trim string values (except password)
     const trimValue = (key: string, value: any): any => {
