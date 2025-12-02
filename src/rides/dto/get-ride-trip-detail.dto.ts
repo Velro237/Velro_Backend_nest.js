@@ -69,6 +69,9 @@ export class RideTripDetailDto {
   @ApiPropertyOptional({ description: 'Driver\'s message/notes about the trip', example: 'I might stop in Frankfurt as well. The departure point is flexible.' })
   driver_message?: string;
 
+  @ApiPropertyOptional({ description: 'Additional notes from the driver about the ride', example: 'Hi this is my note' })
+  notes?: string;
+
   @ApiProperty({ description: 'Trip status', example: 'PUBLISHED' })
   status: string;
 
