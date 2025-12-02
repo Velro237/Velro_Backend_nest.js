@@ -19,10 +19,19 @@ import {
   AdminGetDeleteRequestsQueryDto,
   AdminGetDeleteRequestsResponseDto,
 } from '../auth/dto/admin-get-delete-requests.dto';
+import {
+  AdminChangePasswordDto,
+  AdminChangePasswordResponseDto,
+} from './dto/admin-change-password.dto';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
 import {
   ApiReplyReport,
   ApiAdminGetAllReports,
@@ -84,5 +93,36 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminGetDeleteRequestsResponseDto> {
     return this.authService.getAllAccountDeleteRequests(query, lang);
+  }
+
+  @Post('user/change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Change user password by email (Admin only)',
+    description:
+      'Admin endpoint to change a user password by providing their email address and new password.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Password changed successfully',
+    type: AdminChangePasswordResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid input data',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async changeUserPassword(
+    @Body() adminChangePasswordDto: AdminChangePasswordDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminChangePasswordResponseDto> {
+    return this.userService.adminChangePassword(adminChangePasswordDto, lang);
   }
 }
