@@ -148,7 +148,7 @@ export class ReportSummaryDto {
   @ApiProperty({
     description: 'Report type',
     enum: ReportType,
-    example: ReportType.TRAVEL_ISSUES,
+    example: ReportType.COMMUNICATION_PROBLEM,
   })
   type: ReportType;
 

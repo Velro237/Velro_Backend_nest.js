@@ -27,6 +27,7 @@ import {
   ReplyReportDto,
   ReplyReportResponseDto,
 } from '../dto/reply-report.dto';
+import { ReportType } from 'generated/prisma';
 import {
   AdminGetAllReportsQueryDto,
   AdminGetAllReportsResponseDto,
@@ -187,14 +188,14 @@ export function ApiCreateReport() {
       description: 'Report creation data',
       type: CreateReportDto,
       examples: {
-        travelIssue: {
-          summary: 'Report travel issue with evidence',
+        communicationProblem: {
+          summary: 'Report communication problem with evidence',
           value: {
             reported_id: '123e4567-e89b-12d3-a456-426614174000',
             trip_id: '123e4567-e89b-12d3-a456-426614174001',
             request_id: '123e4567-e89b-12d3-a456-426614174002',
-            type: 'TRAVEL_ISSUES',
-            text: 'User did not show up for the scheduled pickup time',
+            type: 'COMMUNICATION_PROBLEM',
+            text: 'User did not respond to messages and did not show up for the scheduled pickup time',
             priority: 'HIGH',
             data: {
               'What time was pickup scheduled?': '2:00 PM',
@@ -213,12 +214,12 @@ export function ApiCreateReport() {
             },
           },
         },
-        otherIssue: {
-          summary: 'Report other issue without images',
+        inappropriateBehavior: {
+          summary: 'Report inappropriate behavior without images',
           value: {
             reported_id: '123e4567-e89b-12d3-a456-426614174000',
             trip_id: '123e4567-e89b-12d3-a456-426614174001',
-            type: 'OTHER_ISSUES',
+            type: 'INAPPROPRIATE_BEHAVIOR',
             text: 'User was rude and unprofessional during communication',
             priority: 'LOW',
             data: {
@@ -227,14 +228,14 @@ export function ApiCreateReport() {
             },
           },
         },
-        tripOwnerReport: {
-          summary: 'Trip owner reporting a passenger',
+        driverWasLate: {
+          summary: 'Report driver being late',
           value: {
             reported_id: '123e4567-e89b-12d3-a456-426614174000',
             trip_id: '123e4567-e89b-12d3-a456-426614174001',
             request_id: '123e4567-e89b-12d3-a456-426614174002',
-            type: 'TRAVEL_ISSUES',
-            text: 'Passenger did not show up for the scheduled pickup time and did not respond to messages',
+            type: 'DRIVER_WAS_LATE',
+            text: 'Driver arrived 45 minutes late for the scheduled pickup time',
             priority: 'HIGH',
             data: {
               'Scheduled pickup time': '2:00 PM',
@@ -250,7 +251,7 @@ export function ApiCreateReport() {
             reported_id: '123e4567-e89b-12d3-a456-426614174000',
             reply_to_id: '123e4567-e89b-12d3-a456-426614174003',
             trip_id: '123e4567-e89b-12d3-a456-426614174001',
-            type: 'OTHER_ISSUES',
+            type: 'RESPONSE_TO_REPORT',
             text: 'Admin response to the reported issue',
             priority: 'LOW',
           },
@@ -271,7 +272,7 @@ export function ApiCreateReport() {
               user_id: '123e4567-e89b-12d3-a456-426614174005',
               reported_id: '123e4567-e89b-12d3-a456-426614174000',
               trip_id: '123e4567-e89b-12d3-a456-426614174001',
-              type: 'TRAVEL_ISSUES',
+              type: 'COMMUNICATION_PROBLEM',
               priority: 'HIGH',
               status: 'PENDING',
               created_at: '2024-01-15T10:30:00.000Z',
@@ -290,7 +291,7 @@ export function ApiCreateReport() {
             message: [
               'reported_id must be a valid UUID',
               'trip_id must be a valid UUID',
-              'type must be one of: TRAVEL_ISSUES, OTHER_ISSUES',
+              'type must be one of the valid ReportType enum values',
             ],
             error: 'Bad Request',
             statusCode: 400,
@@ -537,8 +538,8 @@ export function ApiGetReports() {
       name: 'type',
       description: 'Filter by report type',
       required: false,
-      enum: ['TRAVEL_ISSUES', 'OTHER_ISSUES'],
-      example: 'TRAVEL_ISSUES',
+      enum: ReportType,
+      example: 'COMMUNICATION_PROBLEM',
     }),
     ApiQuery({
       name: 'priority',
@@ -594,7 +595,7 @@ export function ApiGetReports() {
                   created_at: '2024-01-14T09:15:00.000Z',
                   updated_at: '2024-01-14T09:15:00.000Z',
                 },
-                type: 'TRAVEL_ISSUES',
+                type: 'COMMUNICATION_PROBLEM',
                 priority: 'HIGH',
                 status: 'PENDING',
                 text: 'User did not show up for pickup',
@@ -689,8 +690,8 @@ export function ApiAdminGetAllReports() {
       name: 'type',
       description: 'Filter by report type',
       required: false,
-      enum: ['TRAVEL_ISSUES', 'OTHER_ISSUES', 'RESPONSE_TO_REPORT'],
-      example: 'TRAVEL_ISSUES',
+      enum: ReportType,
+      example: 'COMMUNICATION_PROBLEM',
     }),
     ApiQuery({
       name: 'priority',
@@ -774,7 +775,7 @@ export function ApiAdminGetAllReports() {
                   created_at: '2024-01-14T09:15:00.000Z',
                   updated_at: '2024-01-14T09:15:00.000Z',
                 },
-                type: 'TRAVEL_ISSUES',
+                type: 'COMMUNICATION_PROBLEM',
                 priority: 'HIGH',
                 status: 'REPLIED',
                 text: 'User did not show up for pickup',

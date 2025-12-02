@@ -2960,8 +2960,8 @@ export class RequestService {
       // Calculate statistics grouped by status
       const statusMap = new Map<string, { count: number; totalCost: number }>();
 
-      // Initialize all possible statuses
-      const allStatuses: RequestStatus[] = [
+      // Initialize all possible statuses (convert to strings for map keys)
+      const allStatuses: string[] = [
         RequestStatus.PENDING,
         RequestStatus.ACCEPTED,
         RequestStatus.DECLINED,
@@ -2975,7 +2975,7 @@ export class RequestService {
         RequestStatus.PENDING_DELIVERY,
         RequestStatus.DELIVERED,
         RequestStatus.REVIEWED,
-      ];
+      ].map((s) => String(s));
 
       // Initialize all statuses with zero values
       allStatuses.forEach((status) => {
@@ -2988,10 +2988,11 @@ export class RequestService {
 
       // Process each request
       requests.forEach((request) => {
-        const status = request.status;
+        // Convert status to string to ensure consistent map key lookup
+        const status = String(request.status);
         const cost = request.cost ? Number(request.cost) : 0;
 
-        // Update status map
+        // Update status map (initialize if not exists)
         const statusData = statusMap.get(status) || { count: 0, totalCost: 0 };
         statusData.count += 1;
         statusData.totalCost += cost;
