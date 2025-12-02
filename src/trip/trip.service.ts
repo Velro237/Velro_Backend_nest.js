@@ -1454,6 +1454,13 @@ export class TripService {
                 description: true,
               },
             },
+            mode_of_transport: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+              },
+            },
             ratings: {
               select: {
                 id: true,
@@ -1531,6 +1538,13 @@ export class TripService {
           arrival_date: trip.arrival_date,
           arrival_time: trip.arrival_time,
           airline: trip.airline,
+          mode_of_transport: trip.mode_of_transport
+            ? {
+                id: trip.mode_of_transport.id,
+                name: trip.mode_of_transport.name,
+                description: trip.mode_of_transport.description,
+              }
+            : null,
           ratings: trip.ratings,
           average_rating: Number(average_rating.toFixed(2)),
           total_payment: Number(total_payment.toFixed(2)),
