@@ -1099,9 +1099,10 @@ export class PaymentService {
   async calculatePaymentBreakdown(
     travelerPrice: number,
     currency: string = 'EUR',
-  ): Promise<any> {
-    const platformFee = this.calculatePlatformCommission(travelerPrice);
-    const senderTotal = travelerPrice + platformFee;
+  ): Promise<any[]> {
+    // Calculate platform fee in base currency (EUR)
+    const basePlatformFee = this.calculatePlatformCommission(travelerPrice);
+    const baseSenderTotal = travelerPrice + basePlatformFee;
 
     const feePercent = Number(
       this.configService.get<number>('VELRO_FEE_PERCENT'),
@@ -1109,17 +1110,64 @@ export class PaymentService {
     const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
     const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN'));
 
-    return {
-      travelerPrice: Math.round(travelerPrice * 100) / 100,
-      platformFee: Math.round(platformFee * 100) / 100,
-      senderTotal: Math.round(senderTotal * 100) / 100,
-      currency,
-      breakdown: {
-        feePercent,
+    // Supported currencies
+    const currencies = ['EUR', 'XAF', 'USD', 'CAD'];
+    const results = [];
+
+    for (const targetCurrency of currencies) {
+      // Convert travelerPrice to target currency
+      const travelerPriceConversion = this.currencyService.convertCurrency(
+        travelerPrice,
+        currency,
+        targetCurrency,
+      );
+      const convertedTravelerPrice = travelerPriceConversion.convertedAmount;
+
+      // Convert platformFee to target currency
+      const platformFeeConversion = this.currencyService.convertCurrency(
+        basePlatformFee,
+        currency,
+        targetCurrency,
+      );
+      const convertedPlatformFee = platformFeeConversion.convertedAmount;
+
+      // Convert senderTotal to target currency
+      const senderTotalConversion = this.currencyService.convertCurrency(
+        baseSenderTotal,
+        currency,
+        targetCurrency,
+      );
+      const convertedSenderTotal = senderTotalConversion.convertedAmount;
+
+      // Convert feeFixed and feeMin to target currency
+      const feeFixedConversion = this.currencyService.convertCurrency(
         feeFixed,
+        currency,
+        targetCurrency,
+      );
+      const convertedFeeFixed = feeFixedConversion.convertedAmount;
+
+      const feeMinConversion = this.currencyService.convertCurrency(
         feeMin,
-      },
-    };
+        currency,
+        targetCurrency,
+      );
+      const convertedFeeMin = feeMinConversion.convertedAmount;
+
+      results.push({
+        travelerPrice: Math.round(convertedTravelerPrice * 100) / 100,
+        platformFee: Math.round(convertedPlatformFee * 100) / 100,
+        senderTotal: Math.round(convertedSenderTotal * 100) / 100,
+        currency: targetCurrency,
+        breakdown: {
+          feePercent,
+          feeFixed: Math.round(convertedFeeFixed * 100) / 100,
+          feeMin: Math.round(convertedFeeMin * 100) / 100,
+        },
+      });
+    }
+
+    return results;
   }
 
   /**
