@@ -1191,9 +1191,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Get chat information to check if it's a SUPPORT chat or trip chat
       const chat = await this.prisma.chat.findUnique({
         where: { id: chatId },
-        select: { 
-          type: true, 
-          trip_id: true, 
+        select: {
+          type: true,
+          trip_id: true,
         },
       });
 
@@ -1235,13 +1235,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Send push notification to each other member (excluding sender)
       for (const member of otherMembers) {
         try {
-          // Get user's device_id and language for push notification
+          // Get user's language for push notification
           const user = await this.prisma.user.findUnique({
             where: { id: member.user_id },
-            select: { id: true, device_id: true, name: true, lang: true },
+            select: { id: true, name: true, lang: true },
           });
 
-          if (!user || !user.device_id) continue;
+          if (!user) continue;
 
           // Get user's language preference and normalize it
           const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';
@@ -1263,18 +1263,37 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           // Override title for ride trip chats
           if (chat?.trip_id && trip) {
             // Check if this is a ride trip (has notes with ride data)
-            const rideData = trip.notes ? (typeof trip.notes === 'string' ? JSON.parse(trip.notes) : trip.notes) : null;
-            const isRideTrip = rideData && (rideData.seats_available || rideData.base_price_per_seat);
-            
+            let rideData = null;
+            if (trip.notes) {
+              try {
+                rideData =
+                  typeof trip.notes === 'string'
+                    ? JSON.parse(trip.notes)
+                    : trip.notes;
+              } catch (parseError) {
+                // If notes is not valid JSON, treat it as regular text and skip ride trip logic
+                console.warn(
+                  `Failed to parse trip notes for trip ${chat.trip_id}:`,
+                  parseError,
+                );
+              }
+            }
+            const isRideTrip =
+              rideData &&
+              (rideData.seats_available || rideData.base_price_per_seat);
+
             if (isRideTrip) {
               const departureLoc = trip.departure as any;
               const arrivalLoc = trip.destination as any;
-              const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
-              const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
+              const departureName =
+                departureLoc?.address || departureLoc?.city || 'Departure';
+              const arrivalName =
+                arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
               const routeText = `${departureName} → ${arrivalName}`;
-              const tripUserName = trip.user_id === senderId
-                ? (trip.user?.name || trip.user?.email || 'Driver')
-                : (sender.name || sender.email);
+              const tripUserName =
+                trip.user_id === senderId
+                  ? trip.user?.name || trip.user?.email || 'Driver'
+                  : sender.name || sender.email;
 
               notificationTitle = await this.i18n.translate(
                 'translation.notification.chat.newMessage.rideTrip.title',
@@ -1320,32 +1339,58 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             type: notificationType,
           };
 
-            // Add ride trip info if it's a ride trip
-            if (chat?.trip_id && trip) {
-              const rideData = trip.notes ? (typeof trip.notes === 'string' ? JSON.parse(trip.notes) : trip.notes) : null;
-              const isRideTrip = rideData && (rideData.seats_available || rideData.base_price_per_seat);
-              
-              if (isRideTrip) {
-                const departureLoc = trip.departure as any;
-                const arrivalLoc = trip.destination as any;
-                const departureName = departureLoc?.address || departureLoc?.city || 'Departure';
-                const arrivalName = arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
-                const routeText = `${departureName} → ${arrivalName}`;
-                notificationData.trip_id = chat.trip_id;
-                notificationData.route = routeText;
+          // Add ride trip info if it's a ride trip
+          if (chat?.trip_id && trip) {
+            let rideData = null;
+            if (trip.notes) {
+              try {
+                rideData =
+                  typeof trip.notes === 'string'
+                    ? JSON.parse(trip.notes)
+                    : trip.notes;
+              } catch (parseError) {
+                // If notes is not valid JSON, treat it as regular text and skip ride trip logic
+                console.warn(
+                  `Failed to parse trip notes for trip ${chat.trip_id}:`,
+                  parseError,
+                );
               }
             }
+            const isRideTrip =
+              rideData &&
+              (rideData.seats_available || rideData.base_price_per_seat);
 
-          // Send push notification
-          await this.notificationService.sendPushNotification(
-            {
-              deviceId: user.device_id,
-              title: notificationTitle,
-              body: messageContent,
-              data: notificationData,
-            },
-            normalizedUserLang,
-          );
+            if (isRideTrip) {
+              const departureLoc = trip.departure as any;
+              const arrivalLoc = trip.destination as any;
+              const departureName =
+                departureLoc?.address || departureLoc?.city || 'Departure';
+              const arrivalName =
+                arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
+              const routeText = `${departureName} → ${arrivalName}`;
+              notificationData.trip_id = chat.trip_id;
+              notificationData.route = routeText;
+            }
+          }
+
+          // Send push notification using notification service method
+          // This is non-blocking - sendPushNotificationToUser handles missing device_id gracefully
+          // and doesn't throw errors, so we can await safely without blocking the flow
+          await this.notificationService
+            .sendPushNotificationToUser(
+              member.user_id,
+              notificationTitle,
+              messageContent,
+              notificationData,
+              normalizedUserLang,
+            )
+            .catch((error) => {
+              // Extra safety: catch any unexpected errors (though sendPushNotificationToUser shouldn't throw)
+              console.error(
+                `Unexpected error sending push notification to user ${member.user_id}:`,
+                error,
+              );
+            });
         } catch (error) {
           // Log error but don't fail the message creation
           console.error(

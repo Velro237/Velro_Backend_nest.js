@@ -74,7 +74,7 @@ export class CreateReportDto {
   @ApiProperty({
     description: 'Type of report. Accepts all ReportType enum values.',
     enum: ReportType,
-    example: ReportType.TRAVEL_ISSUES,
+    example: ReportType.COMMUNICATION_PROBLEM,
     enumName: 'ReportType',
   })
   @IsEnum(ReportType)
@@ -153,7 +153,7 @@ export class CreateReportResponseDto {
         type: 'string',
         example: '123e4567-e89b-12d3-a456-426614174003',
       },
-      type: { type: 'string', example: 'TRAVEL_ISSUES' },
+      type: { type: 'string', example: 'COMMUNICATION_PROBLEM' },
       priority: { type: 'string', example: 'HIGH' },
       status: { type: 'string', example: 'PENDING' },
       created_at: {

@@ -411,6 +411,11 @@ export class PaymentService {
         senderTotal: senderTotal.toFixed(2),
       };
 
+      // Optionally attach payer deviceId so we can send a direct push notification on success
+      if (dto.deviceId) {
+        metadata.payerDeviceId = dto.deviceId;
+      }
+
       // Add conversion info if request currency differs from payment currency
       if (requestCurrency !== currency) {
         metadata.requestCurrency = requestCurrency;
@@ -552,6 +557,12 @@ export class PaymentService {
 
       // IDEMPOTENCY: Check if payment already processed
       const isAlreadyProcessed = order.payment_status === PaymentStatus.SUCCEEDED;
+
+      // Optional: device token of the payer if it was provided when creating the PaymentIntent
+      const payerDeviceId: string | null =
+        (paymentIntent.metadata as any)?.payerDeviceId ||
+        (paymentIntent.metadata as any)?.deviceId ||
+        null;
       
       // Get traveler's language preference
       const traveler = await this.prisma.user.findUnique({
@@ -599,6 +610,52 @@ export class PaymentService {
             notificationData,
             travelerLang,
           );
+
+          // Additionally, notify the payer via explicit device token if it was attached to the PaymentIntent
+          if (payerDeviceId) {
+            try {
+              const payer = await this.prisma.user.findUnique({
+                where: { id: order.user_id },
+                select: { lang: true },
+              });
+              const payerLang = payer?.lang || 'en';
+
+              const payerTitle = await this.i18n.translate(
+                'translation.notification.payment.success.title',
+                {
+                  lang: payerLang,
+                  defaultValue: 'Payment Successful',
+                },
+              );
+              const payerMessage = await this.i18n.translate(
+                'translation.notification.payment.success.message',
+                {
+                  lang: payerLang,
+                  defaultValue: 'Your payment has been successfully processed',
+                },
+              );
+
+              await this.notificationService.sendPushNotification(
+                {
+                  deviceId: payerDeviceId,
+                  title: payerTitle,
+                  body: payerMessage,
+                  data: {
+                    type: 'payment_success',
+                    order_id: order.id,
+                    trip_id: order.trip_id,
+                    amount: totalPaid,
+                    currency: paymentCurrency,
+                  },
+                },
+                payerLang,
+              );
+            } catch (error) {
+              this.logger.warn(
+                `Failed to send payment success push to payer (already processed) via deviceId: ${error.message}`,
+              );
+            }
+          }
         } catch (error) {
           this.logger.warn(`Failed to create/send notification for already processed payment: ${error.message}`);
           // Don't fail the operation if notification fails
@@ -742,6 +799,52 @@ export class PaymentService {
           notificationData,
           travelerLang,
         );
+
+        // Additionally, notify the payer via explicit device token if it was attached to the PaymentIntent
+        if (payerDeviceId) {
+          try {
+            const payer = await this.prisma.user.findUnique({
+              where: { id: order.user_id },
+              select: { lang: true },
+            });
+            const payerLang = payer?.lang || 'en';
+
+            const payerTitle = await this.i18n.translate(
+              'translation.notification.payment.success.title',
+              {
+                lang: payerLang,
+                defaultValue: 'Payment Successful',
+              },
+            );
+            const payerMessage = await this.i18n.translate(
+              'translation.notification.payment.success.message',
+              {
+                lang: payerLang,
+                defaultValue: 'Your payment has been successfully processed',
+              },
+            );
+
+            await this.notificationService.sendPushNotification(
+              {
+                deviceId: payerDeviceId,
+                title: payerTitle,
+                body: payerMessage,
+                data: {
+                  type: 'payment_success',
+                  order_id: order.id,
+                  trip_id: order.trip_id,
+                  amount: totalPaid,
+                  currency: paymentCurrency,
+                },
+              },
+              payerLang,
+            );
+          } catch (error) {
+            this.logger.warn(
+              `Failed to send payment success push to payer via deviceId: ${error.message}`,
+            );
+          }
+        }
       } catch (error) {
         this.logger.warn(`Failed to create/send payment notification: ${error.message}`);
         // Don't fail the operation if notification fails
