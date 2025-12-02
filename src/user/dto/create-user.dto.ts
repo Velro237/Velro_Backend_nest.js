@@ -174,10 +174,10 @@ export class CreateUserDto {
   @IsString()
   device_id?: string;
 
-  @ApiPropertyOptional({ example: 'johndoe' })
-  @IsOptional()
+  @ApiProperty({ example: 'johndoe' })
   @IsString()
-  username?: string;
+  @MinLength(1)
+  username: string;
 
   @ApiPropertyOptional({
     example: '1990-01-15',

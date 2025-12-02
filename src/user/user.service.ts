@@ -91,6 +91,10 @@ import {
   GetUserRatingsResponseDto,
 } from './dto/get-user-ratings.dto';
 import { UserStatsResponseDto } from './dto/user-stats.dto';
+import {
+  AdminChangePasswordDto,
+  AdminChangePasswordResponseDto,
+} from './dto/admin-change-password.dto';
 import { I18nService } from 'nestjs-i18n';
 import { ImageService } from '../shared/services/image.service';
 
@@ -298,6 +302,26 @@ export class UserService {
     const { email, password, date_of_birth, services, cities, ...rest } =
       trimmedDto;
 
+    // Validate that firstName, lastName, and username cannot be set to null or empty
+    if (
+      'firstName' in rest &&
+      (rest.firstName === null || rest.firstName === '')
+    ) {
+      throw new ConflictException('First name cannot be null or empty');
+    }
+    if (
+      'lastName' in rest &&
+      (rest.lastName === null || rest.lastName === '')
+    ) {
+      throw new ConflictException('Last name cannot be null or empty');
+    }
+    if (
+      'username' in rest &&
+      (rest.username === null || rest.username === '')
+    ) {
+      throw new ConflictException('Username cannot be null or empty');
+    }
+
     // Validate email uniqueness with trimmed email
     if (email) {
       const dup = await this.prisma.user.findUnique({
@@ -470,17 +494,25 @@ export class UserService {
           };
         }
 
+        // Filter out null values for firstName, lastName, and username to prevent setting them to null
+        const updateData: any = {
+          ...rest,
+          ...(email ? { email } : {}),
+          ...(hashed ? { password: hashed } : {}),
+          ...(dateOfBirth ? { date_of_birth: dateOfBirth } : {}),
+          ...(servicesData ? { services: servicesData } : {}),
+          ...(citiesData ? { cities: citiesData } : {}),
+        };
+
+        // Remove null values for required fields (they should not be updated to null)
+        if (updateData.firstName === null) delete updateData.firstName;
+        if (updateData.lastName === null) delete updateData.lastName;
+        if (updateData.username === null) delete updateData.username;
+
         // Update user with all fields
         return await prisma.user.update({
           where: { id },
-          data: {
-            ...rest,
-            ...(email ? { email } : {}),
-            ...(hashed ? { password: hashed } : {}),
-            ...(dateOfBirth ? { date_of_birth: dateOfBirth } : {}),
-            ...(servicesData ? { services: servicesData } : {}),
-            ...(citiesData ? { cities: citiesData } : {}),
-          },
+          data: updateData,
           select: userSelect,
         });
       });
@@ -1523,6 +1555,68 @@ export class UserService {
       const message = await this.i18n.translate(
         'translation.stats.getUserStatsFailed',
         { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Admin method to change user password by email
+   */
+  async adminChangePassword(
+    adminChangePasswordDto: AdminChangePasswordDto,
+    lang?: string,
+  ): Promise<AdminChangePasswordResponseDto> {
+    try {
+      const { email, password } = adminChangePasswordDto;
+
+      // Find user by email
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true, email: true },
+      });
+
+      if (!user) {
+        const message = await this.i18n.translate('translation.user.notFound', {
+          lang,
+          defaultValue: 'User not found',
+        });
+        throw new NotFoundException(message);
+      }
+
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Update user password
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.user.admin.passwordChanged',
+        {
+          lang,
+          defaultValue: 'Password changed successfully',
+        },
+      );
+
+      return {
+        message,
+        userId: user.id,
+        email: user.email,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      console.error('Error changing user password:', error);
+      const message = await this.i18n.translate(
+        'translation.user.admin.passwordChangeFailed',
+        {
+          lang,
+          defaultValue: 'Failed to change password',
+        },
       );
       throw new InternalServerErrorException(message);
     }
