@@ -21,6 +21,7 @@ import {
   LocationType,
   LocationWithCountryConstraint,
 } from '../../trip/dto/create-trip.dto';
+import { Currency } from 'generated/prisma';
 
 export enum TransportMode {
   CAR = 'CAR',
@@ -133,6 +134,16 @@ export class CreateRideTripDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'Currency for the trip pricing',
+    enum: Currency,
+    example: 'EUR',
+    default: 'EUR',
+  })
+  @IsEnum(Currency)
+  @IsOptional()
+  currency?: Currency;
 
   @ApiPropertyOptional({
     description: 'Mid-stops along the journey',
