@@ -135,7 +135,7 @@ export class AdminController {
   @ApiOperation({
     summary: 'Send bulk email to all users (Admin only)',
     description:
-      'Sends an email to all users in the database. The email content is personalized with the user\'s name and sent in their preferred language (English or French). Format: "salutation {user name}, message"',
+      "Sends an HTML email to all users in the database. The email content is personalized by replacing {user name} with the user's actual name and sent in their preferred language (English or French).",
   })
   @ApiResponse({
     status: 200,
