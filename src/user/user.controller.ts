@@ -61,6 +61,7 @@ import {
   ApiGetUserStats,
 } from './decorators/api-docs.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { User } from 'generated/prisma';
 
 @ApiTags('User')
@@ -117,8 +118,8 @@ export class UserController {
   }
 
   @ApiFindOneUser()
+  @Public()
   @Get(':id')
-  @UseGuards(JwtAuthGuard, AdminGuard)
   findOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.userService.findOne(id);
   }

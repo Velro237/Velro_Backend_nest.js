@@ -95,6 +95,8 @@ export class MessageResponseDto {
     id: string;
     email: string;
     name: string;
+    firstName: string | null;
+    lastName: string | null;
   };
 
   @ApiProperty({
@@ -162,6 +164,9 @@ export class MessageResponseDto {
     user?: {
       id: string;
       email: string;
+      name: string;
+      firstName: string | null;
+      lastName: string | null;
     };
   };
 
@@ -200,6 +205,8 @@ export class MessageResponseDto {
       id: string;
       email: string;
       name: string;
+      firstName: string | null;
+      lastName: string | null;
       picture: string | null;
     };
   };
@@ -218,11 +225,15 @@ export class MessageResponseDto {
       id: string;
       email: string;
       name: string;
+      firstName: string | null;
+      lastName: string | null;
     };
     receiver: {
       id: string;
       email: string;
       name: string;
+      firstName: string | null;
+      lastName: string | null;
     };
     trip?: {
       id: string;

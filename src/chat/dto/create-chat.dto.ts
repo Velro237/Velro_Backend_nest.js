@@ -91,6 +91,8 @@ export class CreateChatResponseDto {
           properties: {
             id: { type: 'string' },
             email: { type: 'string' },
+            firstName: { type: 'string', nullable: true },
+            lastName: { type: 'string', nullable: true },
             role: { type: 'string' },
           },
         },
@@ -104,6 +106,8 @@ export class CreateChatResponseDto {
     members: Array<{
       id: string;
       email: string;
+      firstName: string | null;
+      lastName: string | null;
       role: string;
     }>;
   };
@@ -123,6 +127,8 @@ export class CreateChatResponseDto {
         properties: {
           id: { type: 'string' },
           email: { type: 'string' },
+          firstName: { type: 'string', nullable: true },
+          lastName: { type: 'string', nullable: true },
         },
       },
     },
@@ -135,6 +141,8 @@ export class CreateChatResponseDto {
     sender: {
       id: string;
       email: string;
+      firstName: string | null;
+      lastName: string | null;
     };
   } | null;
 }

@@ -5,9 +5,10 @@ import { AdminController } from './admin.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { ImageModule } from '../shared/image.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, ImageModule],
+  imports: [PrismaModule, AuthModule, ImageModule, NotificationModule],
   controllers: [UserController, AdminController],
   providers: [UserService],
 })
