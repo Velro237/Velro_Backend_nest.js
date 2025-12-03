@@ -166,6 +166,17 @@ export class GetTripsQueryDto {
   @IsArray()
   @IsUUID('4', { each: true })
   trip_items_ids?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Minimum number of seats needed (filters ride trips with at least this many seats available)',
+    example: 1,
+    minimum: 1,
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  seats_needed?: number;
 }
 
 export class UserInfoDto {
@@ -376,6 +387,12 @@ export class TripSummaryDto {
     required: false,
   })
   mode_of_transport: ModeOfTransportDto | null;
+
+  @ApiPropertyOptional({
+    description: 'Base price per seat (for ride trips only)',
+    example: 50.0,
+  })
+  base_price_per_seat?: number;
 
   @ApiProperty({
     description:

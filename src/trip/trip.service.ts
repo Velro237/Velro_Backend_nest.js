@@ -2737,6 +2737,7 @@ export class TripService {
         trip_items_ids,
         departure_date_from,
         departure_date_to,
+        seats_needed,
       } = query;
       const skip = (page - 1) * limit;
 
@@ -2985,6 +2986,7 @@ export class TripService {
             departure: true,
             destination: true,
             createdAt: true,
+            notes: true,
             mode_of_transport: {
               select: {
                 id: true,
@@ -3061,6 +3063,41 @@ export class TripService {
       ]);
 
       let trips: any[] = allTrips;
+
+      // Filter by seats_needed if provided (for ride trips only)
+      if (seats_needed !== undefined && seats_needed > 0) {
+        trips = trips.filter((trip) => {
+          // Only filter ride trips (trips with mode_of_transport_id and notes with ride data)
+          if (!trip.mode_of_transport || !trip.notes) {
+            return true; // Keep non-ride trips
+          }
+
+          // Extract ride data from notes
+          try {
+            let parsed: any;
+            if (typeof trip.notes === 'string') {
+              parsed = JSON.parse(trip.notes);
+            } else if (trip.notes && typeof trip.notes === 'object') {
+              parsed = trip.notes;
+            } else {
+              return true; // Keep if notes can't be parsed
+            }
+
+            const seatsAvailable = parsed.seats_available !== undefined 
+              ? Number(parsed.seats_available) 
+              : undefined;
+
+            // Filter out ride trips that don't have enough seats
+            if (seatsAvailable === undefined) {
+              return true; // Keep if seats_available not found
+            }
+
+            return seatsAvailable >= seats_needed;
+          } catch {
+            return true; // Keep if parsing fails
+          }
+        });
+      }
 
       // If any search parameters are provided, prioritize matches
       if (hasSearchParams) {
@@ -3279,6 +3316,25 @@ export class TripService {
 
       // Transform trips to summary format
       const tripSummaries = trips.map((trip) => {
+        // Extract ride data from notes for ride trips
+        let basePricePerSeat: number | undefined = undefined;
+        if (trip.mode_of_transport && trip.notes) {
+          try {
+            let parsed: any;
+            if (typeof trip.notes === 'string') {
+              parsed = JSON.parse(trip.notes);
+            } else if (trip.notes && typeof trip.notes === 'object') {
+              parsed = trip.notes;
+            }
+
+            if (parsed && parsed.base_price_per_seat !== undefined) {
+              basePricePerSeat = Number(parsed.base_price_per_seat);
+            }
+          } catch {
+            // If parsing fails, basePricePerSeat remains undefined
+          }
+        }
+
         return {
           id: trip.id,
           user: trip.user
@@ -3304,6 +3360,7 @@ export class TripService {
                 description: trip.mode_of_transport.description,
               }
             : null,
+          base_price_per_seat: basePricePerSeat,
           // Return full objects as stored in database
           departure: trip.departure,
           destination: trip.destination,
