@@ -3,22 +3,6 @@ import { IsString, MinLength } from 'class-validator';
 
 export class SendBulkEmailDto {
   @ApiProperty({
-    description: 'Email salutation in English',
-    example: 'Hello',
-  })
-  @IsString()
-  @MinLength(1)
-  salutationEn: string;
-
-  @ApiProperty({
-    description: 'Email salutation in French',
-    example: 'Bonjour',
-  })
-  @IsString()
-  @MinLength(1)
-  salutationFr: string;
-
-  @ApiProperty({
     description: 'Email subject in English',
     example: 'Important Update',
   })
@@ -35,16 +19,18 @@ export class SendBulkEmailDto {
   subjectFr: string;
 
   @ApiProperty({
-    description: 'Email message content in English',
-    example: 'We have an important update for you.',
+    description: 'Email message content in HTML format (English)',
+    example:
+      '<h1>Hello {user name}</h1><p>We have an important update for you.</p>',
   })
   @IsString()
   @MinLength(1)
   messageEn: string;
 
   @ApiProperty({
-    description: 'Email message content in French',
-    example: 'Nous avons une mise à jour importante pour vous.',
+    description: 'Email message content in HTML format (French)',
+    example:
+      '<h1>Bonjour {user name}</h1><p>Nous avons une mise à jour importante pour vous.</p>',
   })
   @IsString()
   @MinLength(1)

@@ -99,6 +99,7 @@ import {
   SendBulkEmailDto,
   SendBulkEmailResponseDto,
 } from './dto/send-bulk-email.dto';
+import { UserRole } from 'generated/prisma';
 import { I18nService } from 'nestjs-i18n';
 import { ImageService } from '../shared/services/image.service';
 import { NotificationService } from '../notification/notification.service';
@@ -1677,8 +1678,13 @@ export class UserService {
     lang?: string,
   ): Promise<SendBulkEmailResponseDto> {
     try {
-      // Get all users from database
+      // Get all users from database (excluding admins)
       const users = await this.prisma.user.findMany({
+        where: {
+          role: {
+            not: UserRole.ADMIN,
+          },
+        },
         select: {
           id: true,
           email: true,
@@ -1699,35 +1705,35 @@ export class UserService {
           const userLang =
             user.lang?.toLowerCase().trim() === 'fr' ? 'fr' : 'en';
 
-          // Select appropriate salutation, subject, and message based on user's language
-          const salutation =
-            userLang === 'fr'
-              ? sendBulkEmailDto.salutationFr
-              : sendBulkEmailDto.salutationEn;
+          // Select appropriate subject and message based on user's language
           const subject =
             userLang === 'fr'
               ? sendBulkEmailDto.subjectFr
               : sendBulkEmailDto.subjectEn;
-          const message =
+          const messageHtml =
             userLang === 'fr'
               ? sendBulkEmailDto.messageFr
               : sendBulkEmailDto.messageEn;
 
-          // Format message: "salutation {user name}, message"
+          // Format message: Replace {user name} with actual user name
           // Use firstName and lastName if available, otherwise fall back to name
           const userName =
             user.firstName && user.lastName
               ? `${user.firstName} ${user.lastName}`
               : user.name || user.email;
 
-          const formattedMessage = `${salutation} ${userName},\n\n${message}`;
+          // Replace {user name} placeholder in HTML message
+          const formattedMessage = messageHtml.replace(
+            /{user name}/g,
+            userName,
+          );
 
-          // Send email using notification service
+          // Send email using notification service with HTML content
           await this.notificationService.sendEmail(
             {
               to: user.email,
               subject: subject,
-              text: formattedMessage,
+              html: formattedMessage,
             },
             userLang,
           );
