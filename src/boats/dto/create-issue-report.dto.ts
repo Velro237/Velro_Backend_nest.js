@@ -41,7 +41,7 @@ export class CreateIssueReportDto {
   description?: string;
 }
 
-export class CreateIssueReportBodyDto {
+export class BoatCreateIssueReportBodyDto {
   @ApiProperty({
     description: 'Type of issue for boat shipments (matching Figma design)',
     enum: ['PACKAGE_ISSUE', 'PAYMENT_PROBLEM', 'POLICY_VIOLATION', 'OTHER'],

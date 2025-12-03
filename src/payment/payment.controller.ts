@@ -305,11 +305,14 @@ export class PaymentController {
     description: 'Payment breakdown calculated successfully in all supported currencies',
     type: [PaymentBreakdownDto],
   })
-  @ApiResponse({ status: 400, description: 'Invalid traveler price' })
+  @ApiResponse({ status: 400, description: 'Invalid traveler price or currency' })
   async calculatePayment(
     @Body() dto: CalculatePaymentDto,
   ): Promise<PaymentBreakdownDto[]> {
-    return this.paymentService.calculatePaymentBreakdown(dto.travelerPrice);
+    return this.paymentService.calculatePaymentBreakdown(
+      dto.travelerPrice,
+      dto.currency || 'EUR',
+    );
   }
 
   @Post('init')

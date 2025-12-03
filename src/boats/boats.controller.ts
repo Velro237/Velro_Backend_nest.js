@@ -41,7 +41,7 @@ import {
   CreateChatForBoatResponseDto,
 } from './dto/create-chat-for-boat.dto';
 import {
-  CreateIssueReportBodyDto,
+  BoatCreateIssueReportBodyDto,
   CreateIssueReportResponseDto,
 } from './dto/create-issue-report.dto';
 
@@ -293,7 +293,7 @@ export class BoatsController {
   })
   @ApiParam({ name: 'id', description: 'Boat shipment ID to report', example: 'trip-uuid-123' })
   @ApiBody({
-    type: CreateIssueReportBodyDto,
+    type: BoatCreateIssueReportBodyDto,
     description: 'Report details (shipment_id is taken from URL)',
     examples: {
       packageDamaged: {
@@ -376,7 +376,7 @@ export class BoatsController {
   async createIssueReport(
     @CurrentUser() user: User,
     @Param('id') shipmentId: string,
-    @Body() createDto: CreateIssueReportBodyDto,
+    @Body() createDto: BoatCreateIssueReportBodyDto,
   ): Promise<CreateIssueReportResponseDto> {
     return this.boatsService.createIssueReport(user.id, {
       ...createDto,

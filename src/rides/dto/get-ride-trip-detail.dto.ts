@@ -66,8 +66,18 @@ export class RideTripDetailDto {
   @ApiProperty({ description: 'Base price per seat', example: 50.00 })
   base_price_per_seat: number;
 
+  @ApiProperty({
+    description: 'Currency of the prices',
+    example: 'USD',
+    enum: ['EUR', 'XAF', 'USD', 'CAD'],
+  })
+  currency: string;
+
   @ApiPropertyOptional({ description: 'Driver\'s message/notes about the trip', example: 'I might stop in Frankfurt as well. The departure point is flexible.' })
   driver_message?: string;
+
+  @ApiPropertyOptional({ description: 'Additional notes from the driver about the ride', example: 'Hi this is my note' })
+  notes?: string;
 
   @ApiProperty({ description: 'Trip status', example: 'PUBLISHED' })
   status: string;
