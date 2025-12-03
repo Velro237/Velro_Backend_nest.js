@@ -243,7 +243,10 @@ export class ChatService {
           data: { last_seen: new Date() },
         })
         .catch((error) => {
-          console.error('Failed to update last_seen when fetching chats:', error);
+          console.error(
+            'Failed to update last_seen when fetching chats:',
+            error,
+          );
         });
 
       // Check if user is admin
