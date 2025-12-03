@@ -192,6 +192,9 @@ export class RidesService {
     // Get or create transport type for this transport mode
     const transportTypeId = await this.getOrCreateTransportType(createDto.transport_mode);
 
+    // Use provided currency or default to EUR
+    const currency = createDto.currency || 'EUR';
+
     // Create trip using Trip table
     const trip = await this.prisma.trip.create({
       data: {
@@ -202,7 +205,7 @@ export class RidesService {
         departure_time: departureTime,
         airline_id: airlineId,
         mode_of_transport_id: transportTypeId,
-        currency: 'USD', // Default currency for rides
+        currency: currency,
         status: TripStatus.PUBLISHED,
         notes: rideNotes,
       },
