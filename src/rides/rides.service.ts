@@ -560,6 +560,7 @@ export class RidesService {
         departure_datetime: trip.departure_date,
         seats_available: rideData.seats_available || 0,
         base_price_per_seat: rideData.base_price_per_seat || 0,
+        currency: trip.currency,
         driver_message: rideData.driver_message,
         notes: rideData.notes,
         status: trip.status,
