@@ -1701,9 +1701,9 @@ export class UserService {
       // Send email to each user
       for (const user of users) {
         try {
-          // Determine user's language preference (default to 'en' if not set)
+          // Determine user's language preference (default to 'fr' if not set)
           const userLang =
-            user.lang?.toLowerCase().trim() === 'fr' ? 'fr' : 'en';
+            user.lang?.toLowerCase().trim() === 'en' ? 'en' : 'fr';
 
           // Select appropriate subject and message based on user's language
           const subject =
