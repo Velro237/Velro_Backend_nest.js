@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, Min } from 'class-validator';
+import { IsNumber, Min, IsEnum, IsOptional } from 'class-validator';
+import { Currency } from 'generated/prisma';
 
 export class CalculatePaymentDto {
   @ApiProperty({
@@ -10,6 +11,16 @@ export class CalculatePaymentDto {
   @IsNumber()
   @Min(0.50)
   travelerPrice: number;
+
+  @ApiProperty({
+    description: 'Currency of the traveler price',
+    example: 'EUR',
+    enum: Currency,
+    default: 'EUR',
+  })
+  @IsEnum(Currency)
+  @IsOptional()
+  currency?: Currency;
 }
 
 export class PaymentBreakdownDto {

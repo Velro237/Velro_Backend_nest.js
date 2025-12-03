@@ -95,8 +95,13 @@ import {
   AdminChangePasswordDto,
   AdminChangePasswordResponseDto,
 } from './dto/admin-change-password.dto';
+import {
+  SendBulkEmailDto,
+  SendBulkEmailResponseDto,
+} from './dto/send-bulk-email.dto';
 import { I18nService } from 'nestjs-i18n';
 import { ImageService } from '../shared/services/image.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class UserService {
@@ -104,6 +109,7 @@ export class UserService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly imageService: ImageService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async getMe(userId: string, lang: string = 'en'): Promise<GetMeResponseDto> {
@@ -1657,6 +1663,104 @@ export class UserService {
         {
           lang,
           defaultValue: 'Failed to change password',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Admin method to send bulk emails to all users
+   */
+  async sendBulkEmail(
+    sendBulkEmailDto: SendBulkEmailDto,
+    lang?: string,
+  ): Promise<SendBulkEmailResponseDto> {
+    try {
+      // Get all users from database
+      const users = await this.prisma.user.findMany({
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          lang: true,
+        },
+      });
+
+      let emailsSent = 0;
+      let emailsFailed = 0;
+
+      // Send email to each user
+      for (const user of users) {
+        try {
+          // Determine user's language preference (default to 'en' if not set)
+          const userLang =
+            user.lang?.toLowerCase().trim() === 'fr' ? 'fr' : 'en';
+
+          // Select appropriate salutation, subject, and message based on user's language
+          const salutation =
+            userLang === 'fr'
+              ? sendBulkEmailDto.salutationFr
+              : sendBulkEmailDto.salutationEn;
+          const subject =
+            userLang === 'fr'
+              ? sendBulkEmailDto.subjectFr
+              : sendBulkEmailDto.subjectEn;
+          const message =
+            userLang === 'fr'
+              ? sendBulkEmailDto.messageFr
+              : sendBulkEmailDto.messageEn;
+
+          // Format message: "salutation {user name}, message"
+          // Use firstName and lastName if available, otherwise fall back to name
+          const userName =
+            user.firstName && user.lastName
+              ? `${user.firstName} ${user.lastName}`
+              : user.name || user.email;
+
+          const formattedMessage = `${salutation} ${userName},\n\n${message}`;
+
+          // Send email using notification service
+          await this.notificationService.sendEmail(
+            {
+              to: user.email,
+              subject: subject,
+              text: formattedMessage,
+            },
+            userLang,
+          );
+
+          emailsSent++;
+        } catch (error) {
+          console.error(`Failed to send email to ${user.email}:`, error);
+          emailsFailed++;
+          // Continue with other users even if one fails
+        }
+      }
+
+      const message = await this.i18n.translate(
+        'translation.user.admin.bulkEmail.success',
+        {
+          lang,
+          defaultValue: 'Bulk emails sent successfully',
+        },
+      );
+
+      return {
+        message,
+        emailsSent,
+        emailsFailed,
+        totalUsers: users.length,
+      };
+    } catch (error) {
+      console.error('Error sending bulk emails:', error);
+      const message = await this.i18n.translate(
+        'translation.user.admin.bulkEmail.failed',
+        {
+          lang,
+          defaultValue: 'Failed to send bulk emails',
         },
       );
       throw new InternalServerErrorException(message);

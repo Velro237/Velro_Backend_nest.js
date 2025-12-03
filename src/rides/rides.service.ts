@@ -92,6 +92,7 @@ export class RidesService {
     base_price_per_seat?: number;
     stops?: Array<{ stop_order: number; stop_location: any; price_per_seat_to_stop?: number }>;
     driver_message?: string;
+    notes?: string;
   } {
     if (!notes) return {};
     try {
@@ -110,6 +111,7 @@ export class RidesService {
         base_price_per_seat: parsed.base_price_per_seat !== undefined ? Number(parsed.base_price_per_seat) : undefined,
         stops: parsed.stops || [],
         driver_message: parsed.driver_message,
+        notes: parsed.notes,
       };
     } catch {
       return {};
@@ -190,6 +192,9 @@ export class RidesService {
     // Get or create transport type for this transport mode
     const transportTypeId = await this.getOrCreateTransportType(createDto.transport_mode);
 
+    // Use provided currency or default to EUR
+    const currency = createDto.currency || 'EUR';
+
     // Create trip using Trip table
     const trip = await this.prisma.trip.create({
       data: {
@@ -200,7 +205,7 @@ export class RidesService {
         departure_time: departureTime,
         airline_id: airlineId,
         mode_of_transport_id: transportTypeId,
-        currency: 'USD', // Default currency for rides
+        currency: currency,
         status: TripStatus.PUBLISHED,
         notes: rideNotes,
       },
@@ -558,6 +563,9 @@ export class RidesService {
         departure_datetime: trip.departure_date,
         seats_available: rideData.seats_available || 0,
         base_price_per_seat: rideData.base_price_per_seat || 0,
+        currency: trip.currency,
+        driver_message: rideData.driver_message,
+        notes: rideData.notes,
         status: trip.status,
         createdAt: trip.createdAt,
       },

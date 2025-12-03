@@ -147,6 +147,8 @@ export class ChatService {
                   select: {
                     id: true,
                     email: true,
+                    firstName: true,
+                    lastName: true,
                   },
                 },
               },
@@ -163,6 +165,8 @@ export class ChatService {
                     select: {
                       id: true,
                       email: true,
+                      firstName: true,
+                      lastName: true,
                       role: true,
                     },
                   },
@@ -200,6 +204,8 @@ export class ChatService {
           members: chat.members.map((member) => ({
             id: member.user.id,
             email: member.user.email,
+            firstName: member.user.firstName,
+            lastName: member.user.lastName,
             role: member.user.role,
           })),
         },
@@ -212,6 +218,8 @@ export class ChatService {
               sender: {
                 id: lastMessage.sender.id,
                 email: lastMessage.sender.email,
+                firstName: lastMessage.sender.firstName,
+                lastName: lastMessage.sender.lastName,
               },
             }
           : null,
@@ -243,7 +251,10 @@ export class ChatService {
           data: { last_seen: new Date() },
         })
         .catch((error) => {
-          console.error('Failed to update last_seen when fetching chats:', error);
+          console.error(
+            'Failed to update last_seen when fetching chats:',
+            error,
+          );
         });
 
       // Check if user is admin
@@ -296,6 +307,8 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    firstName: true,
+                    lastName: true,
                     role: true,
                     picture: true,
                   },
@@ -311,6 +324,8 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    firstName: true,
+                    lastName: true,
                     picture: true,
                   },
                 },
@@ -330,6 +345,8 @@ export class ChatService {
                   select: {
                     id: true,
                     email: true,
+                    firstName: true,
+                    lastName: true,
                   },
                 },
                 trip_items: {
@@ -372,6 +389,8 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    firstName: true,
+                    lastName: true,
                     picture: true,
                   },
                 },
@@ -454,6 +473,8 @@ export class ChatService {
                       id: lastMsg.sender.id,
                       email: lastMsg.sender.email || '',
                       name: lastMsg.sender.name || '',
+                      firstName: lastMsg.sender.firstName || null,
+                      lastName: lastMsg.sender.lastName || null,
                       picture: lastMsg.sender.picture || null,
                     }
                   : null,
@@ -465,6 +486,8 @@ export class ChatService {
             id: member.user.id,
             email: member.user.email,
             name: member.user.name,
+            firstName: member.user.firstName,
+            lastName: member.user.lastName,
             role: member.user.role,
             picture: member.user.picture,
           })),
@@ -483,6 +506,8 @@ export class ChatService {
                   ? {
                       id: chat.trip.user.id,
                       email: chat.trip.user.email,
+                      firstName: chat.trip.user.firstName,
+                      lastName: chat.trip.user.lastName,
                     }
                   : undefined,
                 trip_items: (chat.trip as any).trip_items
@@ -526,6 +551,8 @@ export class ChatService {
                       id: chat.request.user.id,
                       email: chat.request.user.email,
                       name: chat.request.user.name,
+                      firstName: chat.request.user.firstName,
+                      lastName: chat.request.user.lastName,
                       picture: chat.request.user.picture,
                     }
                   : undefined,
@@ -616,6 +643,8 @@ export class ChatService {
                 id: true,
                 email: true,
                 name: true,
+                firstName: true,
+                lastName: true,
               },
             },
             request: {
@@ -635,6 +664,8 @@ export class ChatService {
                         id: true,
                         email: true,
                         name: true,
+                        firstName: true,
+                        lastName: true,
                       },
                     },
                     trip_items: {
@@ -672,6 +703,8 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    firstName: true,
+                    lastName: true,
                     picture: true,
                   },
                 },
@@ -705,6 +738,8 @@ export class ChatService {
                       id: true,
                       email: true,
                       name: true,
+                      firstName: true,
+                      lastName: true,
                     },
                   },
                   receiver: {
@@ -712,6 +747,8 @@ export class ChatService {
                       id: true,
                       email: true,
                       name: true,
+                      firstName: true,
+                      lastName: true,
                     },
                   },
                   trip: {
@@ -778,6 +815,8 @@ export class ChatService {
               id: message.sender.id,
               email: message.sender.email,
               name: message.sender.name,
+              firstName: message.sender.firstName,
+              lastName: message.sender.lastName,
             },
             content: message.content, // Use original content, not translated
             imageUrls: (message.data as Record<string, any>)?.imageUrls || null,
@@ -801,6 +840,8 @@ export class ChatService {
                         id: message.request.trip.user.id,
                         email: message.request.trip.user.email,
                         name: message.request.trip.user.name,
+                        firstName: message.request.trip.user.firstName,
+                        lastName: message.request.trip.user.lastName,
                       }
                     : undefined,
                   trip_items: (message.request.trip as any).trip_items
@@ -907,6 +948,8 @@ export class ChatService {
                         id: message.request.user.id,
                         email: message.request.user.email,
                         name: message.request.user.name,
+                        firstName: message.request.user.firstName,
+                        lastName: message.request.user.lastName,
                         picture: message.request.user.picture,
                       }
                     : undefined,
@@ -1149,6 +1192,8 @@ export class ChatService {
                 id: true,
                 email: true,
                 name: true,
+                firstName: true,
+                lastName: true,
               },
             },
             request: {
@@ -1168,6 +1213,8 @@ export class ChatService {
                         id: true,
                         email: true,
                         name: true,
+                        firstName: true,
+                        lastName: true,
                       },
                     },
                     trip_items: {
@@ -1205,6 +1252,8 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    firstName: true,
+                    lastName: true,
                     picture: true,
                   },
                 },
@@ -1256,6 +1305,8 @@ export class ChatService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                 },
               },
               receiver: {
@@ -1263,6 +1314,8 @@ export class ChatService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                 },
               },
               trip: {
@@ -1293,11 +1346,15 @@ export class ChatService {
                 id: rating.giver.id,
                 email: rating.giver.email,
                 name: rating.giver.name,
+                firstName: rating.giver.firstName,
+                lastName: rating.giver.lastName,
               },
               receiver: {
                 id: rating.receiver.id,
                 email: rating.receiver.email,
                 name: rating.receiver.name,
+                firstName: rating.receiver.firstName,
+                lastName: rating.receiver.lastName,
               },
               trip: rating.trip
                 ? {
@@ -1336,6 +1393,8 @@ export class ChatService {
           id: message.sender.id,
           email: message.sender.email,
           name: message.sender.name,
+          firstName: message.sender.firstName,
+          lastName: message.sender.lastName,
         },
         content: message.content,
         imageUrls: imageUrls,
@@ -1359,6 +1418,8 @@ export class ChatService {
                     id: message.request.trip.user.id,
                     email: message.request.trip.user.email,
                     name: message.request.trip.user.name,
+                    firstName: message.request.trip.user.firstName,
+                    lastName: message.request.trip.user.lastName,
                   }
                 : undefined,
               trip_items: (message.request.trip as any).trip_items
@@ -1448,6 +1509,8 @@ export class ChatService {
                     id: message.request.user.id,
                     email: message.request.user.email,
                     name: message.request.user.name,
+                    firstName: message.request.user.firstName,
+                    lastName: message.request.user.lastName,
                     picture: message.request.user.picture,
                   }
                 : undefined,
@@ -1597,14 +1660,19 @@ export class ChatService {
     return memberships.map((membership) => membership.chat_id);
   }
 
-  async getUserById(
-    userId: string,
-  ): Promise<{ id: string; email: string } | null> {
+  async getUserById(userId: string): Promise<{
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  } | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
         email: true,
+        firstName: true,
+        lastName: true,
       },
     });
 
@@ -1624,10 +1692,16 @@ export class ChatService {
             pickup: true,
             departure: true,
             destination: true,
+            notes: true,
             departure_date: true,
             departure_time: true,
             currency: true,
             airline_id: true,
+            mode_of_transport: {
+              select: {
+                name: true,
+              },
+            },
             updatedAt: true,
             user: {
               select: {
@@ -1710,6 +1784,50 @@ export class ChatService {
 
     const chatWithData = chat as any;
 
+    // Parse ride-specific data from notes (for ride trips)
+    const rideData = (() => {
+      const notes = chatWithData.trip?.notes;
+      if (!notes) return {};
+      try {
+        let parsed: any;
+        if (typeof notes === 'string') {
+          parsed = JSON.parse(notes);
+        } else if (notes && typeof notes === 'object') {
+          parsed = notes;
+        } else {
+          return {};
+        }
+        return {
+          seats_available:
+            parsed.seats_available !== undefined
+              ? Number(parsed.seats_available)
+              : undefined,
+          base_price_per_seat:
+            parsed.base_price_per_seat !== undefined
+              ? Number(parsed.base_price_per_seat)
+              : undefined,
+          stops: parsed.stops || [],
+          driver_message: parsed.driver_message,
+          notes: parsed.notes,
+        };
+      } catch {
+        return {};
+      }
+    })();
+
+    // Derive transport mode for ride trips (CAR/AIRPLANE) from transport type name
+    let transportMode: string | undefined = undefined;
+    if (chatWithData.trip?.mode_of_transport?.name) {
+      const name = String(
+        chatWithData.trip.mode_of_transport.name,
+      ).toLowerCase();
+      if (name.includes('airplane')) {
+        transportMode = 'AIRPLANE';
+      } else if (name.includes('car')) {
+        transportMode = 'CAR';
+      }
+    }
+
     return {
       request: chatWithData.request
         ? (() => {
@@ -1784,6 +1902,12 @@ export class ChatService {
             departure_time: chatWithData.trip.departure_time,
             currency: chatWithData.trip.currency,
             airline_id: chatWithData.trip.airline_id,
+            transport_mode: transportMode,
+            seats_available: rideData.seats_available,
+            base_price_per_seat: rideData.base_price_per_seat,
+            driver_message: rideData.driver_message,
+            notes: rideData.notes,
+            stops: rideData.stops,
             updated_at: chatWithData.trip.updatedAt,
             user: chatWithData.trip.user,
           }
@@ -1823,6 +1947,8 @@ export class ChatService {
                 id: true,
                 email: true,
                 name: true,
+                firstName: true,
+                lastName: true,
               },
             },
           },
@@ -2147,6 +2273,8 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    firstName: true,
+                    lastName: true,
                     role: true,
                     picture: true,
                   },
@@ -2162,6 +2290,8 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    firstName: true,
+                    lastName: true,
                     picture: true,
                   },
                 },
@@ -2197,6 +2327,8 @@ export class ChatService {
                     id: true,
                     email: true,
                     name: true,
+                    firstName: true,
+                    lastName: true,
                     picture: true,
                   },
                 },

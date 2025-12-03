@@ -275,6 +275,58 @@ export class GetMessagesResponseDto {
       departure_time: { type: 'string', example: '14:30' },
       currency: { type: 'string', example: 'XAF' },
       airline_id: { type: 'string', nullable: true, example: 'AF123' },
+      transport_mode: {
+        type: 'string',
+        nullable: true,
+        description: 'Transport mode for ride trips (if applicable)',
+        example: 'CAR',
+        enum: ['CAR', 'AIRPLANE'],
+      },
+      seats_available: {
+        type: 'number',
+        nullable: true,
+        description: 'Seats available for ride trips (from ride notes)',
+        example: 3,
+      },
+      base_price_per_seat: {
+        type: 'number',
+        nullable: true,
+        description: 'Base price per seat for ride trips (from ride notes)',
+        example: 50,
+      },
+      driver_message: {
+        type: 'string',
+        nullable: true,
+        description: "Driver's message/notes about the ride trip",
+        example: 'Flexible on pickup within city center.',
+      },
+      notes: {
+        type: 'string',
+        nullable: true,
+        description: 'Additional notes from the driver about the ride',
+        example: 'No pets, small luggage only.',
+      },
+      stops: {
+        type: 'array',
+        nullable: true,
+        description: 'Mid-stops along the ride route (from ride notes)',
+        items: {
+          type: 'object',
+          properties: {
+            stop_order: { type: 'number', example: 0 },
+            stop_location: {
+              type: 'object',
+              additionalProperties: true,
+              description: 'Stop location details',
+            },
+            price_per_seat_to_stop: {
+              type: 'number',
+              nullable: true,
+              example: 30,
+            },
+          },
+        },
+      },
       updated_at: { type: 'string', example: '2024-01-20T10:30:00.000Z' },
       user: {
         type: 'object',
@@ -297,6 +349,16 @@ export class GetMessagesResponseDto {
     departure_time: string;
     currency: string;
     airline_id?: string;
+     transport_mode?: string | null;
+     seats_available?: number | null;
+     base_price_per_seat?: number | null;
+     driver_message?: string | null;
+     notes?: string | null;
+     stops?: Array<{
+       stop_order: number;
+       stop_location: any;
+       price_per_seat_to_stop?: number | null;
+     }> | null;
     updated_at: Date;
     user: {
       id: string;

@@ -1100,15 +1100,38 @@ export class PaymentService {
     travelerPrice: number,
     currency: string = 'EUR',
   ): Promise<any[]> {
-    // Calculate platform fee in base currency (EUR)
-    const basePlatformFee = this.calculatePlatformCommission(travelerPrice);
-    const baseSenderTotal = travelerPrice + basePlatformFee;
-
     const feePercent = Number(
       this.configService.get<number>('VELRO_FEE_PERCENT'),
     );
-    const feeFixed = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
-    const feeMin = Number(this.configService.get<number>('VELRO_FEE_MIN'));
+    // Fee fixed and min values from config are in EUR
+    const feeFixedEUR = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
+    const feeMinEUR = Number(this.configService.get<number>('VELRO_FEE_MIN'));
+
+    // Convert fee fixed and min from EUR to input currency
+    let feeFixed = feeFixedEUR;
+    let feeMin = feeMinEUR;
+    if (currency !== 'EUR') {
+      const feeFixedConversion = this.currencyService.convertCurrency(
+        feeFixedEUR,
+        'EUR',
+        currency,
+      );
+      feeFixed = feeFixedConversion.convertedAmount;
+
+      const feeMinConversion = this.currencyService.convertCurrency(
+        feeMinEUR,
+        'EUR',
+        currency,
+      );
+      feeMin = feeMinConversion.convertedAmount;
+    }
+
+    // Calculate platform fee in input currency
+    let platformFee = (travelerPrice * feePercent) / 100 + feeFixed;
+    platformFee = Math.max(platformFee, feeMin);
+    platformFee = Math.round(platformFee * 100) / 100;
+
+    const senderTotal = travelerPrice + platformFee;
 
     // Supported currencies
     const currencies = ['EUR', 'XAF', 'USD', 'CAD'];
@@ -1125,7 +1148,7 @@ export class PaymentService {
 
       // Convert platformFee to target currency
       const platformFeeConversion = this.currencyService.convertCurrency(
-        basePlatformFee,
+        platformFee,
         currency,
         targetCurrency,
       );
@@ -1133,23 +1156,23 @@ export class PaymentService {
 
       // Convert senderTotal to target currency
       const senderTotalConversion = this.currencyService.convertCurrency(
-        baseSenderTotal,
+        senderTotal,
         currency,
         targetCurrency,
       );
       const convertedSenderTotal = senderTotalConversion.convertedAmount;
 
-      // Convert feeFixed and feeMin to target currency
+      // Convert feeFixed and feeMin from EUR to target currency (for breakdown display)
       const feeFixedConversion = this.currencyService.convertCurrency(
-        feeFixed,
-        currency,
+        feeFixedEUR,
+        'EUR',
         targetCurrency,
       );
       const convertedFeeFixed = feeFixedConversion.convertedAmount;
 
       const feeMinConversion = this.currencyService.convertCurrency(
-        feeMin,
-        currency,
+        feeMinEUR,
+        'EUR',
         targetCurrency,
       );
       const convertedFeeMin = feeMinConversion.convertedAmount;

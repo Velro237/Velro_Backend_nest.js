@@ -20,6 +20,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { CurrencyModule } from './currency/currency.module';
 import { ImageModule } from './shared/image.module';
 import { RidesModule } from './rides/rides.module';
+import { BoatsModule } from './boats/boats.module';
 import * as path from 'path';
 
 @Module({
@@ -53,6 +54,7 @@ import * as path from 'path';
     CurrencyModule,
     ImageModule,
     RidesModule,
+    BoatsModule,
   ],
   controllers: [],
   providers: [],

@@ -312,6 +312,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                 },
               },
               receiver: {
@@ -319,6 +321,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                 },
               },
               trip: {
@@ -349,11 +353,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 id: rating.giver.id,
                 email: rating.giver.email,
                 name: rating.giver.name,
+                firstName: rating.giver.firstName ?? null,
+                lastName: rating.giver.lastName ?? null,
               },
               receiver: {
                 id: rating.receiver.id,
                 email: rating.receiver.email,
                 name: rating.receiver.name,
+                firstName: rating.receiver.firstName ?? null,
+                lastName: rating.receiver.lastName ?? null,
               },
               trip: rating.trip
                 ? {

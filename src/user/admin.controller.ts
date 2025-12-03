@@ -23,6 +23,10 @@ import {
   AdminChangePasswordDto,
   AdminChangePasswordResponseDto,
 } from './dto/admin-change-password.dto';
+import {
+  SendBulkEmailDto,
+  SendBulkEmailResponseDto,
+} from './dto/send-bulk-email.dto';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -124,5 +128,36 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminChangePasswordResponseDto> {
     return this.userService.adminChangePassword(adminChangePasswordDto, lang);
+  }
+
+  @Post('send-bulk-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Send bulk email to all users (Admin only)',
+    description:
+      'Sends an email to all users in the database. The email content is personalized with the user\'s name and sent in their preferred language (English or French). Format: "salutation {user name}, message"',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Bulk emails sent successfully',
+    type: SendBulkEmailResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid input data',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async sendBulkEmail(
+    @Body() sendBulkEmailDto: SendBulkEmailDto,
+    @I18nLang() lang: string,
+  ): Promise<SendBulkEmailResponseDto> {
+    return this.userService.sendBulkEmail(sendBulkEmailDto, lang);
   }
 }
