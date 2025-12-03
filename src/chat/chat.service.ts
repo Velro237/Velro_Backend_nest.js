@@ -1624,10 +1624,16 @@ export class ChatService {
             pickup: true,
             departure: true,
             destination: true,
+            notes: true,
             departure_date: true,
             departure_time: true,
             currency: true,
             airline_id: true,
+            mode_of_transport: {
+              select: {
+                name: true,
+              },
+            },
             updatedAt: true,
             user: {
               select: {
@@ -1710,6 +1716,50 @@ export class ChatService {
 
     const chatWithData = chat as any;
 
+    // Parse ride-specific data from notes (for ride trips)
+    const rideData = (() => {
+      const notes = chatWithData.trip?.notes;
+      if (!notes) return {};
+      try {
+        let parsed: any;
+        if (typeof notes === 'string') {
+          parsed = JSON.parse(notes);
+        } else if (notes && typeof notes === 'object') {
+          parsed = notes;
+        } else {
+          return {};
+        }
+        return {
+          seats_available:
+            parsed.seats_available !== undefined
+              ? Number(parsed.seats_available)
+              : undefined,
+          base_price_per_seat:
+            parsed.base_price_per_seat !== undefined
+              ? Number(parsed.base_price_per_seat)
+              : undefined,
+          stops: parsed.stops || [],
+          driver_message: parsed.driver_message,
+          notes: parsed.notes,
+        };
+      } catch {
+        return {};
+      }
+    })();
+
+    // Derive transport mode for ride trips (CAR/AIRPLANE) from transport type name
+    let transportMode: string | undefined = undefined;
+    if (chatWithData.trip?.mode_of_transport?.name) {
+      const name = String(
+        chatWithData.trip.mode_of_transport.name,
+      ).toLowerCase();
+      if (name.includes('airplane')) {
+        transportMode = 'AIRPLANE';
+      } else if (name.includes('car')) {
+        transportMode = 'CAR';
+      }
+    }
+
     return {
       request: chatWithData.request
         ? (() => {
@@ -1784,6 +1834,12 @@ export class ChatService {
             departure_time: chatWithData.trip.departure_time,
             currency: chatWithData.trip.currency,
             airline_id: chatWithData.trip.airline_id,
+            transport_mode: transportMode,
+            seats_available: rideData.seats_available,
+            base_price_per_seat: rideData.base_price_per_seat,
+            driver_message: rideData.driver_message,
+            notes: rideData.notes,
+            stops: rideData.stops,
             updated_at: chatWithData.trip.updatedAt,
             user: chatWithData.trip.user,
           }
