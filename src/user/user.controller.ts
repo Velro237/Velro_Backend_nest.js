@@ -36,6 +36,10 @@ import {
   GetUserRatingsResponseDto,
 } from './dto/get-user-ratings.dto';
 import { UserStatsResponseDto } from './dto/user-stats.dto';
+import {
+  GetAllUsersQueryDto,
+  GetAllUsersResponseDto,
+} from './dto/get-all-users.dto';
 import { I18nLang, I18nService } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -90,8 +94,10 @@ export class UserController {
   @ApiFindAllUsers()
   @Get()
   @UseGuards(JwtAuthGuard, AdminGuard)
-  findAll() {
-    return this.userService.findAll();
+  findAll(
+    @Query() query: GetAllUsersQueryDto,
+  ): Promise<GetAllUsersResponseDto> {
+    return this.userService.findAll(query);
   }
 
   @Get('email/:email')

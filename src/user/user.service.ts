@@ -99,6 +99,10 @@ import {
   SendBulkEmailDto,
   SendBulkEmailResponseDto,
 } from './dto/send-bulk-email.dto';
+import {
+  GetAllUsersQueryDto,
+  GetAllUsersResponseDto,
+} from './dto/get-all-users.dto';
 import { UserRole } from 'generated/prisma';
 import { I18nService } from 'nestjs-i18n';
 import { ImageService } from '../shared/services/image.service';
@@ -244,11 +248,34 @@ export class UserService {
     return user;
   }
 
-  async findAll() {
-    return this.prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: userSelect,
-    });
+  async findAll(query?: GetAllUsersQueryDto): Promise<GetAllUsersResponseDto> {
+    const page = query?.page || 1;
+    const limit = query?.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        orderBy: { createdAt: 'desc' },
+        select: userSelect,
+        skip,
+        take: limit,
+      }),
+      this.prisma.user.count(),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      users,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async findOne(id: string) {
@@ -333,18 +360,47 @@ export class UserService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    // Helper function to trim string values (except password)
+    // Helper function to trim string values (except password and special fields)
     const trimValue = (key: string, value: any): any => {
-      if (key === 'password' || typeof value !== 'string') {
+      // Don't trim password, date_of_birth, or non-string values
+      if (
+        key === 'password' ||
+        key === 'date_of_birth' ||
+        typeof value !== 'string'
+      ) {
         return value;
       }
-      return value.trim();
+      // Trim and return undefined if empty (for optional fields)
+      const trimmed = value.trim();
+      return trimmed === '' ? undefined : trimmed;
     };
 
     // Trim all string fields in the DTO
     const trimmedDto: any = {};
     for (const [key, value] of Object.entries(updateUserDto)) {
-      trimmedDto[key] = trimValue(key, value);
+      if (key === 'email' && typeof value === 'string') {
+        // Special handling for email: trim and lowercase
+        const trimmed = value.trim().toLowerCase();
+        trimmedDto[key] = trimmed === '' ? undefined : trimmed;
+      } else if (key === 'services' && Array.isArray(value)) {
+        // Trim service fields
+        trimmedDto[key] = value.map((service: any) => ({
+          ...service,
+          name: service.name?.trim() || undefined,
+          description: service.description?.trim() || undefined,
+        }));
+      } else if (key === 'cities' && Array.isArray(value)) {
+        // Trim city fields
+        trimmedDto[key] = value.map((city: any) => ({
+          ...city,
+          name: city.name?.trim() || undefined,
+          address: city.address?.trim() || undefined,
+          contactName: city.contactName?.trim() || undefined,
+          contactPhone: city.contactPhone?.trim() || undefined,
+        }));
+      } else {
+        trimmedDto[key] = trimValue(key, value);
+      }
     }
 
     const { email, password, date_of_birth, services, cities, ...rest } =

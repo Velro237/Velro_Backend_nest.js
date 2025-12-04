@@ -12,6 +12,7 @@ import {
   GetMessagesQueryDto,
   GetMessagesResponseDto,
 } from '../dto/get-messages.dto';
+import { SendMessageDto, MessageResponseDto } from '../dto/send-message.dto';
 
 export function ApiCreateChat() {
   return applyDecorators(
@@ -224,6 +225,62 @@ export function ApiGetMessages() {
         type: 'object',
         properties: {
           message: { type: 'string', example: 'Failed to retrieve messages' },
+          error: { type: 'string', example: 'Internal Server Error' },
+          statusCode: { type: 'number', example: 500 },
+        },
+      },
+    }),
+  );
+}
+
+export function ApiSendMessage() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Send a message',
+      description:
+        'Send a message to a chat. Works exactly like the WebSocket message:send event. Supports text messages, images (base64 encoded), and various message types. Images are automatically uploaded and the message is broadcast to all chat members via WebSocket.',
+    }),
+    ApiBearerAuth('JWT-auth'),
+    ApiBody({ type: SendMessageDto }),
+    ApiResponse({
+      status: 201,
+      description: 'Message sent successfully',
+      type: MessageResponseDto,
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'Bad Request - Invalid input data',
+      schema: {
+        type: 'object',
+        properties: {
+          message: {
+            type: 'string',
+            example: 'Message must have content or at least one image',
+          },
+          error: { type: 'string', example: 'Bad Request' },
+          statusCode: { type: 'number', example: 400 },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 403,
+      description: 'Forbidden - Not a member of this chat',
+      schema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', example: 'Not a member of this chat' },
+          error: { type: 'string', example: 'Forbidden' },
+          statusCode: { type: 'number', example: 403 },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+      schema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', example: 'Failed to send message' },
           error: { type: 'string', example: 'Internal Server Error' },
           statusCode: { type: 'number', example: 500 },
         },
