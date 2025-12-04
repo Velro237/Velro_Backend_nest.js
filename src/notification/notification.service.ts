@@ -29,6 +29,7 @@ import {
   NotificationBulkEmailResponseDto,
   BulkEmailFilter,
 } from './dto/send-bulk-email.dto';
+import { BulkEmailStatsResponseDto } from './dto/bulk-email-stats.dto';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import Mailgun from 'mailgun.js';
@@ -824,6 +825,10 @@ export class NotificationService {
         throw new BadRequestException(message);
       }
 
+      // Reset stats before starting new bulk email campaign
+      // This ensures stats only reflect the current campaign
+      await this.emailQueue.resetStats();
+
       // Add emails to queue with multilingual content
       const queuedCount = await this.emailQueue.addEmails(users, {
         subject_en: bulkEmailDto.subject_en,
@@ -865,6 +870,70 @@ export class NotificationService {
         {
           lang,
           defaultValue: 'Failed to start bulk email sending',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get bulk email statistics from the queue
+   * Returns current queue status including waiting, active, completed, and failed jobs
+   */
+  async getBulkEmailStats(
+    user: User,
+    lang: string = 'en',
+  ): Promise<BulkEmailStatsResponseDto> {
+    // Check if user is admin
+    if (user.role !== 'ADMIN') {
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.unauthorized',
+        {
+          lang,
+          defaultValue: 'Only administrators can view bulk email statistics',
+        },
+      );
+      throw new ForbiddenException(message);
+    }
+
+    try {
+      const stats = await this.emailQueue.getQueueStats();
+
+      // Calculate success and failure rates
+      const successRate =
+        stats.total > 0
+          ? Number(((stats.completed / stats.total) * 100).toFixed(2))
+          : null;
+      const failureRate =
+        stats.total > 0
+          ? Number(((stats.failed / stats.total) * 100).toFixed(2))
+          : null;
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.stats.success',
+        {
+          lang,
+          defaultValue: 'Bulk email statistics retrieved successfully',
+        },
+      );
+
+      return {
+        waiting: stats.waiting,
+        active: stats.active,
+        completed: stats.completed,
+        failed: stats.failed,
+        total: stats.total,
+        successRate,
+        failureRate,
+        message,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get bulk email stats:', error);
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.stats.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve bulk email statistics',
         },
       );
       throw new InternalServerErrorException(message);

@@ -139,4 +139,35 @@ export class EmailQueue implements OnModuleInit, OnModuleDestroy {
       total: waiting + active + completed + failed,
     };
   }
+
+  /**
+   * Reset queue statistics by clearing completed and failed jobs
+   * This ensures stats only reflect the current bulk email campaign
+   * Note: This does NOT clear waiting or active jobs
+   */
+  async resetStats(): Promise<void> {
+    try {
+      // Clean completed jobs in batches (remove all, regardless of age)
+      // BullMQ clean() returns an array of cleaned job IDs, so we clean in batches
+      // until no more jobs are returned
+      const batchSize = 10000;
+      let cleanedCompleted: string[];
+      let cleanedFailed: string[];
+
+      do {
+        cleanedCompleted = await this.queue.clean(0, batchSize, 'completed');
+      } while (cleanedCompleted.length > 0);
+
+      do {
+        cleanedFailed = await this.queue.clean(0, batchSize, 'failed');
+      } while (cleanedFailed.length > 0);
+
+      console.log(
+        'Email queue stats reset: cleared all completed and failed jobs',
+      );
+    } catch (error) {
+      console.error('Failed to reset email queue stats:', error);
+      throw error;
+    }
+  }
 }

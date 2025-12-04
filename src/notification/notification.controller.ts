@@ -38,6 +38,7 @@ import {
   NotificationBulkEmailDto,
   NotificationBulkEmailResponseDto,
 } from './dto/send-bulk-email.dto';
+import { BulkEmailStatsResponseDto } from './dto/bulk-email-stats.dto';
 import {
   ApiGetNotifications,
   ApiUpdateReadStatus,
@@ -45,6 +46,7 @@ import {
 } from './decorators/api-docs.decorator';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 
@@ -63,6 +65,7 @@ import { User } from 'generated/prisma';
   SendEmailResponseDto,
   NotificationBulkEmailDto,
   NotificationBulkEmailResponseDto,
+  BulkEmailStatsResponseDto,
 )
 @Controller('notification')
 export class NotificationController {
@@ -272,6 +275,7 @@ export class NotificationController {
   }
 
   @Post('email/bulk')
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
     summary: 'Send bulk emails to all users',
@@ -363,5 +367,57 @@ export class NotificationController {
     @I18nLang() lang: string,
   ): Promise<NotificationBulkEmailResponseDto> {
     return this.notificationService.sendBulkEmail(bulkEmailDto, user, lang);
+  }
+
+  @Get('email/bulk/stats')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get bulk email statistics',
+    description:
+      'Get statistics about bulk email sending jobs including waiting, active, completed, and failed counts. Also includes success and failure rates. Requires admin privileges.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Bulk email statistics retrieved successfully',
+    type: BulkEmailStatsResponseDto,
+    example: {
+      waiting: 150,
+      active: 5,
+      completed: 4850,
+      failed: 10,
+      total: 5015,
+      successRate: 96.8,
+      failureRate: 0.2,
+      message: 'Bulk email statistics retrieved successfully',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+    example: {
+      statusCode: 403,
+      message: 'Only administrators can view bulk email statistics',
+      error: 'Forbidden',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+    example: {
+      statusCode: 500,
+      message: 'Failed to retrieve bulk email statistics',
+      error: 'Internal Server Error',
+    },
+  })
+  async getBulkEmailStats(
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<BulkEmailStatsResponseDto> {
+    return this.notificationService.getBulkEmailStats(user, lang);
   }
 }
