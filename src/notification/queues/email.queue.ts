@@ -170,4 +170,117 @@ export class EmailQueue implements OnModuleInit, OnModuleDestroy {
       throw error;
     }
   }
+
+  /**
+   * Get all job IDs by status
+   * @param status - Job status: 'waiting' | 'active' | 'completed' | 'failed'
+   * @param start - Start index (for pagination)
+   * @param end - End index (for pagination)
+   */
+  async getJobIds(
+    status: 'waiting' | 'active' | 'completed' | 'failed' = 'waiting',
+    start: number = 0,
+    end: number = -1,
+  ): Promise<string[]> {
+    try {
+      let jobs: any[] = [];
+
+      switch (status) {
+        case 'waiting':
+          jobs = await this.queue.getWaiting(start, end);
+          break;
+        case 'active':
+          jobs = await this.queue.getActive(start, end);
+          break;
+        case 'completed':
+          jobs = await this.queue.getCompleted(start, end);
+          break;
+        case 'failed':
+          jobs = await this.queue.getFailed(start, end);
+          break;
+      }
+
+      // Extract job IDs from Job objects
+      return jobs.map((job) => {
+        if (typeof job === 'string') {
+          return job;
+        }
+        return job?.id || job;
+      });
+    } catch (error) {
+      console.error(`Failed to get ${status} job IDs:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all job IDs across all statuses
+   */
+  async getAllJobIds(
+    start: number = 0,
+    end: number = 100,
+  ): Promise<{
+    waiting: string[];
+    active: string[];
+    completed: string[];
+    failed: string[];
+    total: number;
+  }> {
+    try {
+      const [waiting, active, completed, failed] = await Promise.all([
+        this.getJobIds('waiting', start, end),
+        this.getJobIds('active', start, end),
+        this.getJobIds('completed', start, end),
+        this.getJobIds('failed', start, end),
+      ]);
+
+      return {
+        waiting,
+        active,
+        completed,
+        failed,
+        total:
+          waiting.length + active.length + completed.length + failed.length,
+      };
+    } catch (error) {
+      console.error('Failed to get all job IDs:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get job details by ID
+   */
+  async getJobById(jobId: string): Promise<any> {
+    try {
+      const job = await this.queue.getJob(jobId);
+
+      if (!job) {
+        return null;
+      }
+
+      const state = await job.getState();
+      const progress = job.progress;
+      const returnValue = job.returnvalue;
+      const failedReason = job.failedReason;
+
+      return {
+        id: job.id,
+        name: job.name,
+        data: job.data,
+        opts: job.opts,
+        progress: progress,
+        returnValue: returnValue,
+        failedReason: failedReason,
+        timestamp: job.timestamp,
+        processedOn: job.processedOn,
+        finishedOn: job.finishedOn,
+        attemptsMade: job.attemptsMade,
+        state: state,
+      };
+    } catch (error) {
+      console.error(`Failed to get job ${jobId}:`, error);
+      throw error;
+    }
+  }
 }

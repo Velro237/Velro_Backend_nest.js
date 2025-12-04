@@ -30,6 +30,7 @@ import {
   BulkEmailFilter,
 } from './dto/send-bulk-email.dto';
 import { BulkEmailStatsResponseDto } from './dto/bulk-email-stats.dto';
+import { JobListResponseDto, JobDetailsResponseDto } from './dto/job-list.dto';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import Mailgun from 'mailgun.js';
@@ -934,6 +935,115 @@ export class NotificationService {
         {
           lang,
           defaultValue: 'Failed to retrieve bulk email statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get list of all job IDs by status
+   */
+  async getJobList(
+    user: User,
+    lang: string = 'en',
+  ): Promise<JobListResponseDto> {
+    // Check if user is admin
+    if (user.role !== 'ADMIN') {
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.unauthorized',
+        {
+          lang,
+          defaultValue: 'Only administrators can view job lists',
+        },
+      );
+      throw new ForbiddenException(message);
+    }
+
+    try {
+      const jobIds = await this.emailQueue.getAllJobIds(0, 1000);
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.jobs.list.success',
+        {
+          lang,
+          defaultValue: 'Job list retrieved successfully',
+        },
+      );
+
+      return {
+        ...jobIds,
+        message,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get job list:', error);
+      const message = await this.i18n.translate(
+        'translation.notification.email.jobs.list.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve job list',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get job details by ID
+   */
+  async getJobById(
+    jobId: string,
+    user: User,
+    lang: string = 'en',
+  ): Promise<JobDetailsResponseDto> {
+    // Check if user is admin
+    if (user.role !== 'ADMIN') {
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.unauthorized',
+        {
+          lang,
+          defaultValue: 'Only administrators can view job details',
+        },
+      );
+      throw new ForbiddenException(message);
+    }
+
+    try {
+      const job = await this.emailQueue.getJobById(jobId);
+
+      if (!job) {
+        const message = await this.i18n.translate(
+          'translation.notification.email.jobs.notFound',
+          {
+            lang,
+            defaultValue: 'Job not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.jobs.details.success',
+        {
+          lang,
+          defaultValue: 'Job details retrieved successfully',
+        },
+      );
+
+      return {
+        ...job,
+        message,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to get job ${jobId}:`, error);
+      const message = await this.i18n.translate(
+        'translation.notification.email.jobs.details.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve job details',
         },
       );
       throw new InternalServerErrorException(message);

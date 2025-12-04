@@ -96,10 +96,6 @@ import {
   AdminChangePasswordResponseDto,
 } from './dto/admin-change-password.dto';
 import {
-  SendBulkEmailDto,
-  SendBulkEmailResponseDto,
-} from './dto/send-bulk-email.dto';
-import {
   GetAllUsersQueryDto,
   GetAllUsersResponseDto,
 } from './dto/get-all-users.dto';
@@ -1720,109 +1716,6 @@ export class UserService {
         {
           lang,
           defaultValue: 'Failed to change password',
-        },
-      );
-      throw new InternalServerErrorException(message);
-    }
-  }
-
-  /**
-   * Admin method to send bulk emails to all users
-   */
-  async sendBulkEmail(
-    sendBulkEmailDto: SendBulkEmailDto,
-    lang?: string,
-  ): Promise<SendBulkEmailResponseDto> {
-    try {
-      // Get all users from database (excluding admins)
-      const users = await this.prisma.user.findMany({
-        where: {
-          role: {
-            not: UserRole.ADMIN,
-          },
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          firstName: true,
-          lastName: true,
-          lang: true,
-        },
-      });
-
-      let emailsSent = 0;
-      let emailsFailed = 0;
-
-      // Send email to each user
-      for (const user of users) {
-        try {
-          // Determine user's language preference (default to 'fr' if not set)
-          const userLang =
-            user.lang?.toLowerCase().trim() === 'en' ? 'en' : 'fr';
-
-          // Select appropriate subject and message based on user's language
-          const subject =
-            userLang === 'fr'
-              ? sendBulkEmailDto.subjectFr
-              : sendBulkEmailDto.subjectEn;
-          const messageHtml =
-            userLang === 'fr'
-              ? sendBulkEmailDto.messageFr
-              : sendBulkEmailDto.messageEn;
-
-          // Format message: Replace {user name} with actual user name
-          // Use firstName and lastName if available, otherwise fall back to name
-          const userName =
-            user.firstName && user.lastName
-              ? `${user.firstName} ${user.lastName}`
-              : user.name || user.email;
-
-          // Replace {user name} placeholder in HTML message
-          const formattedMessage = messageHtml.replace(
-            /{user name}/g,
-            userName,
-          );
-
-          // Send email using notification service with HTML content
-          await this.notificationService.sendEmail(
-            {
-              to: user.email,
-              subject: subject,
-              html: formattedMessage,
-            },
-            userLang,
-          );
-
-          emailsSent++;
-        } catch (error) {
-          console.error(`Failed to send email to ${user.email}:`, error);
-          emailsFailed++;
-          // Continue with other users even if one fails
-        }
-      }
-
-      const message = await this.i18n.translate(
-        'translation.user.admin.bulkEmail.success',
-        {
-          lang,
-          defaultValue: 'Bulk emails sent successfully',
-        },
-      );
-
-      return {
-        message,
-        emailsSent,
-        emailsFailed,
-        totalUsers: users.length,
-      };
-    } catch (error) {
-      console.error('Error sending bulk emails:', error);
-      const message = await this.i18n.translate(
-        'translation.user.admin.bulkEmail.failed',
-        {
-          lang,
-          defaultValue: 'Failed to send bulk emails',
         },
       );
       throw new InternalServerErrorException(message);

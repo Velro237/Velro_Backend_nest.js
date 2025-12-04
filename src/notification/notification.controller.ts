@@ -39,6 +39,7 @@ import {
   NotificationBulkEmailResponseDto,
 } from './dto/send-bulk-email.dto';
 import { BulkEmailStatsResponseDto } from './dto/bulk-email-stats.dto';
+import { JobListResponseDto, JobDetailsResponseDto } from './dto/job-list.dto';
 import {
   ApiGetNotifications,
   ApiUpdateReadStatus,
@@ -66,6 +67,8 @@ import { User } from 'generated/prisma';
   NotificationBulkEmailDto,
   NotificationBulkEmailResponseDto,
   BulkEmailStatsResponseDto,
+  JobListResponseDto,
+  JobDetailsResponseDto,
 )
 @Controller('notification')
 export class NotificationController {
@@ -419,5 +422,104 @@ export class NotificationController {
     @I18nLang() lang: string,
   ): Promise<BulkEmailStatsResponseDto> {
     return this.notificationService.getBulkEmailStats(user, lang);
+  }
+
+  @Get('email/bulk/jobs')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get list of all email job IDs',
+    description:
+      'Get a list of all job IDs grouped by status (waiting, active, completed, failed). Requires admin privileges.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Job list retrieved successfully',
+    type: JobListResponseDto,
+    example: {
+      waiting: ['job-1', 'job-2'],
+      active: ['job-3'],
+      completed: ['job-4', 'job-5'],
+      failed: ['job-6'],
+      total: 5,
+      message: 'Job list retrieved successfully',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getJobList(
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<JobListResponseDto> {
+    return this.notificationService.getJobList(user, lang);
+  }
+
+  @Get('email/bulk/jobs/:jobId')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get job details by ID',
+    description:
+      'Get detailed information about a specific email job including status, data, attempts, and error information. Requires admin privileges.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Job details retrieved successfully',
+    type: JobDetailsResponseDto,
+    example: {
+      id: 'job-123',
+      name: 'send-email',
+      data: {
+        email: 'user@example.com',
+        name: 'John Doe',
+        lang: 'en',
+        subject_en: 'Hello',
+        subject_fr: 'Bonjour',
+      },
+      state: 'completed',
+      attemptsMade: 1,
+      timestamp: 1234567890000,
+      processedOn: 1234567891000,
+      finishedOn: 1234567892000,
+      message: 'Job details retrieved successfully',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Job not found',
+    example: {
+      statusCode: 404,
+      message: 'Job not found',
+      error: 'Not Found',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getJobById(
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<JobDetailsResponseDto> {
+    return this.notificationService.getJobById(jobId, user, lang);
   }
 }
