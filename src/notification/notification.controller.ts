@@ -35,6 +35,10 @@ import {
 } from './dto/send-push-notification.dto';
 import { SendEmailDto, SendEmailResponseDto } from './dto/send-email.dto';
 import {
+  NotificationBulkEmailDto,
+  NotificationBulkEmailResponseDto,
+} from './dto/send-bulk-email.dto';
+import {
   ApiGetNotifications,
   ApiUpdateReadStatus,
   ApiDeleteNotification,
@@ -57,6 +61,8 @@ import { User } from 'generated/prisma';
   SendPushNotificationResponseDto,
   SendEmailDto,
   SendEmailResponseDto,
+  NotificationBulkEmailDto,
+  NotificationBulkEmailResponseDto,
 )
 @Controller('notification')
 export class NotificationController {
@@ -263,5 +269,99 @@ export class NotificationController {
     @I18nLang() lang: string,
   ): Promise<SendEmailResponseDto> {
     return this.notificationService.sendEmail(emailDto, lang);
+  }
+
+  @Post('email/bulk')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Send bulk emails to all users',
+    description:
+      "Send bulk emails to users using a background job queue. Emails are processed asynchronously to avoid blocking the server. Supports multilingual content (English and French) - emails are automatically sent in the user's preferred language. Supports name personalization using {{name}} placeholder in HTML/text content. Supports filtering by user status or specific email addresses. Requires admin privileges.",
+  })
+  @ApiBody({
+    type: NotificationBulkEmailDto,
+    description: 'Bulk email data',
+    examples: {
+      'All Users': {
+        summary: 'Send to all users',
+        description: 'Send email to all users in the system',
+        value: {
+          subject_en: 'Important Update',
+          subject_fr: 'Mise à jour importante',
+          html_en:
+            '<h1>Important Update</h1><p>Hello {{name}}, this is an important message for all users.</p>',
+          html_fr:
+            '<h1>Mise à jour importante</h1><p>Bonjour {{name}}, ceci est un message important pour tous les utilisateurs.</p>',
+          text_en:
+            'Hello {{name}}, this is an important message for all users.',
+          text_fr:
+            'Bonjour {{name}}, ceci est un message important pour tous les utilisateurs.',
+          filter: 'ALL',
+        },
+      },
+      'Active Users Only': {
+        summary: 'Send to active users only',
+        description: 'Send email only to active users',
+        value: {
+          subject_en: 'Welcome Back!',
+          subject_fr: 'Bon retour !',
+          html_en:
+            '<h1>Welcome Back!</h1><p>Hello {{name}}, we missed you!</p>',
+          html_fr:
+            '<h1>Bon retour !</h1><p>Bonjour {{name}}, vous nous avez manqué !</p>',
+          filter: 'ACTIVE',
+        },
+      },
+      'Specific Emails': {
+        summary: 'Send to specific email addresses',
+        description: 'Send email to a list of specific email addresses',
+        value: {
+          subject_en: 'Special Offer',
+          subject_fr: 'Offre spéciale',
+          html_en: '<h1>Special Offer</h1><p>Hello {{name}}, just for you!</p>',
+          html_fr:
+            '<h1>Offre spéciale</h1><p>Bonjour {{name}}, juste pour vous !</p>',
+          emails: ['user1@example.com', 'user2@example.com'],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 202,
+    description: 'Bulk email sending started in background',
+    type: NotificationBulkEmailResponseDto,
+    example: {
+      message: 'Bulk email sending started in background',
+      queuedCount: 5000,
+      jobId: 'job-123456',
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Missing email content',
+    example: {
+      statusCode: 400,
+      message: 'Either text or html content must be provided',
+      error: 'Bad Request',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async sendBulkEmail(
+    @Body() bulkEmailDto: NotificationBulkEmailDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<NotificationBulkEmailResponseDto> {
+    return this.notificationService.sendBulkEmail(bulkEmailDto, user, lang);
   }
 }
