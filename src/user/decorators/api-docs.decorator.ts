@@ -13,6 +13,10 @@ import {
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UserResponseDto } from '../dto/user-response.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
+import {
+  GetAllUsersQueryDto,
+  GetAllUsersResponseDto,
+} from '../dto/get-all-users.dto';
 
 // REPORT DTOs
 import {
@@ -911,15 +915,43 @@ export function ApiFindAllUsers() {
   return applyDecorators(
     ApiOperation({
       summary: 'Get all users',
-      description: 'Retrieve a list of all users in the system',
+      description:
+        'Retrieve a paginated list of all users in the system. Admin access required.',
+    }),
+    ApiExtraModels(GetAllUsersQueryDto, GetAllUsersResponseDto),
+    ApiQuery({
+      name: 'page',
+      required: false,
+      type: Number,
+      description: 'Page number for pagination',
+      example: 1,
+      schema: {
+        type: 'number',
+        minimum: 1,
+        default: 1,
+      },
+    }),
+    ApiQuery({
+      name: 'limit',
+      required: false,
+      type: Number,
+      description: 'Number of users per page',
+      example: 20,
+      schema: {
+        type: 'number',
+        minimum: 1,
+        maximum: 100,
+        default: 20,
+      },
     }),
     ApiResponse({
       status: 200,
       description: 'Users retrieved successfully',
-      schema: {
-        type: 'array',
-        items: { $ref: '#/components/schemas/UserResponseDto' },
-      },
+      type: GetAllUsersResponseDto,
+    }),
+    ApiResponse({
+      status: 403,
+      description: 'Forbidden - Admin access required',
     }),
     ApiResponse({
       status: 500,

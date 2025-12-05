@@ -96,9 +96,9 @@ import {
   AdminChangePasswordResponseDto,
 } from './dto/admin-change-password.dto';
 import {
-  SendBulkEmailDto,
-  SendBulkEmailResponseDto,
-} from './dto/send-bulk-email.dto';
+  GetAllUsersQueryDto,
+  GetAllUsersResponseDto,
+} from './dto/get-all-users.dto';
 import { UserRole } from 'generated/prisma';
 import { I18nService } from 'nestjs-i18n';
 import { ImageService } from '../shared/services/image.service';
@@ -244,11 +244,34 @@ export class UserService {
     return user;
   }
 
-  async findAll() {
-    return this.prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: userSelect,
-    });
+  async findAll(query?: GetAllUsersQueryDto): Promise<GetAllUsersResponseDto> {
+    const page = query?.page || 1;
+    const limit = query?.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        orderBy: { createdAt: 'desc' },
+        select: userSelect,
+        skip,
+        take: limit,
+      }),
+      this.prisma.user.count(),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      users,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async findOne(id: string) {
@@ -333,18 +356,47 @@ export class UserService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    // Helper function to trim string values (except password)
+    // Helper function to trim string values (except password and special fields)
     const trimValue = (key: string, value: any): any => {
-      if (key === 'password' || typeof value !== 'string') {
+      // Don't trim password, date_of_birth, or non-string values
+      if (
+        key === 'password' ||
+        key === 'date_of_birth' ||
+        typeof value !== 'string'
+      ) {
         return value;
       }
-      return value.trim();
+      // Trim and return undefined if empty (for optional fields)
+      const trimmed = value.trim();
+      return trimmed === '' ? undefined : trimmed;
     };
 
     // Trim all string fields in the DTO
     const trimmedDto: any = {};
     for (const [key, value] of Object.entries(updateUserDto)) {
-      trimmedDto[key] = trimValue(key, value);
+      if (key === 'email' && typeof value === 'string') {
+        // Special handling for email: trim and lowercase
+        const trimmed = value.trim().toLowerCase();
+        trimmedDto[key] = trimmed === '' ? undefined : trimmed;
+      } else if (key === 'services' && Array.isArray(value)) {
+        // Trim service fields
+        trimmedDto[key] = value.map((service: any) => ({
+          ...service,
+          name: service.name?.trim() || undefined,
+          description: service.description?.trim() || undefined,
+        }));
+      } else if (key === 'cities' && Array.isArray(value)) {
+        // Trim city fields
+        trimmedDto[key] = value.map((city: any) => ({
+          ...city,
+          name: city.name?.trim() || undefined,
+          address: city.address?.trim() || undefined,
+          contactName: city.contactName?.trim() || undefined,
+          contactPhone: city.contactPhone?.trim() || undefined,
+        }));
+      } else {
+        trimmedDto[key] = trimValue(key, value);
+      }
     }
 
     const { email, password, date_of_birth, services, cities, ...rest } =
@@ -1664,109 +1716,6 @@ export class UserService {
         {
           lang,
           defaultValue: 'Failed to change password',
-        },
-      );
-      throw new InternalServerErrorException(message);
-    }
-  }
-
-  /**
-   * Admin method to send bulk emails to all users
-   */
-  async sendBulkEmail(
-    sendBulkEmailDto: SendBulkEmailDto,
-    lang?: string,
-  ): Promise<SendBulkEmailResponseDto> {
-    try {
-      // Get all users from database (excluding admins)
-      const users = await this.prisma.user.findMany({
-        where: {
-          role: {
-            not: UserRole.ADMIN,
-          },
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          firstName: true,
-          lastName: true,
-          lang: true,
-        },
-      });
-
-      let emailsSent = 0;
-      let emailsFailed = 0;
-
-      // Send email to each user
-      for (const user of users) {
-        try {
-          // Determine user's language preference (default to 'fr' if not set)
-          const userLang =
-            user.lang?.toLowerCase().trim() === 'en' ? 'en' : 'fr';
-
-          // Select appropriate subject and message based on user's language
-          const subject =
-            userLang === 'fr'
-              ? sendBulkEmailDto.subjectFr
-              : sendBulkEmailDto.subjectEn;
-          const messageHtml =
-            userLang === 'fr'
-              ? sendBulkEmailDto.messageFr
-              : sendBulkEmailDto.messageEn;
-
-          // Format message: Replace {user name} with actual user name
-          // Use firstName and lastName if available, otherwise fall back to name
-          const userName =
-            user.firstName && user.lastName
-              ? `${user.firstName} ${user.lastName}`
-              : user.name || user.email;
-
-          // Replace {user name} placeholder in HTML message
-          const formattedMessage = messageHtml.replace(
-            /{user name}/g,
-            userName,
-          );
-
-          // Send email using notification service with HTML content
-          await this.notificationService.sendEmail(
-            {
-              to: user.email,
-              subject: subject,
-              html: formattedMessage,
-            },
-            userLang,
-          );
-
-          emailsSent++;
-        } catch (error) {
-          console.error(`Failed to send email to ${user.email}:`, error);
-          emailsFailed++;
-          // Continue with other users even if one fails
-        }
-      }
-
-      const message = await this.i18n.translate(
-        'translation.user.admin.bulkEmail.success',
-        {
-          lang,
-          defaultValue: 'Bulk emails sent successfully',
-        },
-      );
-
-      return {
-        message,
-        emailsSent,
-        emailsFailed,
-        totalUsers: users.length,
-      };
-    } catch (error) {
-      console.error('Error sending bulk emails:', error);
-      const message = await this.i18n.translate(
-        'translation.user.admin.bulkEmail.failed',
-        {
-          lang,
-          defaultValue: 'Failed to send bulk emails',
         },
       );
       throw new InternalServerErrorException(message);

@@ -25,6 +25,7 @@ import {
   GetMessagesResponseDto,
 } from './dto/get-messages.dto';
 import { NotificationService } from '../notification/notification.service';
+import { ImageService } from '../shared/services/image.service';
 
 @Injectable()
 export class ChatService {
@@ -33,6 +34,7 @@ export class ChatService {
     private readonly i18n: I18nService,
     private readonly redis: RedisService,
     private readonly notificationService: NotificationService,
+    private readonly imageService: ImageService,
   ) {}
 
   async createChat(

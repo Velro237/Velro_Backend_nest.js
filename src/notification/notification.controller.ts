@@ -35,12 +35,19 @@ import {
 } from './dto/send-push-notification.dto';
 import { SendEmailDto, SendEmailResponseDto } from './dto/send-email.dto';
 import {
+  NotificationBulkEmailDto,
+  NotificationBulkEmailResponseDto,
+} from './dto/send-bulk-email.dto';
+import { BulkEmailStatsResponseDto } from './dto/bulk-email-stats.dto';
+import { JobListResponseDto, JobDetailsResponseDto } from './dto/job-list.dto';
+import {
   ApiGetNotifications,
   ApiUpdateReadStatus,
   ApiDeleteNotification,
 } from './decorators/api-docs.decorator';
 import { I18nLang } from 'nestjs-i18n';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 
@@ -57,6 +64,11 @@ import { User } from 'generated/prisma';
   SendPushNotificationResponseDto,
   SendEmailDto,
   SendEmailResponseDto,
+  NotificationBulkEmailDto,
+  NotificationBulkEmailResponseDto,
+  BulkEmailStatsResponseDto,
+  JobListResponseDto,
+  JobDetailsResponseDto,
 )
 @Controller('notification')
 export class NotificationController {
@@ -263,5 +275,251 @@ export class NotificationController {
     @I18nLang() lang: string,
   ): Promise<SendEmailResponseDto> {
     return this.notificationService.sendEmail(emailDto, lang);
+  }
+
+  @Post('email/bulk')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Send bulk emails to all users',
+    description:
+      "Send bulk emails to users using a background job queue. Emails are processed asynchronously to avoid blocking the server. Supports multilingual content (English and French) - emails are automatically sent in the user's preferred language. Supports name personalization using {{name}} placeholder in HTML/text content. Supports filtering by user status or specific email addresses. Requires admin privileges.",
+  })
+  @ApiBody({
+    type: NotificationBulkEmailDto,
+    description: 'Bulk email data',
+    examples: {
+      'All Users': {
+        summary: 'Send to all users',
+        description: 'Send email to all users in the system',
+        value: {
+          subject_en: 'Important Update',
+          subject_fr: 'Mise à jour importante',
+          html_en:
+            '<h1>Important Update</h1><p>Hello {{name}}, this is an important message for all users.</p>',
+          html_fr:
+            '<h1>Mise à jour importante</h1><p>Bonjour {{name}}, ceci est un message important pour tous les utilisateurs.</p>',
+          text_en:
+            'Hello {{name}}, this is an important message for all users.',
+          text_fr:
+            'Bonjour {{name}}, ceci est un message important pour tous les utilisateurs.',
+          filter: 'ALL',
+        },
+      },
+      'Active Users Only': {
+        summary: 'Send to active users only',
+        description: 'Send email only to active users',
+        value: {
+          subject_en: 'Welcome Back!',
+          subject_fr: 'Bon retour !',
+          html_en:
+            '<h1>Welcome Back!</h1><p>Hello {{name}}, we missed you!</p>',
+          html_fr:
+            '<h1>Bon retour !</h1><p>Bonjour {{name}}, vous nous avez manqué !</p>',
+          filter: 'ACTIVE',
+        },
+      },
+      'Specific Emails': {
+        summary: 'Send to specific email addresses',
+        description: 'Send email to a list of specific email addresses',
+        value: {
+          subject_en: 'Special Offer',
+          subject_fr: 'Offre spéciale',
+          html_en: '<h1>Special Offer</h1><p>Hello {{name}}, just for you!</p>',
+          html_fr:
+            '<h1>Offre spéciale</h1><p>Bonjour {{name}}, juste pour vous !</p>',
+          emails: ['user1@example.com', 'user2@example.com'],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 202,
+    description: 'Bulk email sending started in background',
+    type: NotificationBulkEmailResponseDto,
+    example: {
+      message: 'Bulk email sending started in background',
+      queuedCount: 5000,
+      jobId: 'job-123456',
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Missing email content',
+    example: {
+      statusCode: 400,
+      message: 'Either text or html content must be provided',
+      error: 'Bad Request',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async sendBulkEmail(
+    @Body() bulkEmailDto: NotificationBulkEmailDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<NotificationBulkEmailResponseDto> {
+    return this.notificationService.sendBulkEmail(bulkEmailDto, user, lang);
+  }
+
+  @Get('email/bulk/stats')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get bulk email statistics',
+    description:
+      'Get statistics about bulk email sending jobs including waiting, active, completed, and failed counts. Also includes success and failure rates. Requires admin privileges.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Bulk email statistics retrieved successfully',
+    type: BulkEmailStatsResponseDto,
+    example: {
+      waiting: 150,
+      active: 5,
+      completed: 4850,
+      failed: 10,
+      total: 5015,
+      successRate: 96.8,
+      failureRate: 0.2,
+      message: 'Bulk email statistics retrieved successfully',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+    example: {
+      statusCode: 403,
+      message: 'Only administrators can view bulk email statistics',
+      error: 'Forbidden',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+    example: {
+      statusCode: 500,
+      message: 'Failed to retrieve bulk email statistics',
+      error: 'Internal Server Error',
+    },
+  })
+  async getBulkEmailStats(
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<BulkEmailStatsResponseDto> {
+    return this.notificationService.getBulkEmailStats(user, lang);
+  }
+
+  @Get('email/bulk/jobs')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get list of all email job IDs',
+    description:
+      'Get a list of all job IDs grouped by status (waiting, active, completed, failed). Requires admin privileges.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Job list retrieved successfully',
+    type: JobListResponseDto,
+    example: {
+      waiting: ['job-1', 'job-2'],
+      active: ['job-3'],
+      completed: ['job-4', 'job-5'],
+      failed: ['job-6'],
+      total: 5,
+      message: 'Job list retrieved successfully',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getJobList(
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<JobListResponseDto> {
+    return this.notificationService.getJobList(user, lang);
+  }
+
+  @Get('email/bulk/jobs/:jobId')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get job details by ID',
+    description:
+      'Get detailed information about a specific email job including status, data, attempts, and error information. Requires admin privileges.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Job details retrieved successfully',
+    type: JobDetailsResponseDto,
+    example: {
+      id: 'job-123',
+      name: 'send-email',
+      data: {
+        email: 'user@example.com',
+        name: 'John Doe',
+        lang: 'en',
+        subject_en: 'Hello',
+        subject_fr: 'Bonjour',
+      },
+      state: 'completed',
+      attemptsMade: 1,
+      timestamp: 1234567890000,
+      processedOn: 1234567891000,
+      finishedOn: 1234567892000,
+      message: 'Job details retrieved successfully',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Job not found',
+    example: {
+      statusCode: 404,
+      message: 'Job not found',
+      error: 'Not Found',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getJobById(
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<JobDetailsResponseDto> {
+    return this.notificationService.getJobById(jobId, user, lang);
   }
 }

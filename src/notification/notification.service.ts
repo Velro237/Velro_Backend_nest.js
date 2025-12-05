@@ -24,10 +24,20 @@ import {
   SendPushNotificationResponseDto,
 } from './dto/send-push-notification.dto';
 import { SendEmailDto, SendEmailResponseDto } from './dto/send-email.dto';
+import {
+  NotificationBulkEmailDto,
+  NotificationBulkEmailResponseDto,
+  BulkEmailFilter,
+} from './dto/send-bulk-email.dto';
+import { BulkEmailStatsResponseDto } from './dto/bulk-email-stats.dto';
+import { JobListResponseDto, JobDetailsResponseDto } from './dto/job-list.dto';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import Mailgun from 'mailgun.js';
 import { Expo, ExpoPushMessage } from 'expo-server-sdk';
+import { EmailQueue } from './queues/email.queue';
+import { User } from 'generated/prisma';
+import { ForbiddenException } from '@nestjs/common';
 
 @Injectable()
 export class NotificationService {
@@ -39,6 +49,7 @@ export class NotificationService {
     private readonly i18n: I18nService,
     private readonly configService: ConfigService,
     @Inject('FIREBASE_ADMIN') private readonly firebaseAdmin: any,
+    private readonly emailQueue: EmailQueue,
   ) {}
 
   /**
@@ -683,6 +694,359 @@ export class NotificationService {
         `Error in sendPushNotificationToUser for user ${userId}:`,
         error,
       );
+    }
+  }
+
+  /**
+   * Send bulk emails to users using background job queue
+   * This method queues emails for processing and returns immediately
+   */
+  async sendBulkEmail(
+    bulkEmailDto: NotificationBulkEmailDto,
+    user: User,
+    lang: string = 'en',
+  ): Promise<NotificationBulkEmailResponseDto> {
+    // Check if user is admin
+    if (user.role !== 'ADMIN') {
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.unauthorized',
+        {
+          lang,
+          defaultValue: 'Only administrators can send bulk emails',
+        },
+      );
+      throw new ForbiddenException(message);
+    }
+
+    // Validate that either text or html is provided for at least one language
+    const hasEnglishContent =
+      (bulkEmailDto.text_en && bulkEmailDto.text_en.trim().length > 0) ||
+      (bulkEmailDto.html_en && bulkEmailDto.html_en.trim().length > 0);
+    const hasFrenchContent =
+      (bulkEmailDto.text_fr && bulkEmailDto.text_fr.trim().length > 0) ||
+      (bulkEmailDto.html_fr && bulkEmailDto.html_fr.trim().length > 0);
+
+    if (!hasEnglishContent && !hasFrenchContent) {
+      const message = await this.i18n.translate(
+        'translation.notification.email.contentRequired',
+        {
+          lang,
+          defaultValue:
+            'Either text or html content must be provided for at least one language (en or fr)',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    // Validate subjects are provided
+    if (
+      !bulkEmailDto.subject_en ||
+      !bulkEmailDto.subject_fr ||
+      bulkEmailDto.subject_en.trim().length === 0 ||
+      bulkEmailDto.subject_fr.trim().length === 0
+    ) {
+      const message = await this.i18n.translate(
+        'translation.notification.email.subjectRequired',
+        {
+          lang,
+          defaultValue: 'Both subject_en and subject_fr must be provided',
+        },
+      );
+      throw new BadRequestException(message);
+    }
+
+    try {
+      let users: Array<{ email: string; name?: string; lang?: string }> = [];
+
+      // If specific emails are provided, use those
+      if (bulkEmailDto.emails && bulkEmailDto.emails.length > 0) {
+        const userRecords = await this.prisma.user.findMany({
+          where: {
+            email: {
+              in: bulkEmailDto.emails,
+            },
+          },
+          select: {
+            email: true,
+            name: true,
+            lang: true,
+          },
+        });
+        users = userRecords.map((u) => ({
+          email: u.email,
+          name: u.name || undefined,
+          lang: u.lang || undefined,
+        }));
+      } else {
+        // Otherwise, filter by status
+        const whereClause: any = {};
+
+        if (bulkEmailDto.filter === BulkEmailFilter.ACTIVE) {
+          // Active users: have logged in recently (within last 30 days)
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          whereClause.last_seen = {
+            gte: thirtyDaysAgo,
+          };
+        } else if (bulkEmailDto.filter === BulkEmailFilter.INACTIVE) {
+          // Inactive users: haven't logged in for 30+ days
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          whereClause.OR = [
+            { last_seen: { lt: thirtyDaysAgo } },
+            { last_seen: null },
+          ];
+        }
+        // For ALL, no filter is applied
+
+        const userRecords = await this.prisma.user.findMany({
+          where: whereClause,
+          select: {
+            email: true,
+            name: true,
+            lang: true,
+          },
+        });
+
+        users = userRecords.map((u) => ({
+          email: u.email,
+          name: u.name || undefined,
+          lang: u.lang || undefined,
+        }));
+      }
+
+      if (users.length === 0) {
+        const message = await this.i18n.translate(
+          'translation.notification.email.bulk.noUsers',
+          {
+            lang,
+            defaultValue: 'No users found matching the criteria',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Reset stats before starting new bulk email campaign
+      // This ensures stats only reflect the current campaign
+      await this.emailQueue.resetStats();
+
+      // Add emails to queue with multilingual content
+      const queuedCount = await this.emailQueue.addEmails(users, {
+        subject_en: bulkEmailDto.subject_en,
+        subject_fr: bulkEmailDto.subject_fr,
+        text_en: bulkEmailDto.text_en,
+        text_fr: bulkEmailDto.text_fr,
+        html_en: bulkEmailDto.html_en,
+        html_fr: bulkEmailDto.html_fr,
+      });
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.started',
+        {
+          lang,
+          defaultValue: 'Bulk email sending started in background',
+        },
+      );
+
+      this.logger.log(
+        `Bulk email job started: ${queuedCount} emails queued by admin ${user.id}`,
+      );
+
+      return {
+        message,
+        queuedCount,
+        jobId: `bulk-email-${Date.now()}`,
+      };
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
+        throw error;
+      }
+
+      this.logger.error('Failed to start bulk email job:', error);
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.failed',
+        {
+          lang,
+          defaultValue: 'Failed to start bulk email sending',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get bulk email statistics from the queue
+   * Returns current queue status including waiting, active, completed, and failed jobs
+   */
+  async getBulkEmailStats(
+    user: User,
+    lang: string = 'en',
+  ): Promise<BulkEmailStatsResponseDto> {
+    // Check if user is admin
+    if (user.role !== 'ADMIN') {
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.unauthorized',
+        {
+          lang,
+          defaultValue: 'Only administrators can view bulk email statistics',
+        },
+      );
+      throw new ForbiddenException(message);
+    }
+
+    try {
+      const stats = await this.emailQueue.getQueueStats();
+
+      // Calculate success and failure rates
+      const successRate =
+        stats.total > 0
+          ? Number(((stats.completed / stats.total) * 100).toFixed(2))
+          : null;
+      const failureRate =
+        stats.total > 0
+          ? Number(((stats.failed / stats.total) * 100).toFixed(2))
+          : null;
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.stats.success',
+        {
+          lang,
+          defaultValue: 'Bulk email statistics retrieved successfully',
+        },
+      );
+
+      return {
+        waiting: stats.waiting,
+        active: stats.active,
+        completed: stats.completed,
+        failed: stats.failed,
+        total: stats.total,
+        successRate,
+        failureRate,
+        message,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get bulk email stats:', error);
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.stats.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve bulk email statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get list of all job IDs by status
+   */
+  async getJobList(
+    user: User,
+    lang: string = 'en',
+  ): Promise<JobListResponseDto> {
+    // Check if user is admin
+    if (user.role !== 'ADMIN') {
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.unauthorized',
+        {
+          lang,
+          defaultValue: 'Only administrators can view job lists',
+        },
+      );
+      throw new ForbiddenException(message);
+    }
+
+    try {
+      const jobIds = await this.emailQueue.getAllJobIds(0, 1000);
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.jobs.list.success',
+        {
+          lang,
+          defaultValue: 'Job list retrieved successfully',
+        },
+      );
+
+      return {
+        ...jobIds,
+        message,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get job list:', error);
+      const message = await this.i18n.translate(
+        'translation.notification.email.jobs.list.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve job list',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get job details by ID
+   */
+  async getJobById(
+    jobId: string,
+    user: User,
+    lang: string = 'en',
+  ): Promise<JobDetailsResponseDto> {
+    // Check if user is admin
+    if (user.role !== 'ADMIN') {
+      const message = await this.i18n.translate(
+        'translation.notification.email.bulk.unauthorized',
+        {
+          lang,
+          defaultValue: 'Only administrators can view job details',
+        },
+      );
+      throw new ForbiddenException(message);
+    }
+
+    try {
+      const job = await this.emailQueue.getJobById(jobId);
+
+      if (!job) {
+        const message = await this.i18n.translate(
+          'translation.notification.email.jobs.notFound',
+          {
+            lang,
+            defaultValue: 'Job not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      const message = await this.i18n.translate(
+        'translation.notification.email.jobs.details.success',
+        {
+          lang,
+          defaultValue: 'Job details retrieved successfully',
+        },
+      );
+
+      return {
+        ...job,
+        message,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to get job ${jobId}:`, error);
+      const message = await this.i18n.translate(
+        'translation.notification.email.jobs.details.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve job details',
+        },
+      );
+      throw new InternalServerErrorException(message);
     }
   }
 }

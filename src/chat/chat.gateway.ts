@@ -99,7 +99,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const memberChats = await this.chatService.getChatIdsForUser(user.sub);
       memberChats.forEach((chatId) => {
         // Notify OTHER users in each chat that this user came online (exclude current user)
-        this.server.to(this.roomName(chatId)).emit('user:online', {
+        this.safeEmitToRoom(this.roomName(chatId), 'user:online', {
           chatId,
           userId: user.sub,
           userEmail: userExists.email,
@@ -130,7 +130,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       try {
         const memberChats = await this.chatService.getChatIdsForUser(userId);
         memberChats.forEach((chatId) => {
-          this.server.to(this.roomName(chatId)).emit('user:offline', {
+          this.safeEmitToRoom(this.roomName(chatId), 'user:offline', {
             chatId,
             userId,
             timestamp: new Date().toISOString(),
@@ -207,6 +207,62 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /**
+   * Safely emit a message to a specific socket
+   * Wraps emit in try-catch to handle errors gracefully
+   */
+  private safeEmit(socket: Socket, event: string, payload: any): void {
+    try {
+      if (socket && socket.connected) {
+        socket.emit(event, payload);
+      }
+    } catch (err: any) {
+      console.error(`Failed to emit ${event} to socket ${socket.id}:`, err);
+      try {
+        socket.emit('error', {
+          message: `Failed to send ${event}`,
+          details: err.message || 'Unknown error',
+        });
+      } catch (emitErr) {
+        console.error('Failed to send error event:', emitErr);
+      }
+    }
+  }
+
+  /**
+   * Safely emit a message to a room
+   * Wraps emit in try-catch to handle errors gracefully
+   */
+  private safeEmitToRoom(room: string, event: string, payload: any): void {
+    try {
+      if (this.server) {
+        this.server.to(room).emit(event, payload);
+      }
+    } catch (err: any) {
+      console.error(`Failed to emit ${event} to room ${room}:`, err);
+      // Try to notify room members about the error
+      try {
+        this.server.to(room).emit('error', {
+          message: `Failed to send ${event}`,
+          details: err.message || 'Unknown error',
+        });
+      } catch (emitErr) {
+        console.error('Failed to send error event to room:', emitErr);
+      }
+    }
+  }
+
+  /**
+   * Safely emit a message to a specific user by their socket
+   * Wraps emit in try-catch to handle errors gracefully
+   */
+  private safeEmitToUser(userId: string, event: string, payload: any): void {
+    const socket = this.findSocketByUserId(userId);
+    if (socket) {
+      this.safeEmit(socket, event, payload);
+    }
+  }
+
   // Helper method to notify sender when their message is read
   private notifySenderMessageRead(
     senderId: string,
@@ -214,14 +270,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     messageId: string,
     isRead: boolean,
   ): void {
-    const senderSocket = this.findSocketByUserId(senderId);
-    if (senderSocket) {
-      senderSocket.emit('message:read-status', {
-        chatId,
-        messageId,
-        isRead,
-      });
-    }
+    this.safeEmitToUser(senderId, 'message:read-status', {
+      chatId,
+      messageId,
+      isRead,
+    });
   }
 
   // Helper method to emit read status change event to all members in the chat room
@@ -231,7 +284,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     isRead: boolean,
   ): void {
     // Broadcast read status change to all members in the chat room
-    this.server.to(this.roomName(chatId)).emit('message:read-status-changed', {
+    this.safeEmitToRoom(this.roomName(chatId), 'message:read-status-changed', {
       chatId,
       messageId,
       isRead,
@@ -420,13 +473,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Send message acknowledgement to the sender
       // Sender sees message as read only if receiver is in the chat room
-      const senderSocket = this.findSocketByUserId(data.senderId);
-      if (senderSocket) {
-        senderSocket.emit('message:ack', {
-          ...message,
-          isRead: isReadByReceiver, // Sender sees it as read only if receiver is in room
-        });
-      }
+      this.safeEmitToUser(data.senderId, 'message:ack', {
+        ...message,
+        isRead: isReadByReceiver, // Sender sees it as read only if receiver is in room
+      });
 
       // Send new message notification to other users in the chat
       // The message includes all review data when type is REVIEW
@@ -436,15 +486,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           // Check if THIS specific member is in the room
           const memberInRoom = this.isUserInRoom(member.user_id, data.chatId);
 
-          const memberSocket = this.findSocketByUserId(member.user_id);
-          if (memberSocket) {
-            // Send message with isRead based on whether THIS member is in room
-            // Only marked as read if THIS specific member is both online AND in the room
-            memberSocket.emit('message:new', {
-              ...message,
-              isRead: memberInRoom, // Only read if THIS member is in the room
-            });
-          }
+          // Send message with isRead based on whether THIS member is in room
+          // Only marked as read if THIS specific member is both online AND in the room
+          this.safeEmitToUser(member.user_id, 'message:new', {
+            ...message,
+            isRead: memberInRoom, // Only read if THIS member is in the room
+          });
         }
       }
 
@@ -552,7 +599,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           const chatData =
             await this.chatService.getChatWithRequestAndTripData(chatId);
 
-          userSocket.emit('chat:created', {
+          this.safeEmit(userSocket, 'chat:created', {
             chatId,
             chatName: chatName || 'New Chat',
             members: validUsers,
@@ -587,7 +634,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       chatId,
     );
     if (!isMember) {
-      client.emit('error', { message: 'Not a member of this chat' });
+      this.safeEmit(client, 'error', { message: 'Not a member of this chat' });
       return;
     }
 
@@ -659,7 +706,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.join(this.roomName(chatId));
 
     // Notify all OTHER users in the chat that someone joined (exclude current user)
-    client.to(this.roomName(chatId)).emit('member:joined', {
+    this.safeEmitToRoom(this.roomName(chatId), 'member:joined', {
       chatId,
       userId: user.sub,
       userEmail: user.email || 'Unknown',
@@ -681,7 +728,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
 
     // Notify all OTHER users in the chat that someone left (exclude current user)
-    client.to(this.roomName(chatId)).emit('member:left', {
+    this.safeEmitToRoom(this.roomName(chatId), 'member:left', {
       chatId,
       userId: user.sub,
       userEmail: user.email || 'Unknown',
@@ -706,7 +753,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const hasImages = data.images && data.images.length > 0;
 
       if (!hasContent && !hasImages) {
-        client.emit('error', {
+        this.safeEmit(client, 'error', {
           message: 'Message must have content or at least one image',
           details: 'Either content or images must be provided',
         });
@@ -716,7 +763,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Validate image count limit (max 10 images per message)
       const MAX_IMAGES = 10;
       if (data.images && data.images.length > MAX_IMAGES) {
-        client.emit('error', {
+        this.safeEmit(client, 'error', {
           message: 'Too many images',
           details: `Maximum ${MAX_IMAGES} images allowed per message`,
         });
@@ -736,7 +783,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               !base64Image.startsWith('data:image/') &&
               !base64Image.startsWith('data:application/')
             ) {
-              client.emit('error', {
+              this.safeEmit(client, 'error', {
                 message: 'Invalid image format',
                 details:
                   'Images must be base64 encoded data URLs (data:image/... or data:application/...)',
@@ -748,7 +795,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             const base64Length = base64Image.length;
             const estimatedSize = (base64Length * 3) / 4;
             if (estimatedSize > MAX_IMAGE_SIZE_BYTES) {
-              client.emit('error', {
+              this.safeEmit(client, 'error', {
                 message: 'Image too large',
                 details: `Each image must be less than ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB`,
               });
@@ -769,7 +816,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           imageUrls = uploadResults.map((result) => result.image.url);
         } catch (uploadError: any) {
           console.error('Failed to upload images:', uploadError);
-          client.emit('error', {
+          this.safeEmit(client, 'error', {
             message: 'Failed to upload images',
             details:
               uploadError.message || 'An error occurred while uploading images',
@@ -816,7 +863,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Validate that we have either content or images
       if (!content && imageUrls.length === 0) {
-        client.emit('error', {
+        this.safeEmit(client, 'error', {
           message: 'Message must have content or at least one image',
           details: 'Either content or images must be provided',
         });
@@ -891,17 +938,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           // Check if THIS specific member is in the room
           const memberInRoom = this.isUserInRoom(member.user_id, data.chatId);
 
-          // Find socket for this member
-          const memberSocket = this.findSocketByUserId(member.user_id);
-          if (memberSocket) {
-            // Send message with isRead based on whether THIS member is in room
-            // Only marked as read if THIS specific member is both online AND in the room
-            memberSocket.emit('message:new', {
-              ...message,
-              isRead: memberInRoom, // Only read if THIS member is in the room
-            });
-            membersNotified.add(member.user_id);
-          }
+          // Send message with isRead based on whether THIS member is in room
+          // Only marked as read if THIS specific member is both online AND in the room
+          this.safeEmitToUser(member.user_id, 'message:new', {
+            ...message,
+            isRead: memberInRoom, // Only read if THIS member is in the room
+          });
+          membersNotified.add(member.user_id);
         }
       }
 
@@ -911,12 +954,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ...message,
         isRead: isReadByReceiver, // For room broadcast, use aggregate read status
       };
-      this.server
-        .to(this.roomName(data.chatId))
-        .emit('message:new', messageForRoom);
+      this.safeEmitToRoom(
+        this.roomName(data.chatId),
+        'message:new',
+        messageForRoom,
+      );
 
       // Ack to sender with read status based on whether receiver is in chat
-      client.emit('message:ack', {
+      this.safeEmit(client, 'message:ack', {
         ...message,
         isRead: isReadByReceiver, // Sender sees it as read only if receiver is in room
       });
@@ -932,7 +977,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } catch (err: any) {
       console.error('Error in handleSendMessage:', err);
-      client.emit('error', {
+      this.safeEmit(client, 'error', {
         message: 'Could not send message',
         details: err.message || 'An unexpected error occurred',
       });
@@ -956,7 +1001,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Get all typing users for this chat
     const typingUsers = await this.redis.getTypingUsers(payload.chatId);
 
-    client.to(this.roomName(payload.chatId)).emit('message:typing', {
+    this.safeEmitToRoom(this.roomName(payload.chatId), 'message:typing', {
       chatId: payload.chatId,
       userId: user.sub,
       typing: payload.typing,
@@ -1025,7 +1070,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.emitReadStatusChange(payload.chatId, payload.messageId, true);
 
       // Broadcast to room that message was read
-      client.to(this.roomName(payload.chatId)).emit('message:read', {
+      this.safeEmitToRoom(this.roomName(payload.chatId), 'message:read', {
         chatId: payload.chatId,
         userId: user.sub,
         messageId: payload.messageId,
@@ -1106,12 +1151,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       // Broadcast to room that all messages were read
-      client.to(this.roomName(payload.chatId)).emit('messages:read-all', {
+      this.safeEmitToRoom(this.roomName(payload.chatId), 'messages:read-all', {
         chatId: payload.chatId,
         userId: user.sub,
       });
     } catch (error) {
-      client.emit('error', {
+      this.safeEmit(client, 'error', {
         message: 'Could not mark messages as read',
         details: error.message,
       });
@@ -1136,19 +1181,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         payload.chatId,
       );
       if (!isMember) {
-        client.emit('error', { message: 'Not a member of this chat' });
+        this.safeEmit(client, 'error', {
+          message: 'Not a member of this chat',
+        });
         return;
       }
 
       // Get user information
       const addedUser = await this.chatService.getUserById(payload.userId);
       if (!addedUser) {
-        client.emit('error', { message: 'User not found' });
+        this.safeEmit(client, 'error', { message: 'User not found' });
         return;
       }
 
       // Notify all members of the chat that a user was added
-      this.server.to(this.roomName(payload.chatId)).emit('user:added-to-chat', {
+      this.safeEmitToRoom(this.roomName(payload.chatId), 'user:added-to-chat', {
         chatId: payload.chatId,
         addedUser: {
           id: addedUser.id,
@@ -1165,14 +1212,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Also notify the added user directly if they're connected
       const addedUserSocket = this.socketUser.get(client.id);
       if (addedUserSocket === payload.userId) {
-        client.emit('chat:joined', {
+        this.safeEmit(client, 'chat:joined', {
           chatId: payload.chatId,
           message: `You were added to the chat`,
           timestamp: new Date().toISOString(),
         });
       }
     } catch (error) {
-      client.emit('error', {
+      this.safeEmit(client, 'error', {
         message: 'Could not notify user added to chat',
         details: error.message,
       });

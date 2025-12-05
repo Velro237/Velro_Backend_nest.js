@@ -376,10 +376,15 @@ export class AuthService {
     //   throw new BadRequestException('Email not verify');
     // }
     // Update user's last_seen on login
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { last_seen: new Date() },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { last_seen: new Date() },
+      });
+    } catch (error) {
+      // Log error but don't fail the login if last_seen update fails
+      console.error('Failed to update last_seen on login:', error);
+    }
 
     // Generate JWT token
     const payload = { email: user.email, sub: user.id };
@@ -518,10 +523,15 @@ export class AuthService {
 
     // Update user's last_seen for existing users logging in via OAuth
     if (user) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { last_seen: new Date() },
-      });
+      try {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { last_seen: new Date() },
+        });
+      } catch (error) {
+        // Log error but don't fail the login if last_seen update fails
+        console.error('Failed to update last_seen on OAuth login:', error);
+      }
     }
 
     // Upsert Account
@@ -589,10 +599,15 @@ export class AuthService {
     if (!user) throw new BadRequestException('User not found');
 
     // Update user's last_seen on login (OAuth)
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { last_seen: new Date() },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { last_seen: new Date() },
+      });
+    } catch (error) {
+      // Log error but don't fail the login if last_seen update fails
+      console.error('Failed to update last_seen in issueTokens:', error);
+    }
 
     const { accessToken, refreshTokenPlain, refreshExpiresAt } =
       this.signTokens(user);
@@ -746,12 +761,32 @@ export class AuthService {
       lang: userLang,
     } = pendingSignupDto;
 
+    // Trim all string fields
+    const trimmedFirstName = firstName?.trim();
+    const trimmedLastName = lastName?.trim();
+    const trimmedUsername = username?.trim();
+    const trimmedPhone = phone?.trim();
+    const trimmedEmail = email?.trim().toLowerCase();
+    const trimmedCity = city?.trim() || undefined;
+    const trimmedCompanyName = companyName?.trim() || undefined;
+    const trimmedCompanyAddress = companyAddress?.trim() || undefined;
+    const trimmedCities = cities.map((cityData) => ({
+      name: cityData.name?.trim(),
+      address: cityData.address?.trim(),
+      contactName: cityData.contactName?.trim(),
+      contactPhone: cityData.contactPhone?.trim(),
+    }));
+    const trimmedServices = services.map((serviceData) => ({
+      name: serviceData.name?.trim(),
+      description: serviceData.description?.trim() || undefined,
+    }));
+
     // Use lang from DTO or fallback to request lang parameter, then to 'en'
     const finalLang = userLang || lang || 'en';
 
     // Check if email already exists in User table
     const existingUser = await this.prisma.user.findUnique({
-      where: { email },
+      where: { email: trimmedEmail },
     });
 
     if (existingUser) {
@@ -767,7 +802,7 @@ export class AuthService {
 
     // Validate freight forwarder requirements
     if (isFreightForwarder) {
-      if (!companyName || !companyAddress) {
+      if (!trimmedCompanyName || !trimmedCompanyAddress) {
         const message = await this.i18n.translate(
           'translation.auth.signup.companyRequired',
           {
@@ -779,7 +814,7 @@ export class AuthService {
         throw new BadRequestException(message);
       }
 
-      if (!cities || cities.length === 0) {
+      if (!trimmedCities || trimmedCities.length === 0) {
         const message = await this.i18n.translate(
           'translation.auth.signup.citiesRequired',
           {
@@ -791,7 +826,7 @@ export class AuthService {
         throw new BadRequestException(message);
       }
 
-      if (!services || services.length === 0) {
+      if (!trimmedServices || trimmedServices.length === 0) {
         const message = await this.i18n.translate(
           'translation.auth.signup.servicesRequired',
           {
@@ -807,23 +842,23 @@ export class AuthService {
     try {
       // Create OTP first
       const otpResult = await this.otpService.createAndSendOtp(
-        email,
+        trimmedEmail,
         'SIGNUP',
-        phone,
+        trimmedPhone,
         finalLang,
       );
 
       // Create pending user
       const pendingUser = await this.prisma.pendingUser.create({
         data: {
-          firstName,
-          lastName,
-          email,
-          username,
-          phone,
-          city,
-          companyName,
-          companyAddress,
+          firstName: trimmedFirstName,
+          lastName: trimmedLastName,
+          email: trimmedEmail,
+          username: trimmedUsername,
+          phone: trimmedPhone,
+          city: trimmedCity,
+          companyName: trimmedCompanyName,
+          companyAddress: trimmedCompanyAddress,
           additionalInfo: '',
           isFreightForwarder,
           otp_id: otpResult.email, // We'll store the OTP ID here
@@ -833,8 +868,8 @@ export class AuthService {
       });
 
       // Create company cities if freight forwarder
-      if (isFreightForwarder && cities.length > 0) {
-        for (const cityData of cities) {
+      if (isFreightForwarder && trimmedCities.length > 0) {
+        for (const cityData of trimmedCities) {
           await this.prisma.companyCity.create({
             data: {
               name: cityData.name,
@@ -850,12 +885,12 @@ export class AuthService {
       }
 
       // Create company services if freight forwarder
-      if (isFreightForwarder && services.length > 0) {
-        for (const serviceData of services) {
+      if (isFreightForwarder && trimmedServices.length > 0) {
+        for (const serviceData of trimmedServices) {
           await this.prisma.companyService.create({
             data: {
               name: serviceData.name,
-              description: serviceData.description,
+              description: serviceData.description || undefined,
               pendingUsers: {
                 connect: { id: pendingUser.id },
               },
@@ -876,7 +911,7 @@ export class AuthService {
       return {
         message,
         pendingUserId: pendingUser.id,
-        email,
+        email: trimmedEmail,
         expiresAt: otpResult.expiresAt,
       };
     } catch (error: any) {

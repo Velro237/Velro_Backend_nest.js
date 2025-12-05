@@ -1883,10 +1883,26 @@ export class RequestService {
         console.error('Failed to invalidate cache:', cacheError);
       }
 
-      // Create notification for requester about status change
+      // Create notification for the appropriate recipient based on status
+      // When SENT: notify traveler (trip owner) to confirm reception
+      // When RECEIVED: notify sender (requester) that package was received
+      // For other statuses: notify the requester
       try {
-        const requester = await this.prisma.user.findUnique({
-          where: { id: request.user_id },
+        // Determine notification recipient based on status
+        let notificationRecipientId: string;
+        if (status === 'SENT') {
+          // When sender marks as SENT, notify traveler to confirm reception
+          notificationRecipientId = request.trip.user_id;
+        } else if (status === 'RECEIVED') {
+          // When traveler marks as RECEIVED, notify sender
+          notificationRecipientId = request.user_id;
+        } else {
+          // For other statuses, notify requester
+          notificationRecipientId = request.user_id;
+        }
+
+        const notificationRecipient = await this.prisma.user.findUnique({
+          where: { id: notificationRecipientId },
           select: {
             id: true,
             email: true,
@@ -1905,13 +1921,13 @@ export class RequestService {
           (request.trip.destination as any)?.country ||
           'Unknown';
 
-        // Use requester's language for notification
-        const requesterLang = requester?.lang || 'en';
+        // Use recipient's language for notification
+        const recipientLang = notificationRecipient?.lang || 'en';
 
         const notificationTitle = await this.i18n.translate(
           'translation.notification.requestStatusChanged.title',
           {
-            lang: requesterLang,
+            lang: recipientLang,
             defaultValue: 'Request Status Updated',
           },
         );
@@ -1919,7 +1935,7 @@ export class RequestService {
         const notificationMessage = await this.i18n.translate(
           `translation.notification.requestStatusChanged.${status.toLowerCase()}`,
           {
-            lang: requesterLang,
+            lang: recipientLang,
             defaultValue:
               'Your trip request status has been changed to {status}',
             args: {
@@ -2000,12 +2016,12 @@ export class RequestService {
           },
         };
 
-        // Delete all existing notifications for the person triggering the action (userId)
+        // Delete all existing notifications for the notification recipient
         // concerning this request, before creating a new one, using trip_id and request_id fields
         try {
           await this.prisma.notification.deleteMany({
             where: {
-              user_id: userId,
+              user_id: notificationRecipientId,
               type: 'REQUEST',
               trip_id: request.trip_id,
               request_id: request.id,
@@ -2020,17 +2036,14 @@ export class RequestService {
         }
 
         await this.createRequestNotification(
-          request.user_id,
+          notificationRecipientId,
           notificationTitle,
           notificationMessage,
           requestData,
-          requester?.device_id,
+          notificationRecipient?.device_id,
         );
       } catch (notificationError) {
-        console.error(
-          'Failed to send notification to requester:',
-          notificationError,
-        );
+        console.error('Failed to send notification:', notificationError);
         // Don't fail the status change if notification fails
       }
 
