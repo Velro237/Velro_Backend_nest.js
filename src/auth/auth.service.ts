@@ -376,10 +376,15 @@ export class AuthService {
     //   throw new BadRequestException('Email not verify');
     // }
     // Update user's last_seen on login
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { last_seen: new Date() },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { last_seen: new Date() },
+      });
+    } catch (error) {
+      // Log error but don't fail the login if last_seen update fails
+      console.error('Failed to update last_seen on login:', error);
+    }
 
     // Generate JWT token
     const payload = { email: user.email, sub: user.id };
@@ -518,10 +523,15 @@ export class AuthService {
 
     // Update user's last_seen for existing users logging in via OAuth
     if (user) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { last_seen: new Date() },
-      });
+      try {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { last_seen: new Date() },
+        });
+      } catch (error) {
+        // Log error but don't fail the login if last_seen update fails
+        console.error('Failed to update last_seen on OAuth login:', error);
+      }
     }
 
     // Upsert Account
@@ -589,10 +599,15 @@ export class AuthService {
     if (!user) throw new BadRequestException('User not found');
 
     // Update user's last_seen on login (OAuth)
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { last_seen: new Date() },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { last_seen: new Date() },
+      });
+    } catch (error) {
+      // Log error but don't fail the login if last_seen update fails
+      console.error('Failed to update last_seen in issueTokens:', error);
+    }
 
     const { accessToken, refreshTokenPlain, refreshExpiresAt } =
       this.signTokens(user);

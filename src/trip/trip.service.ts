@@ -2725,6 +2725,22 @@ export class TripService {
     lang?: string,
   ): Promise<GetTripsResponseDto> {
     try {
+      // Update user's last_seen when they get all trips
+      if (userId) {
+        try {
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: { last_seen: new Date() },
+          });
+        } catch (error) {
+          // Log error but don't fail the request if last_seen update fails
+          console.error(
+            'Failed to update last_seen when getting trips:',
+            error,
+          );
+        }
+      }
+
       const {
         country,
         departure_city,
@@ -2741,11 +2757,12 @@ export class TripService {
       } = query;
       const skip = (page - 1) * limit;
 
-      // Base where clause - exclude DRAFT, COMPLETED, and CANCELLED trips
+      // Base where clause - exclude DRAFT, COMPLETED, CANCELLED trips and fully booked trips
       const baseWhereClause: any = {
         status: {
           notIn: [TripStatus.DRAFT, TripStatus.COMPLETED, TripStatus.CANCELLED],
         },
+        fully_booked: false, // Exclude fully booked trips
       };
 
       // Add departure date filter based on filter parameter
@@ -3083,9 +3100,10 @@ export class TripService {
               return true; // Keep if notes can't be parsed
             }
 
-            const seatsAvailable = parsed.seats_available !== undefined 
-              ? Number(parsed.seats_available) 
-              : undefined;
+            const seatsAvailable =
+              parsed.seats_available !== undefined
+                ? Number(parsed.seats_available)
+                : undefined;
 
             // Filter out ride trips that don't have enough seats
             if (seatsAvailable === undefined) {
