@@ -2128,13 +2128,86 @@ export class TripService {
 
       if (createTripItemDto.translations) {
         try {
-          const parsed = JSON.parse(createTripItemDto.translations);
-          if (!Array.isArray(parsed)) {
-            throw new Error('Translations must be an array');
+          const trimmed = createTripItemDto.translations.trim();
+
+          // Parse the JSON string
+          let parsed: any;
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch (parseError) {
+            // If parsing fails, try to extract valid JSON array from the string
+            const jsonMatch = trimmed.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              try {
+                parsed = JSON.parse(jsonMatch[0]);
+              } catch {
+                throw new Error(
+                  `Invalid JSON format. Expected a JSON array string. Received: ${trimmed.substring(0, 100)}${trimmed.length > 100 ? '...' : ''}`,
+                );
+              }
+            } else {
+              throw new Error(
+                `Invalid JSON format. Expected a JSON array string. Received: ${trimmed.substring(0, 100)}${trimmed.length > 100 ? '...' : ''}`,
+              );
+            }
           }
-          translationsArray = parsed;
+
+          // Validate that parsed result is an array
+          if (!Array.isArray(parsed)) {
+            throw new Error(
+              `Translations must be a JSON array. Received: ${typeof parsed}`,
+            );
+          }
+
+          // Validate and process translations
+          const validLanguages = ['en', 'fr'];
+
+          translationsArray = parsed.map((translation: any, index: number) => {
+            // Validate translation object structure
+            if (!translation || typeof translation !== 'object') {
+              throw new Error(
+                `Translation at index ${index} must be an object`,
+              );
+            }
+
+            // Validate language - only 'en' and 'fr' are allowed
+            if (
+              !translation.language ||
+              typeof translation.language !== 'string'
+            ) {
+              throw new Error(
+                `Translation at index ${index} must have a valid language string`,
+              );
+            }
+
+            const normalizedLanguage = translation.language.toLowerCase();
+            if (!validLanguages.includes(normalizedLanguage)) {
+              throw new Error(
+                `Invalid language "${translation.language}" at index ${index}. Only "en" and "fr" are allowed.`,
+              );
+            }
+
+            // Validate name
+            if (
+              !translation.name ||
+              typeof translation.name !== 'string' ||
+              translation.name.trim().length === 0
+            ) {
+              throw new Error(
+                `Translation at index ${index} must have a non-empty name string`,
+              );
+            }
+
+            return {
+              language: normalizedLanguage as 'en' | 'fr',
+              name: translation.name.trim(),
+              description: translation.description || null,
+            };
+          });
         } catch (error) {
-          throw new BadRequestException('Invalid translations JSON format');
+          throw new BadRequestException(
+            `Invalid translations format: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
         }
       }
 
@@ -2170,7 +2243,7 @@ export class TripService {
               trip_item_id: createdItem.id,
               language: translation.language as Language,
               name: translation.name,
-              description: translation.description || null,
+              description: translation.description ?? null,
             })),
           });
         }
@@ -2280,15 +2353,100 @@ export class TripService {
       if (updateTripItemDto.translations !== undefined) {
         if (updateTripItemDto.translations === null) {
           translationsArray = [];
-        } else if (typeof updateTripItemDto.translations === 'string') {
+        } else {
           try {
-            const parsed = JSON.parse(updateTripItemDto.translations);
-            if (!Array.isArray(parsed)) {
-              throw new Error('Translations must be an array');
+            let parsed: any;
+
+            // Handle both string and array formats
+            if (typeof updateTripItemDto.translations === 'string') {
+              const trimmed = updateTripItemDto.translations.trim();
+
+              // Parse the JSON string
+              try {
+                parsed = JSON.parse(trimmed);
+              } catch (parseError) {
+                // If parsing fails, try to extract valid JSON array from the string
+                const jsonMatch = trimmed.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                  try {
+                    parsed = JSON.parse(jsonMatch[0]);
+                  } catch {
+                    throw new Error(
+                      `Invalid JSON format. Expected a JSON array string. Received: ${trimmed.substring(0, 100)}${trimmed.length > 100 ? '...' : ''}`,
+                    );
+                  }
+                } else {
+                  throw new Error(
+                    `Invalid JSON format. Expected a JSON array string. Received: ${trimmed.substring(0, 100)}${trimmed.length > 100 ? '...' : ''}`,
+                  );
+                }
+              }
+            } else if (Array.isArray(updateTripItemDto.translations)) {
+              parsed = updateTripItemDto.translations;
+            } else {
+              throw new Error(
+                `Translations must be an array or JSON string. Received type: ${typeof updateTripItemDto.translations}`,
+              );
             }
-            translationsArray = parsed;
+
+            // Validate that parsed result is an array
+            if (!Array.isArray(parsed)) {
+              throw new Error(
+                `Translations must be a JSON array. Received: ${typeof parsed}`,
+              );
+            }
+
+            // Validate and process translations
+            const validLanguages = ['en', 'fr'];
+
+            translationsArray = parsed.map(
+              (translation: any, index: number) => {
+                // Validate translation object structure
+                if (!translation || typeof translation !== 'object') {
+                  throw new Error(
+                    `Translation at index ${index} must be an object`,
+                  );
+                }
+
+                // Validate language - only 'en' and 'fr' are allowed
+                if (
+                  !translation.language ||
+                  typeof translation.language !== 'string'
+                ) {
+                  throw new Error(
+                    `Translation at index ${index} must have a valid language string`,
+                  );
+                }
+
+                const normalizedLanguage = translation.language.toLowerCase();
+                if (!validLanguages.includes(normalizedLanguage)) {
+                  throw new Error(
+                    `Invalid language "${translation.language}" at index ${index}. Only "en" and "fr" are allowed.`,
+                  );
+                }
+
+                // Validate name
+                if (
+                  !translation.name ||
+                  typeof translation.name !== 'string' ||
+                  translation.name.trim().length === 0
+                ) {
+                  throw new Error(
+                    `Translation at index ${index} must have a non-empty name string`,
+                  );
+                }
+
+                return {
+                  language: normalizedLanguage as 'en' | 'fr',
+                  name: translation.name.trim(),
+                  description: translation.description || null,
+                };
+              },
+            );
           } catch (error) {
-            throw new BadRequestException('Invalid translations JSON format');
+            throw new BadRequestException(
+              `Invalid translations format: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            );
           }
         }
       }
@@ -2311,21 +2469,44 @@ export class TripService {
 
         // Handle translations if provided
         if (translationsArray !== undefined) {
-          // Delete existing translations
-          await prisma.translation.deleteMany({
-            where: { trip_item_id: tripItemId },
-          });
-
-          // Create new translations
-          if (translationsArray.length > 0) {
-            await prisma.translation.createMany({
-              data: translationsArray.map((translation) => ({
-                trip_item_id: tripItemId,
-                language: translation.language as Language,
-                name: translation.name,
-                description: translation.description || null,
-              })),
+          if (translationsArray.length === 0) {
+            // If empty array, delete all translations
+            await prisma.translation.deleteMany({
+              where: { trip_item_id: tripItemId },
             });
+          } else {
+            // Get existing translations for this trip item
+            const existingTranslations = await prisma.translation.findMany({
+              where: { trip_item_id: tripItemId },
+            });
+
+            // Process each translation: update if exists, create if not
+            for (const translation of translationsArray) {
+              const existingTranslation = existingTranslations.find(
+                (t) => t.language === (translation.language as Language),
+              );
+
+              if (existingTranslation) {
+                // Update existing translation
+                await prisma.translation.update({
+                  where: { id: existingTranslation.id },
+                  data: {
+                    name: translation.name,
+                    description: translation.description ?? null,
+                  },
+                });
+              } else {
+                // Create new translation
+                await prisma.translation.create({
+                  data: {
+                    trip_item_id: tripItemId,
+                    language: translation.language as Language,
+                    name: translation.name,
+                    description: translation.description ?? null,
+                  },
+                });
+              }
+            }
           }
         }
 

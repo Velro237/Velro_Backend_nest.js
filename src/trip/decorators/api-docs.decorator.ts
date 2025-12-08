@@ -594,19 +594,11 @@ export const ApiCreateTripItem = () =>
             example: 'Electronic devices and gadgets',
           },
           translations: {
-            oneOf: [
-              {
-                type: 'array',
-                items: {
-                  $ref: '#/components/schemas/TranslationDto',
-                },
-              },
-              {
-                type: 'string',
-                description:
-                  'JSON array of translations. Example: [{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
-              },
-            ],
+            type: 'string',
+            description:
+              'JSON array string of translations. Example: [{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
+            example:
+              '[{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
           },
           image: {
             type: 'string',
@@ -685,7 +677,8 @@ export const ApiUpdateTripItem = () =>
   applyDecorators(
     ApiOperation({
       summary: 'Update a trip item (Admin Only)',
-      description: 'Update an existing trip item. Requires admin privileges.',
+      description:
+        "Update an existing trip item. Translations can be provided as a JSON string or array. Existing translations are updated by language (matching by language code), and new translations are created if they don't exist. Requires admin privileges.",
     }),
     ApiParam({
       name: 'id',
@@ -694,7 +687,8 @@ export const ApiUpdateTripItem = () =>
     }),
     ApiBody({
       type: UpdateTripItemDto,
-      description: 'Trip item update data',
+      description:
+        'Trip item update data. Translations can be provided as a JSON string or array. Existing translations are updated by language, new ones are created.',
       examples: {
         nameUpdate: {
           summary: 'Update trip item name',
@@ -710,6 +704,25 @@ export const ApiUpdateTripItem = () =>
               url: 'https://example.com/images/electronics-updated.jpg',
               alt_text: 'Updated electronics image',
             },
+          },
+        },
+        translationsUpdate: {
+          summary: 'Update translations (as JSON string)',
+          value: {
+            translations:
+              '[{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques mis à jour"}]',
+          },
+        },
+        translationsUpdateArray: {
+          summary: 'Update translations (as array)',
+          value: {
+            translations: [
+              {
+                language: 'fr',
+                name: 'Électronique',
+                description: 'Appareils et gadgets électroniques mis à jour',
+              },
+            ],
           },
         },
       },
