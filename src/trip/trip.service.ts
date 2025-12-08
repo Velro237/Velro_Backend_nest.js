@@ -2905,6 +2905,14 @@ export class TripService {
                 mode: 'insensitive',
               },
             });
+            // Also search in country for better matching
+            searchFilters.push({
+              destination: {
+                path: ['country'],
+                string_contains: destination_city.trim(),
+                mode: 'insensitive',
+              },
+            });
           }
 
           // Search in destination country
@@ -3139,7 +3147,7 @@ export class TripService {
         const destinationCountryMatches: any[] = [];
         const otherMatches: any[] = [];
 
-        allTrips.forEach((trip) => {
+        trips.forEach((trip) => {
           const tripDeparture = trip.departure as any;
           const tripDestination = trip.destination as any;
 
@@ -3170,6 +3178,9 @@ export class TripService {
                 .toLowerCase()
                 .includes(destinationCityLower) ||
               (tripDestination.address || '')
+                .toLowerCase()
+                .includes(destinationCityLower) ||
+              (tripDestination.country || '')
                 .toLowerCase()
                 .includes(destinationCityLower));
 
@@ -3241,7 +3252,7 @@ export class TripService {
         trips = trips.slice(startIndex, endIndex);
       } else if (country && !hasSearchParams) {
         // If country is specified and no departure/destination search, reorder to put matching trips at the top
-        const countryTrips = allTrips.filter((trip) => {
+        const countryTrips = trips.filter((trip) => {
           const destinationCountry =
             trip.destination &&
             typeof trip.destination === 'object' &&
@@ -3252,7 +3263,7 @@ export class TripService {
           return destinationCountry?.toLowerCase() === country.toLowerCase();
         });
 
-        const otherTrips = allTrips.filter((trip) => {
+        const otherTrips = trips.filter((trip) => {
           const destinationCountry =
             trip.destination &&
             typeof trip.destination === 'object' &&
