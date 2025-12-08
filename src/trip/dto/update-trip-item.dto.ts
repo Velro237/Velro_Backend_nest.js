@@ -1,7 +1,33 @@
-import { PartialType, ApiProperty } from '@nestjs/swagger';
-import { CreateTripItemDto } from './create-trip-item.dto';
+import { PartialType, ApiProperty, OmitType } from '@nestjs/swagger';
+import { CreateTripItemDto, TranslationDto } from './create-trip-item.dto';
+import { IsOptional } from 'class-validator';
 
-export class UpdateTripItemDto extends PartialType(CreateTripItemDto) {}
+export class UpdateTripItemDto extends PartialType(
+  OmitType(CreateTripItemDto, ['translations'] as const),
+) {
+  @ApiProperty({
+    description:
+      'Translations as a JSON string or array. Updates existing translations by language or creates new ones. Example: [{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
+    oneOf: [
+      { type: 'string' },
+      {
+        type: 'array',
+        items: { $ref: '#/components/schemas/TranslationDto' },
+      },
+    ],
+    required: false,
+    example:
+      '[{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
+  })
+  @IsOptional()
+  translations?:
+    | string
+    | Array<{
+        language: 'en' | 'fr';
+        name: string;
+        description?: string;
+      }>;
+}
 
 export class UpdateTripItemResponseDto {
   @ApiProperty({

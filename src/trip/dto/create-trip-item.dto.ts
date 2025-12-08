@@ -78,9 +78,11 @@ export class CreateTripItemDto {
 
   @ApiProperty({
     description:
-      'Translations JSON string. Example: [{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
+      'Translations as a JSON string containing an array. Example: [{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
     type: 'string',
     required: false,
+    example:
+      '[{"language":"fr","name":"Électronique","description":"Appareils et gadgets électroniques"}]',
   })
   @IsString()
   @IsOptional()
