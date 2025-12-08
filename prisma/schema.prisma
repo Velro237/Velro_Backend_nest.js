@@ -805,3 +805,17 @@ enum deleteRequestStatus {
   APPROVED
   REJECTED
 }
+
+enum loggerType {
+  MESSAGE
+}
+
+model Logger {
+  id            String     @id @default(uuid())
+  user_id       String
+  error_message String
+  type          loggerType
+  data          Json?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}

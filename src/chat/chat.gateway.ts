@@ -13,7 +13,7 @@ import { ChatService } from './chat.service';
 import { JwtWsGuard } from './guards/jwt-ws.guard';
 import { UseGuards, ExecutionContext } from '@nestjs/common';
 import { SendMessageDto, MessageType } from './dto/send-message.dto';
-import { MessageType as PrismaMessageType } from 'generated/prisma';
+import { MessageType as PrismaMessageType, loggerType } from 'generated/prisma';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
@@ -47,6 +47,46 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server = server;
   }
 
+  /**
+   * Log error to database using Logger model
+   * @param error - Error object or error message
+   * @param userId - Optional user ID associated with the error
+   * @param context - Optional context information about where the error occurred
+   * @param additionalData - Optional additional data to store
+   */
+  private async logError(
+    error: Error | string,
+    userId?: string,
+    context?: string,
+    additionalData?: Record<string, any>,
+  ): Promise<void> {
+    try {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+
+      const logData: Record<string, any> = {
+        error: errorMessage,
+        ...(errorStack && { stack: errorStack }),
+        ...(context && { context }),
+        ...additionalData,
+      };
+
+      await this.prisma.logger.create({
+        data: {
+          user_id: userId || 'system',
+          error_message: errorMessage,
+          type: loggerType.MESSAGE,
+          data: Object.keys(logData).length > 0 ? logData : undefined,
+        },
+      });
+    } catch (logError) {
+      // Fallback to console if logging to database fails
+      console.error('Failed to log error to database:', logError);
+      console.error('Original error:', error);
+    }
+  }
+
   async handleConnection(client: Socket) {
     // Manually authenticate the connection
     const jwtGuard = new JwtWsGuard(this.jwtService, this.configService);
@@ -73,8 +113,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Validate that the user still exists in the database
     const userExists = await this.chatService.getUserById(user.sub);
     if (!userExists) {
-      console.error(
+      await this.logError(
         `Connection rejected: User ${user.sub} no longer exists in database`,
+        user.sub,
+        'handleConnection',
       );
       client.disconnect(true);
       return;
@@ -82,8 +124,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Additional security: validate that email from JWT matches database
     if (user.email && user.email !== userExists.email) {
-      console.error(
+      await this.logError(
         `Connection rejected: Email mismatch for user ${user.sub}. JWT: ${user.email}, DB: ${userExists.email}`,
+        user.sub,
+        'handleConnection',
       );
       client.disconnect(true);
       return;
@@ -108,9 +152,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
       });
     } catch (error) {
-      console.error(
-        'Failed to notify chat rooms of user online status:',
-        error,
+      await this.logError(
+        error instanceof Error ? error : new Error(String(error)),
+        user.sub,
+        'handleConnection - notify chat rooms',
       );
       // Don't fail the connection if notification fails
     }
@@ -138,7 +183,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           });
         });
       } catch (error) {
-        console.error('Failed to notify offline status:', error);
+        await this.logError(
+          error instanceof Error ? error : new Error(String(error)),
+          userId,
+          'handleDisconnect - notify offline status',
+        );
       }
     }
     this.socketUser.delete(client.id);
@@ -202,7 +251,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       return false;
     } catch (error) {
-      console.error('Error checking if user is in room:', error);
+      this.logError(
+        error instanceof Error ? error : new Error(String(error)),
+        undefined,
+        'isUserInRoom',
+        { userId, chatId },
+      );
       return false;
     }
   }
@@ -217,14 +271,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         socket.emit(event, payload);
       }
     } catch (err: any) {
-      console.error(`Failed to emit ${event} to socket ${socket.id}:`, err);
+      const userId = this.socketUser.get(socket.id);
+      this.logError(
+        err instanceof Error ? err : new Error(String(err)),
+        userId,
+        'safeEmit',
+        { event, socketId: socket.id },
+      );
       try {
         socket.emit('error', {
           message: `Failed to send ${event}`,
           details: err.message || 'Unknown error',
         });
       } catch (emitErr) {
-        console.error('Failed to send error event:', emitErr);
+        this.logError(
+          emitErr instanceof Error ? emitErr : new Error(String(emitErr)),
+          userId,
+          'safeEmit - send error event',
+        );
       }
     }
   }
@@ -239,7 +303,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.server.to(room).emit(event, payload);
       }
     } catch (err: any) {
-      console.error(`Failed to emit ${event} to room ${room}:`, err);
+      this.logError(
+        err instanceof Error ? err : new Error(String(err)),
+        undefined,
+        'safeEmitToRoom',
+        { event, room },
+      );
       // Try to notify room members about the error
       try {
         this.server.to(room).emit('error', {
@@ -247,7 +316,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           details: err.message || 'Unknown error',
         });
       } catch (emitErr) {
-        console.error('Failed to send error event to room:', emitErr);
+        this.logError(
+          emitErr instanceof Error ? emitErr : new Error(String(emitErr)),
+          undefined,
+          'safeEmitToRoom - send error event',
+        );
       }
     }
   }
@@ -317,7 +390,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }),
       );
     } catch (error) {
-      console.error('Error updating image object_ids:', error);
+      await this.logError(
+        error instanceof Error ? error : new Error(String(error)),
+        undefined,
+        'updateImageObjectIds',
+        { messageId, imageUrlsCount: imageUrls.length },
+      );
       throw error;
     }
   }
@@ -433,9 +511,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             };
           }
         } catch (reviewError) {
-          console.error(
-            'Error fetching review data in sendMessageProgrammatically:',
-            reviewError,
+          await this.logError(
+            reviewError instanceof Error
+              ? reviewError
+              : new Error(String(reviewError)),
+            data.senderId,
+            'sendMessageProgrammatically - fetch review data',
+            { reviewId: data.reviewId },
           );
         }
       }
@@ -459,9 +541,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               // Note: Read status is determined per-user when sending messages,
               // so we don't modify the global message.isRead here
             } catch (error) {
-              console.error(
-                `Failed to mark message as read for user ${member.user_id}:`,
-                error,
+              await this.logError(
+                error instanceof Error ? error : new Error(String(error)),
+                member.user_id,
+                'sendMessageProgrammatically - mark message read',
+                { messageId: message.id, chatId: data.chatId },
               );
             }
           }
@@ -511,13 +595,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data.senderId,
         message,
       ).catch((error) => {
-        console.error('Failed to send push notifications:', error);
+        this.logError(
+          error instanceof Error ? error : new Error(String(error)),
+          data.senderId,
+          'sendMessageProgrammatically - push notifications',
+          { chatId: data.chatId, messageId: message.id },
+        );
         // Don't fail the message creation if notifications fail
       });
 
       return message;
     } catch (error) {
-      console.error('Failed to send message programmatically:', error);
+      await this.logError(
+        error instanceof Error ? error : new Error(String(error)),
+        data.senderId,
+        'sendMessageProgrammatically',
+        { chatId: data.chatId },
+      );
       throw error;
     }
   }
@@ -557,7 +651,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
     } catch (error) {
-      console.error('Error finding socket by user ID:', error);
+      this.logError(
+        error instanceof Error ? error : new Error(String(error)),
+        userId,
+        'findSocketByUserId',
+      );
     }
     return null;
   }
@@ -613,7 +711,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
     } catch (error) {
-      console.error('Failed to notify chat creation:', error);
+      await this.logError(
+        error instanceof Error ? error : new Error(String(error)),
+        undefined,
+        'notifyChatCreated',
+        { chatId, userIds },
+      );
     }
   }
 
@@ -700,7 +803,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
     } catch (error) {
-      console.error('Failed to mark messages as read:', error);
+      await this.logError(
+        error instanceof Error ? error : new Error(String(error)),
+        user.sub,
+        'handleJoin - mark messages as read',
+        { chatId },
+      );
     }
 
     client.join(this.roomName(chatId));
@@ -815,7 +923,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           const uploadResults = await Promise.all(uploadPromises);
           imageUrls = uploadResults.map((result) => result.image.url);
         } catch (uploadError: any) {
-          console.error('Failed to upload images:', uploadError);
+          await this.logError(
+            uploadError instanceof Error
+              ? uploadError
+              : new Error(String(uploadError)),
+            user.sub,
+            'handleSendMessage - upload images',
+            { chatId: data.chatId, imageCount: data.images?.length },
+          );
           this.safeEmit(client, 'error', {
             message: 'Failed to upload images',
             details:
@@ -887,7 +1002,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         // Extract image IDs from URLs (they're stored in the database)
         // We'll update them to use the message ID instead of chat ID
         this.updateImageObjectIds(imageUrls, message.id).catch((error) => {
-          console.error('Failed to update image object_ids:', error);
+          this.logError(
+            error instanceof Error ? error : new Error(String(error)),
+            user.sub,
+            'handleSendMessage - update image object_ids',
+            { messageId: message.id, chatId: data.chatId },
+          );
           // Non-blocking - don't fail the message creation
         });
       }
@@ -915,9 +1035,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               // Emit read status change event
               this.emitReadStatusChange(data.chatId, message.id, true);
             } catch (error) {
-              console.error(
-                `Failed to mark message as read for user ${member.user_id}:`,
-                error,
+              await this.logError(
+                error instanceof Error ? error : new Error(String(error)),
+                member.user_id,
+                'handleSendMessage - mark message read',
+                { messageId: message.id, chatId: data.chatId },
               );
             }
           }
@@ -972,11 +1094,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         user.sub,
         message,
       ).catch((error) => {
-        console.error('Failed to send push notifications:', error);
+        this.logError(
+          error instanceof Error ? error : new Error(String(error)),
+          user.sub,
+          'handleSendMessage - push notifications',
+          { chatId: data.chatId, messageId: message.id },
+        );
         // Don't fail the message creation if notifications fail
       });
     } catch (err: any) {
-      console.error('Error in handleSendMessage:', err);
+      await this.logError(
+        err instanceof Error ? err : new Error(String(err)),
+        user.sub,
+        'handleSendMessage',
+        { chatId: data.chatId },
+      );
       this.safeEmit(client, 'error', {
         message: 'Could not send message',
         details: err.message || 'An unexpected error occurred',
@@ -1039,7 +1171,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           },
         });
       } catch (error) {
-        console.error('Failed to update last_seen:', error);
+        await this.logError(
+          error instanceof Error ? error : new Error(String(error)),
+          user.sub,
+          'handleRead - update last_seen',
+        );
         // Continue even if update fails
       }
 
@@ -1054,7 +1190,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       try {
         await this.redis.setMessageReadStatus(payload.messageId, user.sub);
       } catch (error) {
-        console.error('Failed to update Redis read status:', error);
+        await this.logError(
+          error instanceof Error ? error : new Error(String(error)),
+          user.sub,
+          'handleRead - update Redis read status',
+          { messageId: payload.messageId, chatId: payload.chatId },
+        );
         // Continue even if update fails
       }
 
@@ -1101,7 +1242,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           },
         });
       } catch (error) {
-        console.error('Failed to update last_seen:', error);
+        await this.logError(
+          error instanceof Error ? error : new Error(String(error)),
+          user.sub,
+          'handleReadAll - update last_seen',
+        );
         // Continue even if update fails
       }
 
@@ -1441,24 +1586,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             )
             .catch((error) => {
               // Extra safety: catch any unexpected errors (though sendPushNotificationToUser shouldn't throw)
-              console.error(
-                `Unexpected error sending push notification to user ${member.user_id}:`,
-                error,
+              this.logError(
+                error instanceof Error ? error : new Error(String(error)),
+                member.user_id,
+                'sendPushNotificationToChatMembers - sendPushNotificationToUser',
+                { chatId, senderId },
               );
             });
         } catch (error) {
           // Log error but don't fail the message creation
-          console.error(
-            `Failed to send push notification to user ${member.user_id}:`,
-            error,
+          await this.logError(
+            error instanceof Error ? error : new Error(String(error)),
+            member.user_id,
+            'sendPushNotificationToChatMembers - member loop',
+            { chatId, senderId },
           );
         }
       }
     } catch (error) {
       // Log error but don't fail the message creation
-      console.error(
-        `Failed to send push notifications for chat ${chatId}:`,
-        error,
+      await this.logError(
+        error instanceof Error ? error : new Error(String(error)),
+        senderId,
+        'sendPushNotificationToChatMembers',
+        { chatId },
       );
     }
   }

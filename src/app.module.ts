@@ -21,6 +21,8 @@ import { CurrencyModule } from './currency/currency.module';
 import { ImageModule } from './shared/image.module';
 import { RidesModule } from './rides/rides.module';
 import { BoatsModule } from './boats/boats.module';
+import { LoggerService } from './logger/logger.service';
+import { LoggerModule } from './logger/logger.module';
 import * as path from 'path';
 
 @Module({
@@ -55,8 +57,9 @@ import * as path from 'path';
     ImageModule,
     RidesModule,
     BoatsModule,
+    LoggerModule,
   ],
   controllers: [],
-  providers: [],
+  providers: [LoggerService],
 })
 export class AppModule {}
