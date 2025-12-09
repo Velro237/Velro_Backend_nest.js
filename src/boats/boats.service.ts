@@ -858,14 +858,13 @@ export class BoatsService {
     }
 
     // Create report using the unified Report model
-    // Description is required and used as the primary differentiator
     const report = await this.prisma.report.create({
       data: {
         user_id: userId,
         reported_id: trip.user_id, // Ship owner is the reported user
         trip_id: createDto.shipment_id,
         type: createDto.type as any,
-        text: createDto.description, // Description is required, no need for fallback
+        text: createDto.description || null,
         priority: 'LOW',
         status: 'PENDING',
       },
