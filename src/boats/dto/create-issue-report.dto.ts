@@ -1,7 +1,8 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEnum,
   IsString,
+  IsOptional,
   IsNotEmpty,
 } from 'class-validator';
 import { ReportType } from 'generated/prisma';
@@ -31,8 +32,8 @@ export class CreateIssueReportDto {
   @IsEnum(['PACKAGE_ISSUE', 'PACKAGE_LOST', 'PAYMENT_PROBLEM', 'POLICY_VIOLATION', 'DELAYED_DEPARTURE', 'OTHER'])
   type: ReportType;
 
-  @ApiProperty({
-    description: 'Description of the issue (required)',
+  @ApiPropertyOptional({
+    description: 'Additional description (optional)',
     example: 'Package was damaged during shipment',
     examples: {
       packageDamaged: { value: 'Package was damaged during shipment', summary: 'Package damaged' },
@@ -42,8 +43,8 @@ export class CreateIssueReportDto {
     },
   })
   @IsString()
-  @IsNotEmpty()
-  description: string;
+  @IsOptional()
+  description?: string;
 }
 
 export class BoatCreateIssueReportBodyDto {
@@ -63,8 +64,8 @@ export class BoatCreateIssueReportBodyDto {
   @IsEnum(['PACKAGE_ISSUE', 'PACKAGE_LOST', 'PAYMENT_PROBLEM', 'POLICY_VIOLATION', 'DELAYED_DEPARTURE', 'OTHER'])
   type: ReportType;
 
-  @ApiProperty({
-    description: 'Description of the issue (required)',
+  @ApiPropertyOptional({
+    description: 'Additional description (optional)',
     example: 'Package was damaged during shipment',
     examples: {
       packageDamaged: { value: 'Package was damaged during shipment', summary: 'Package damaged' },
@@ -74,8 +75,8 @@ export class BoatCreateIssueReportBodyDto {
     },
   })
   @IsString()
-  @IsNotEmpty()
-  description: string;
+  @IsOptional()
+  description?: string;
 }
 
 export class CreateIssueReportResponseDto {
