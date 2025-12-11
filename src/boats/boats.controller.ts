@@ -306,7 +306,7 @@ export class BoatsController {
       packageLost: {
         summary: 'Package lost or missing',
         value: {
-          type: 'PACKAGE_ISSUE',
+          type: 'PACKAGE_LOST',
           description: 'Package was lost or missing during shipment',
         },
       },
@@ -327,7 +327,7 @@ export class BoatsController {
       delayedDeparture: {
         summary: 'Delayed departure/arrival',
         value: {
-          type: 'OTHER',
+          type: 'DELAYED_DEPARTURE',
           description: 'Departure or arrival was delayed',
         },
       },

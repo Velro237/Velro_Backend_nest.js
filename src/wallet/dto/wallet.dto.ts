@@ -239,13 +239,22 @@ export class ChangeWalletStateDto {
   state: WalletState;
 
   @ApiProperty({
-    description: 'Optional message explaining the state change',
+    description: 'Optional message in French explaining the state change',
+    example: 'Portefeuille activé après vérification',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  status_message_fr?: string;
+
+  @ApiProperty({
+    description: 'Optional message in English explaining the state change',
     example: 'Wallet activated after verification',
     required: false,
   })
   @IsString()
   @IsOptional()
-  status_message?: string;
+  status_message_en?: string;
 }
 
 export class ChangeWalletStateResponseDto {
@@ -261,7 +270,8 @@ export class ChangeWalletStateResponseDto {
       id: '123e4567-e89b-12d3-a456-426614174000',
       userId: '123e4567-e89b-12d3-a456-426614174000',
       state: 'ACTIVE',
-      status_message: 'Wallet activated after verification',
+      status_message_fr: 'Portefeuille activé après vérification',
+      status_message_en: 'Wallet activated after verification',
       updatedAt: '2024-01-15T10:30:00.000Z',
     },
   })
@@ -269,7 +279,8 @@ export class ChangeWalletStateResponseDto {
     id: string;
     userId: string;
     state: WalletState;
-    status_message: string | null;
+    status_message_fr: string | null;
+    status_message_en: string | null;
     updatedAt: Date;
   };
 }

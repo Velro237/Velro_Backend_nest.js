@@ -840,14 +840,16 @@ export class BoatsService {
       throw new NotFoundException('Shipment not found');
     }
 
-    // Validate report type is for boat shipments (matching Figma design)
-    // Figma options: Delayed departure/arrival, Package damaged, Package lost or missing,
+    // Validate report type is for boat shipments (each description has a unique type)
+    // Types: Package damaged, Package lost or missing, Delayed departure/arrival,
     // Incorrect customs declaration, Hidden fees or charges, Other
     const boatShipmentReportTypes = [
-      'PACKAGE_ISSUE',      // Package damaged, Package lost or missing
-      'PAYMENT_PROBLEM',    // Hidden fees or charges
-      'POLICY_VIOLATION',   // Incorrect customs declaration
-      'OTHER',              // Delayed departure/arrival, Other
+      'PACKAGE_ISSUE',        // Package damaged
+      'PACKAGE_LOST',         // Package lost or missing
+      'DELAYED_DEPARTURE',    // Delayed departure/arrival
+      'PAYMENT_PROBLEM',      // Hidden fees or charges
+      'POLICY_VIOLATION',     // Incorrect customs declaration
+      'OTHER',                // Other issue not listed above
     ];
     if (!boatShipmentReportTypes.includes(createDto.type)) {
       throw new BadRequestException(

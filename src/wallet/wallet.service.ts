@@ -545,7 +545,7 @@ export class WalletService {
           select: { lang: true, device_id: true },
         });
         const userLang = userForNotification?.lang || 'en';
-        
+
         // Notification data
         const withdrawalTitle = 'Withdrawal Processed';
         const withdrawalMessage = `Your withdrawal of ${requestedCurrency} ${netAmount.toFixed(2)} has been processed successfully and is on its way to your account.`;
@@ -556,7 +556,7 @@ export class WalletService {
           amount: netAmount,
           currency: requestedCurrency,
         };
-        
+
         // Create in-app notification and send push notification about successful withdrawal
         try {
           // Create in-app notification (always)
@@ -570,7 +570,7 @@ export class WalletService {
             },
             userLang,
           );
-          
+
           // Send push notification if device_id exists
           if (userForNotification?.device_id) {
             await this.notificationService.sendPushNotificationToUser(
@@ -582,7 +582,9 @@ export class WalletService {
             );
           }
         } catch (error) {
-          this.logger.warn(`Failed to create/send withdrawal notification: ${error.message}`);
+          this.logger.warn(
+            `Failed to create/send withdrawal notification: ${error.message}`,
+          );
           // Don't fail the withdrawal if notification fails
         }
 
@@ -1009,13 +1011,15 @@ export class WalletService {
         where: { userId },
         data: {
           state: dto.state,
-          status_message: dto.status_message || null,
+          status_message_fr: dto.status_message_fr || null,
+          status_message_en: dto.status_message_en || null,
         },
         select: {
           id: true,
           userId: true,
           state: true,
-          status_message: true,
+          status_message_fr: true,
+          status_message_en: true,
           updatedAt: true,
         },
       });

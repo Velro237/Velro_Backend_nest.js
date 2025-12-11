@@ -278,9 +278,9 @@ export class GetMessagesResponseDto {
       transport_mode: {
         type: 'string',
         nullable: true,
-        description: 'Transport mode for ride trips (if applicable)',
+        description: 'Transport mode for ride trips and boat trips (if applicable)',
         example: 'CAR',
-        enum: ['CAR', 'AIRPLANE'],
+        enum: ['CAR', 'AIRPLANE', 'BOAT'],
       },
       seats_available: {
         type: 'number',

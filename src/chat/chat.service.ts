@@ -1817,7 +1817,7 @@ export class ChatService {
       }
     })();
 
-    // Derive transport mode for ride trips (CAR/AIRPLANE) from transport type name
+    // Derive transport mode for ride trips (CAR/AIRPLANE) and boat trips (BOAT) from transport type name
     let transportMode: string | undefined = undefined;
     if (chatWithData.trip?.mode_of_transport?.name) {
       const name = String(
@@ -1827,6 +1827,8 @@ export class ChatService {
         transportMode = 'AIRPLANE';
       } else if (name.includes('car')) {
         transportMode = 'CAR';
+      } else if (name.includes('boat')) {
+        transportMode = 'BOAT';
       }
     }
 
