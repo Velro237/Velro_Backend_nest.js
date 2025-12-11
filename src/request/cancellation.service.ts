@@ -286,6 +286,14 @@ export class CancellationService {
   private async handleSenderCancelAfterPayment(request: any, deliveryFee: number, currency: string) {
     this.logger.log(`Sender cancelled after payment for request ${request.id}`);
 
+    // Validate payment_intent_id exists for paid requests
+    if (!request.payment_intent_id) {
+      throw new BadRequestException(
+        `Payment intent ID is missing for paid request ${request.id}. ` +
+        `Cannot process refund without payment information.`
+      );
+    }
+
     // Get payment information to determine provider
     const paymentInfo = await this.getPaymentInfo(request.payment_intent_id);
 
@@ -302,18 +310,40 @@ export class CancellationService {
     } else if (paymentInfo.transaction) {
       // For mobile money, use transaction amount
       actualPaymentAmount = Number(paymentInfo.transaction.amount_requested);
+      // Use transaction currency for mobile money refunds (not request currency)
+      const transactionCurrency = (paymentInfo.transaction.currency || 'XAF').toUpperCase();
       this.logger.log(
-        `Actual payment amount from transaction: ${actualPaymentAmount} ${currency}, ` +
+        `Actual payment amount from transaction: ${actualPaymentAmount} ${transactionCurrency}, ` +
         `Delivery fee (traveler price): ${deliveryFee} ${currency}`
       );
     }
+
+    // For mobile money, use transaction currency for refunds; for Stripe, use request currency
+    const refundCurrency = (paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN') 
+      ? (paymentInfo.transaction?.currency || 'XAF').toUpperCase()
+      : currency;
 
     // Calculate cancellation fee based on DELIVERY FEE (traveler price), not total payment
     // This is the policy: cancellation fee is % of delivery fee
     const cancellationFeePercent = Number(this.configService.get<number>('CANCELLATION_FEE_PERCENT')) || 10;
     const cancellationFeeMin = Number(this.configService.get<number>('CANCELLATION_FEE_MIN')) || 5;
     
-    let cancellationFee = (deliveryFee * cancellationFeePercent) / 100;
+    // For mobile money, calculate cancellation fee in transaction currency (XAF)
+    // Convert delivery fee to transaction currency if needed
+    let cancellationFeeBase = deliveryFee;
+    if ((paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN') && refundCurrency !== currency) {
+      // Convert delivery fee from request currency to transaction currency (XAF)
+      // Using fixed rate: EUR to XAF = 680
+      if (currency === 'EUR' && refundCurrency === 'XAF') {
+        cancellationFeeBase = deliveryFee * 680;
+      } else if (currency === 'USD' && refundCurrency === 'XAF') {
+        cancellationFeeBase = deliveryFee * 600;
+      } else if (currency === 'CAD' && refundCurrency === 'XAF') {
+        cancellationFeeBase = deliveryFee * 450;
+      }
+    }
+    
+    let cancellationFee = (cancellationFeeBase * cancellationFeePercent) / 100;
     cancellationFee = Math.max(cancellationFee, cancellationFeeMin);
 
     // Refund amount = Actual payment amount - cancellation fee
@@ -349,7 +379,7 @@ export class CancellationService {
         await this.refundToWallet(
           request.user_id,
           refundAmount,
-          currency,
+          refundCurrency, // Use transaction currency (XAF) for mobile money
           request.id,
           paymentInfo.transaction.id,
         );
@@ -361,11 +391,15 @@ export class CancellationService {
     }
 
     // Release hold from traveler's wallet (remove full held amount)
+    // Use transaction currency for mobile money
+    const holdReleaseCurrency = (paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN')
+      ? (paymentInfo.transaction?.currency || 'XAF').toUpperCase()
+      : currency;
     try {
       await this.releaseHold(
         request.trip.user_id, 
-        deliveryFee, 
-        currency, 
+        actualPaymentAmount, // Release the actual amount that was held (in transaction currency)
+        holdReleaseCurrency, 
         request.id,
         paymentInfo.provider,
       );
@@ -374,12 +408,16 @@ export class CancellationService {
     }
 
     // Credit traveler with compensation
+    // Use transaction currency for mobile money compensation
+    const compensationCurrency = (paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN')
+      ? (paymentInfo.transaction?.currency || 'XAF').toUpperCase()
+      : currency;
     if (travelerCompensation > 0) {
       await this.creditTravelerCompensation(
         request.trip.user_id, 
         travelerCompensation, 
         request.id, 
-        currency,
+        compensationCurrency,
         paymentInfo.provider,
       );
       
@@ -445,8 +483,10 @@ export class CancellationService {
     // Notification data - message depends on payment provider
     const refundTitle = 'Refund Processed';
     const isWalletRefund = paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN';
+    // Use refundCurrency for mobile money, currency for Stripe
+    const notificationRefundCurrency = isWalletRefund ? refundCurrency : currency;
     const refundMessage = isWalletRefund
-      ? `Your request has been cancelled. A refund of ${currency} ${refundAmount.toFixed(2)} has been added to your wallet (cancellation fee: ${currency} ${cancellationFee.toFixed(2)}).`
+      ? `Your request has been cancelled. A refund of ${notificationRefundCurrency} ${refundAmount.toFixed(2)} has been added to your wallet (cancellation fee: ${notificationRefundCurrency} ${cancellationFee.toFixed(2)}).`
       : `Your request has been cancelled. A refund of ${currency} ${refundAmount.toFixed(2)} will be processed to your payment method (cancellation fee: ${currency} ${cancellationFee.toFixed(2)}).`;
     const refundData = {
       type: 'refund_processed',
@@ -454,7 +494,7 @@ export class CancellationService {
       trip_id: request.trip_id,
       refund_amount: refundAmount,
       cancellation_fee: cancellationFee,
-      currency: currency,
+      currency: notificationRefundCurrency,
       refund_method: isWalletRefund ? 'WALLET' : 'PAYMENT_METHOD',
     };
     
@@ -496,7 +536,7 @@ export class CancellationService {
       cancellationFee,
       travelerCompensation,
       velroFee,
-      currency,
+      currency: refundCurrency, // Return the currency actually used for refund
       status: 'CANCELLED',
       cancelledAt: new Date(),
     };
@@ -526,6 +566,14 @@ export class CancellationService {
   private async handleTravelerCancelAfterPayment(request: any, deliveryFee: number, currency: string) {
     this.logger.log(`Traveler cancelled after payment for request ${request.id}`);
 
+    // Validate payment_intent_id exists for paid requests
+    if (!request.payment_intent_id) {
+      throw new BadRequestException(
+        `Payment intent ID is missing for paid request ${request.id}. ` +
+        `Cannot process refund without payment information.`
+      );
+    }
+
     // Get payment information to determine provider
     const paymentInfo = await this.getPaymentInfo(request.payment_intent_id);
 
@@ -542,11 +590,18 @@ export class CancellationService {
     } else if (paymentInfo.transaction) {
       // For mobile money, use transaction amount
       actualPaymentAmount = Number(paymentInfo.transaction.amount_requested);
+      // Use transaction currency for mobile money refunds (not request currency)
+      const transactionCurrency = (paymentInfo.transaction.currency || 'XAF').toUpperCase();
       this.logger.log(
-        `Actual payment amount from transaction: ${actualPaymentAmount} ${currency}, ` +
+        `Actual payment amount from transaction: ${actualPaymentAmount} ${transactionCurrency}, ` +
         `Delivery fee (traveler price): ${deliveryFee} ${currency}`
       );
     }
+
+    // For mobile money, use transaction currency for refunds; for Stripe, use request currency
+    const refundCurrency = (paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN') 
+      ? (paymentInfo.transaction?.currency || 'XAF').toUpperCase()
+      : currency;
 
     // Full refund of actual payment amount to sender based on payment provider
     if (request.payment_intent_id) {
@@ -563,7 +618,7 @@ export class CancellationService {
         await this.refundToWallet(
           request.user_id,
           actualPaymentAmount,
-          currency,
+          refundCurrency, // Use transaction currency (XAF) for mobile money
           request.id,
           paymentInfo.transaction.id,
         );
@@ -575,11 +630,15 @@ export class CancellationService {
     }
 
     // Release any hold from traveler's wallet
+    // Use transaction currency for mobile money
+    const holdReleaseCurrency = (paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN')
+      ? (paymentInfo.transaction?.currency || 'XAF').toUpperCase()
+      : currency;
     try {
       await this.releaseHold(
         request.trip.user_id, 
-        deliveryFee, 
-        currency, 
+        actualPaymentAmount, // Release the actual amount that was held (in transaction currency)
+        holdReleaseCurrency, 
         request.id,
         paymentInfo.provider,
       );
@@ -593,13 +652,13 @@ export class CancellationService {
         const travelerLang = traveler?.lang || 'en';
         
         const holdReleaseTitle = 'Request Cancelled';
-        const holdReleaseMessage = `You cancelled the request. The hold of ${currency} ${deliveryFee.toFixed(2)} has been released from your wallet.`;
+        const holdReleaseMessage = `You cancelled the request. The hold of ${holdReleaseCurrency} ${actualPaymentAmount.toFixed(2)} has been released from your wallet.`;
         const holdReleaseData = {
           type: 'hold_released',
           request_id: request.id,
           trip_id: request.trip_id,
-          amount: deliveryFee,
-          currency: currency,
+          amount: actualPaymentAmount,
+          currency: holdReleaseCurrency, // Use hold release currency (transaction currency for mobile money)
         };
         
         // Create in-app notification (always)
@@ -644,15 +703,15 @@ export class CancellationService {
     const refundTitle = 'Full Refund Processed';
     const isWalletRefund = paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN';
     const refundMessage = isWalletRefund
-      ? `The traveler cancelled your request. A full refund of ${currency} ${actualPaymentAmount.toFixed(2)} has been added to your wallet.`
-      : `The traveler cancelled your request. A full refund of ${currency} ${actualPaymentAmount.toFixed(2)} will be processed to your payment method.`;
+      ? `The traveler cancelled your request. A full refund of ${refundCurrency} ${actualPaymentAmount.toFixed(2)} has been added to your wallet.`
+      : `The traveler cancelled your request. A full refund of ${refundCurrency} ${actualPaymentAmount.toFixed(2)} will be processed to your payment method.`;
     const refundData = {
       type: 'refund_processed',
       request_id: request.id,
       trip_id: request.trip_id,
       refund_amount: actualPaymentAmount,
       cancellation_fee: 0,
-      currency: currency,
+      currency: refundCurrency, // Use refund currency (transaction currency for mobile money)
       refund_method: isWalletRefund ? 'WALLET' : 'PAYMENT_METHOD',
     };
     
@@ -694,7 +753,7 @@ export class CancellationService {
       cancellationFee: 0,
       travelerCompensation: 0,
       velroFee: 0,
-      currency,
+      currency: refundCurrency, // Use refund currency (transaction currency for mobile money)
       status: 'CANCELLED',
       cancelledAt: new Date(),
     };
@@ -705,6 +764,23 @@ export class CancellationService {
    */
   private async handleSystemCancellation(request: any, deliveryFee: number, cancellationType: CancellationType, currency: string) {
     this.logger.log(`System cancellation (${cancellationType}) for request ${request.id}`);
+
+    // For system cancellations, payment_intent_id might not exist (e.g., unpaid requests)
+    // Only process refunds if payment was made
+    if (!request.payment_intent_id) {
+      this.logger.log(`No payment_intent_id for system cancellation ${request.id}, skipping refund`);
+      return {
+        requestId: request.id,
+        cancellationType,
+        refundAmount: 0,
+        cancellationFee: 0,
+        travelerCompensation: 0,
+        velroFee: 0,
+        currency,
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+      };
+    }
 
     // Get payment information to determine provider
     const paymentInfo = await this.getPaymentInfo(request.payment_intent_id);
@@ -1135,6 +1211,7 @@ export class CancellationService {
             fee_applied: 0,
             amount_paid: amount,
             wallet_id: wallet.id,
+            request_id: requestId,
             currency: currency,
             description: `Cancellation compensation for request ${requestId}`,
             source: 'CANCELLATION_COMPENSATION',
