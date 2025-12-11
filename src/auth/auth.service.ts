@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   UnauthorizedException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -348,6 +349,27 @@ export class AuthService {
   async validateUser(email: string, password: string): Promise<any> {
     const user = await this.prisma.user.findUnique({
       where: { email },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        role: true,
+        createdAt: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        address: true,
+        city: true,
+        state: true,
+        zip: true,
+        isFreightForwarder: true,
+        companyName: true,
+        companyAddress: true,
+        picture: true,
+        is_suspended: true,
+        status_message_en: true,
+        status_message_fr: true,
+      },
     });
 
     if (user && (await bcrypt.compare(password, user.password))) {
@@ -372,6 +394,25 @@ export class AuthService {
       );
       throw new UnauthorizedException(message);
     }
+
+    // Check if user is suspended
+    if (user.is_suspended) {
+      const message = await this.i18n.translate(
+        'translation.auth.login.accountSuspended',
+        {
+          lang,
+          defaultValue: 'Your account has been suspended',
+        },
+      );
+      throw new ForbiddenException({
+        message,
+        status_message_en:
+          user.status_message_en || 'Your account has been suspended',
+        status_message_fr:
+          user.status_message_fr || 'Votre compte a été suspendu',
+      });
+    }
+
     // if (!user.emailVerify) {
     //   throw new BadRequestException('Email not verify');
     // }

@@ -7,7 +7,6 @@ import {
   HttpCode,
   HttpStatus,
   Request,
-  Patch,
   Param,
   Query,
 } from '@nestjs/common';
@@ -16,19 +15,14 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
-  ApiParam,
-  ApiBody,
 } from '@nestjs/swagger';
 import { WalletService } from './wallet.service';
 import { PaymentService } from '../payment/payment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { AdminGuard } from '../auth/guards/admin.guard';
 import {
   WithdrawalRequestDto,
   WithdrawalResponseDto,
   WalletResponseDto,
-  ChangeWalletStateDto,
-  ChangeWalletStateResponseDto,
   WalletTransactionsResponseDto,
   PaginationQueryDto,
 } from './dto/wallet.dto';
@@ -141,62 +135,6 @@ export class WalletController {
     @Request() req: any,
   ): Promise<WithdrawalResponseDto> {
     return this.walletService.requestWithdrawal(req.user.id, dto);
-  }
-
-  @Patch('admin/change-state/:userId')
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @ApiOperation({
-    summary: 'Change wallet state (Admin only)',
-    description:
-      "Allows admins to change a user's wallet state between ACTIVE and BLOCKED. Optionally provide a status_message explaining the change.",
-  })
-  @ApiParam({
-    name: 'userId',
-    description: 'User ID whose wallet state to change',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @ApiBody({
-    type: ChangeWalletStateDto,
-    description: 'Wallet state change data',
-    examples: {
-      activate: {
-        summary: 'Activate wallet',
-        value: {
-          state: 'ACTIVE',
-          status_message: 'Wallet activated after verification',
-        },
-      },
-      block: {
-        summary: 'Block wallet',
-        value: {
-          state: 'BLOCKED',
-          status_message: 'Wallet blocked due to suspicious activity',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Wallet state changed successfully',
-    type: ChangeWalletStateResponseDto,
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Unauthorized - Invalid or missing JWT token',
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - Admin access required',
-  })
-  @ApiResponse({
-    status: 404,
-    description: 'User not found',
-  })
-  async changeWalletState(
-    @Param('userId') userId: string,
-    @Body() dto: ChangeWalletStateDto,
-  ): Promise<ChangeWalletStateResponseDto> {
-    return this.walletService.changeWalletState(userId, dto);
   }
 }
 

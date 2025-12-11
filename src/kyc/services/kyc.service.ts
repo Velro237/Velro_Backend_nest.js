@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiditService, DiditCallbackData } from './didit.service';
@@ -47,15 +52,18 @@ export class KycService {
         if (existingKyc.status === KYCStatus.APPROVED) {
           throw new BadRequestException('User is already verified');
         }
-        
+
         // If there's an existing session that hasn't expired, return it
         if (
-          existingKyc.sessionUrl && 
-          existingKyc.expiresAt && 
+          existingKyc.sessionUrl &&
+          existingKyc.expiresAt &&
           new Date(existingKyc.expiresAt) > new Date() &&
-          (existingKyc.status === KYCStatus.NOT_STARTED || existingKyc.status === KYCStatus.IN_PROGRESS)
+          (existingKyc.status === KYCStatus.NOT_STARTED ||
+            existingKyc.status === KYCStatus.IN_PROGRESS)
         ) {
-          this.logger.log(`Returning existing valid session for user ${userId}`);
+          this.logger.log(
+            `Returning existing valid session for user ${userId}`,
+          );
           return {
             sessionId: existingKyc.diditSessionId || existingKyc.id,
             sessionNumber: 0, // Not available for existing sessions
@@ -70,27 +78,34 @@ export class KycService {
             expiresAt: existingKyc.expiresAt?.toISOString() || '',
           };
         }
-        
+
         // If session expired or was rejected/declined, we'll create a new one below
-        this.logger.log(`Existing session expired or invalid for user ${userId}, creating new session`);
+        this.logger.log(
+          `Existing session expired or invalid for user ${userId}, creating new session`,
+        );
       }
 
       // Generate callback URL
-      const callbackUrl = createKycDto.callbackUrl || 
+      const callbackUrl =
+        createKycDto.callbackUrl ||
         `${this.configService.get<string>('APP_URL')}/kyc/callback`;
 
-             // Prepare Didit session request with all available parameters
-            const diditSessionRequest = {
-              userId,
-              callbackUrl,
-              metadata: createKycDto.metadata,
-            };
+      // Prepare Didit session request with all available parameters
+      const diditSessionRequest = {
+        userId,
+        callbackUrl,
+        metadata: createKycDto.metadata,
+      };
 
       // Create session with Didit
-      const diditSession = await this.diditService.createVerificationSession(diditSessionRequest);
+      const diditSession =
+        await this.diditService.createVerificationSession(diditSessionRequest);
 
       // Calculate expiration time from environment variable
-      const expirationHours = parseInt(process.env.KYC_SESSION_EXPIRATION_HOURS || '24', 10);
+      const expirationHours = parseInt(
+        process.env.KYC_SESSION_EXPIRATION_HOURS || '24',
+        10,
+      );
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + expirationHours);
 
@@ -109,7 +124,7 @@ export class KycService {
           diditWorkflowId: process.env.DIDIT_WORKFLOW_ID,
           sessionUrl: diditSession.url,
           callbackUrl,
-                 status: KYCStatus.NOT_STARTED,
+          status: KYCStatus.NOT_STARTED,
           expiresAt,
         },
         update: {
@@ -117,13 +132,15 @@ export class KycService {
           diditWorkflowId: process.env.DIDIT_WORKFLOW_ID,
           sessionUrl: diditSession.url,
           callbackUrl,
-                 status: KYCStatus.NOT_STARTED,
+          status: KYCStatus.NOT_STARTED,
           expiresAt,
           updatedAt: new Date(),
         },
       });
 
-      this.logger.log(`KYC session created for user ${userId}: ${kycRecord.id}`);
+      this.logger.log(
+        `KYC session created for user ${userId}: ${kycRecord.id}`,
+      );
 
       return {
         sessionId: diditSession.session_id,
@@ -139,7 +156,10 @@ export class KycService {
         expiresAt: expiresAt.toISOString(),
       };
     } catch (error) {
-      this.logger.error(`Failed to create KYC session for user ${userId}:`, error);
+      this.logger.error(
+        `Failed to create KYC session for user ${userId}:`,
+        error,
+      );
       throw error;
     }
   }
@@ -184,7 +204,9 @@ export class KycService {
    */
   async handleDiditCallback(callbackData: DiditCallbackData): Promise<void> {
     try {
-      this.logger.log(`Processing Didit callback for session: ${callbackData.session_id}`);
+      this.logger.log(
+        `Processing Didit callback for session: ${callbackData.session_id}`,
+      );
 
       // Find KYC record by Didit session ID
       const kycRecord = await this.prisma.userKYC.findUnique({
@@ -194,41 +216,45 @@ export class KycService {
       });
 
       if (!kycRecord) {
-        this.logger.warn(`No KYC record found for session: ${callbackData.session_id}`);
+        this.logger.warn(
+          `No KYC record found for session: ${callbackData.session_id}`,
+        );
         return;
       }
 
       // Map Didit status to our KYC status (official Didit statuses)
       let newStatus: KYCStatus;
-             switch (callbackData.status.toLowerCase()) {
-               case 'approved':
-                 newStatus = KYCStatus.APPROVED;
-                 break;
-               case 'declined':
-                 newStatus = KYCStatus.DECLINED;
-                 break;
-               case 'expired':
-                 newStatus = KYCStatus.EXPIRED;
-                 break;
-               case 'kyc expired':
-                 newStatus = KYCStatus.KYC_EXPIRED;
-                 break;
-               case 'in review':
-                 newStatus = KYCStatus.IN_REVIEW;
-                 break;
-               case 'in progress':
-                 newStatus = KYCStatus.IN_PROGRESS;
-                 break;
-               case 'not started':
-                 newStatus = KYCStatus.NOT_STARTED;
-                 break;
-               case 'abandoned':
-                 newStatus = KYCStatus.ABANDONED;
-                 break;
-               default:
-                 this.logger.warn(`Unknown Didit status: ${callbackData.status}, defaulting to IN_PROGRESS`);
-                 newStatus = KYCStatus.IN_PROGRESS;
-             }
+      switch (callbackData.status.toLowerCase()) {
+        case 'approved':
+          newStatus = KYCStatus.APPROVED;
+          break;
+        case 'declined':
+          newStatus = KYCStatus.DECLINED;
+          break;
+        case 'expired':
+          newStatus = KYCStatus.EXPIRED;
+          break;
+        case 'kyc expired':
+          newStatus = KYCStatus.KYC_EXPIRED;
+          break;
+        case 'in review':
+          newStatus = KYCStatus.IN_REVIEW;
+          break;
+        case 'in progress':
+          newStatus = KYCStatus.IN_PROGRESS;
+          break;
+        case 'not started':
+          newStatus = KYCStatus.NOT_STARTED;
+          break;
+        case 'abandoned':
+          newStatus = KYCStatus.ABANDONED;
+          break;
+        default:
+          this.logger.warn(
+            `Unknown Didit status: ${callbackData.status}, defaulting to IN_PROGRESS`,
+          );
+          newStatus = KYCStatus.IN_PROGRESS;
+      }
 
       // Prepare verification data from the webhook structure
       const verificationData = {
@@ -251,14 +277,14 @@ export class KycService {
         updatedAt: new Date(),
       };
 
-             if (newStatus === KYCStatus.APPROVED) {
-               updateData.verifiedAt = new Date();
-               
-               // Activate user's wallet when KYC is approved
-               await this.activateUserWallet(kycRecord.userId);
-             }
+      if (newStatus === KYCStatus.APPROVED) {
+        updateData.verifiedAt = new Date();
 
-             if (newStatus === KYCStatus.DECLINED && callbackData.rejection_reason) {
+        // Activate user's wallet when KYC is approved
+        await this.activateUserWallet(kycRecord.userId);
+      }
+
+      if (newStatus === KYCStatus.DECLINED && callbackData.rejection_reason) {
         updateData.rejectionReason = callbackData.rejection_reason;
       }
 
@@ -267,7 +293,9 @@ export class KycService {
         data: updateData,
       });
 
-      this.logger.log(`KYC status updated for user ${kycRecord.userId}: ${newStatus}`);
+      this.logger.log(
+        `KYC status updated for user ${kycRecord.userId}: ${newStatus}`,
+      );
     } catch (error) {
       this.logger.error(`Failed to handle Didit callback:`, error);
       throw error;
@@ -285,7 +313,9 @@ export class KycService {
       });
 
       if (!wallet) {
-        this.logger.warn(`No wallet found for user ${userId} during KYC activation`);
+        this.logger.warn(
+          `No wallet found for user ${userId} during KYC activation`,
+        );
         return;
       }
 
@@ -294,7 +324,10 @@ export class KycService {
         where: { id: wallet.id },
         data: {
           state: 'ACTIVE',
-          status_message: 'Wallet activated after successful KYC verification',
+          status_message_en:
+            'Wallet activated after successful KYC verification',
+          status_message_fr:
+            'Portefeuille activé après vérification KYC réussie',
         },
       });
 
@@ -313,14 +346,17 @@ export class KycService {
       const kycRecord = await this.prisma.userKYC.findFirst({
         where: {
           userId,
-               provider: KYCProvider.DIDIT,
-               status: KYCStatus.APPROVED,
+          provider: KYCProvider.DIDIT,
+          status: KYCStatus.APPROVED,
         },
       });
 
       return !!kycRecord;
     } catch (error) {
-      this.logger.error(`Failed to check verification status for user ${userId}:`, error);
+      this.logger.error(
+        `Failed to check verification status for user ${userId}:`,
+        error,
+      );
       return false;
     }
   }
@@ -347,7 +383,7 @@ export class KycService {
         },
       });
 
-      return kycRecords.map(record => ({
+      return kycRecords.map((record) => ({
         id: record.id,
         userId: record.userId,
         status: record.status,

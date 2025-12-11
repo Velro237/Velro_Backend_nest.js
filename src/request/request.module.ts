@@ -17,7 +17,7 @@ import { CurrencyModule } from '../currency/currency.module';
     ChatModule,
     AuthModule,
     RedisModule,
-    WalletModule,
+    forwardRef(() => WalletModule),
     NotificationModule,
     forwardRef(() => PaymentModule),
     CurrencyModule,
