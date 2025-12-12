@@ -10,7 +10,7 @@ import { PaymentAction, PaymentCarrier } from '../entitiy/mobilemoney.entity';
 import { I18nService } from 'nestjs-i18n';
 import { RequestService } from '../../request/request.service';
 import { CurrencyService } from '../../currency/currency.service';
-import { Currency } from 'generated/prisma';
+import { Currency, TransactionStatus } from 'generated/prisma';
 import { NotificationService } from '../../notification/notification.service';
 import { MobilemoneyCashoutResponseDto } from '../dto/mobilemoney-cashout.dto';
 import { MobilemoneyDepositResponseDto } from '../dto/mobilemoney-deposit.dto';
@@ -931,11 +931,51 @@ export class MobilemoneyService {
         };
       }
 
+      // Map callback status to TransactionStatus enum
+      const mapCallbackStatusToTransactionStatus = (
+        callbackStatus: string,
+      ): TransactionStatus => {
+        const normalizedStatus = callbackStatus.toUpperCase().trim();
+
+        switch (normalizedStatus) {
+          case 'PENDING':
+          case 'PENDIND': // Handle typo variant
+            return TransactionStatus.PENDING;
+          case 'IN_PROGRESS':
+          case 'IN_PROGRES': // Handle typo variant
+          case 'INPROGRESS':
+            return TransactionStatus.IN_PROGRES; // Use enum value as it exists in schema
+          case 'SEND':
+          case 'SENT':
+            return TransactionStatus.SEND;
+          case 'FAIL':
+          case 'FAILED':
+            return TransactionStatus.FAIL;
+          case 'SUCCESS':
+          case 'SUCCEEDED':
+            return TransactionStatus.SUCCESS;
+          case 'RECEIVED':
+            return TransactionStatus.RECEIVED;
+          case 'COMPLETED':
+            return TransactionStatus.COMPLETED;
+          case 'ONHOLD':
+          case 'ON_HOLD':
+            return TransactionStatus.ONHOLD;
+          default:
+            this.logger.warn(
+              `Unknown callback status: ${callbackStatus}, defaulting to PENDING`,
+            );
+            return TransactionStatus.PENDING;
+        }
+      };
+
+      const transactionStatus = mapCallbackStatusToTransactionStatus(status);
+
       // Update transaction status
       await this.prisma.transaction.update({
         where: { id: transaction.id },
         data: {
-          status: status as any, // Cast to TransactionStatus enum
+          status: transactionStatus,
           status_message: message,
           processedAt: new Date(),
           metadata: {
@@ -950,11 +990,11 @@ export class MobilemoneyService {
       });
 
       this.logger.log(
-        `Transaction ${transaction.id} status updated to: ${status}`,
+        `Transaction ${transaction.id} status updated to: ${transactionStatus} (from callback status: ${status})`,
       );
 
       // If payment is received, update request, status and credit the trip creator's wallet
-      if (status === 'RECEIVED') {
+      if (transactionStatus === TransactionStatus.RECEIVED) {
         // Attach transaction to request and mark payment as succeeded
         if (transaction.request_id) {
           try {
