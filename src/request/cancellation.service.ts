@@ -9,6 +9,7 @@ import {
   CancellationType,
   UnpaidCancellationReason,
   PaidCancellationReason,
+  TravelerCancellationReason,
 } from './dto/cancel-request.dto';
 import { RequestStatus, PaymentStatus, NotificationType } from 'generated/prisma';
 
@@ -73,8 +74,8 @@ export class CancellationService {
     const isPaid = request.payment_status === PaymentStatus.SUCCEEDED;
     const isUnpaid = !request.payment_status || request.payment_status === PaymentStatus.PENDING;
 
-    // Validate cancellation reason based on actual payment status from database
-    this.validateCancellationReason(isPaid, cancellationDto.reason);
+    // Validate cancellation reason based on actual payment status from database and cancellation type
+    this.validateCancellationReason(cancellationType, isPaid, cancellationDto.reason);
 
     // Check if already cancelled
     if (request.status === RequestStatus.CANCELLED) {
@@ -88,55 +89,55 @@ export class CancellationService {
 
       if (paymentInfo.provider === 'STRIPE' && paymentInfo.paymentIntentId) {
         // Stripe: Check Stripe refund status
-        try {
+      try {
           const paymentIntent = await this.stripeService.getPaymentIntent(paymentInfo.paymentIntentId);
-          if (paymentIntent.status === 'succeeded' && paymentIntent.latest_charge) {
-            const charge = await this.stripeService.getStripeInstance().charges.retrieve(
-              paymentIntent.latest_charge as string
-            );
-            // If already fully or partially refunded, check if request status wasn't updated
-            if (charge.amount_refunded > 0) {
-              const refundedAmount = charge.amount_refunded / 100;
-              const totalAmount = charge.amount / 100;
-              this.logger.warn(
+        if (paymentIntent.status === 'succeeded' && paymentIntent.latest_charge) {
+          const charge = await this.stripeService.getStripeInstance().charges.retrieve(
+            paymentIntent.latest_charge as string
+          );
+          // If already fully or partially refunded, check if request status wasn't updated
+          if (charge.amount_refunded > 0) {
+            const refundedAmount = charge.amount_refunded / 100;
+            const totalAmount = charge.amount / 100;
+            this.logger.warn(
                 `Request ${requestId} already has Stripe refund: ${refundedAmount}/${totalAmount}. ` +
-                `Status may not have been updated. Checking...`
-              );
-              
-              // If fully refunded, mark as cancelled
-              if (charge.amount_refunded === charge.amount) {
-                if (changeStatus) {
-                  await changeStatus(RequestStatus.CANCELLED);
-                  request.status = RequestStatus.CANCELLED;
-                }
-                await this.prisma.tripRequest.update({
-                  where: { id: requestId },
-                  data: {
-                    ...(changeStatus ? {} : { status: RequestStatus.CANCELLED }),
-                    cancelled_at: new Date(),
-                    cancellation_type: cancellationType,
-                    cancellation_reason: cancellationDto.reason,
-                    updated_at: new Date(),
-                  },
-                });
-                throw new BadRequestException(
-                  `Request was already cancelled and fully refunded (${refundedAmount} ${paymentIntent.currency.toUpperCase()})`
-                );
+              `Status may not have been updated. Checking...`
+            );
+            
+            // If fully refunded, mark as cancelled
+            if (charge.amount_refunded === charge.amount) {
+              if (changeStatus) {
+                await changeStatus(RequestStatus.CANCELLED);
+                request.status = RequestStatus.CANCELLED;
               }
-              
-              // If partially refunded, throw error
+              await this.prisma.tripRequest.update({
+                where: { id: requestId },
+                data: {
+                  ...(changeStatus ? {} : { status: RequestStatus.CANCELLED }),
+                  cancelled_at: new Date(),
+                  cancellation_type: cancellationType,
+                  cancellation_reason: cancellationDto.reason,
+                  updated_at: new Date(),
+                },
+              });
               throw new BadRequestException(
-                `Request already has a partial refund of ${refundedAmount} ${paymentIntent.currency.toUpperCase()}. ` +
-                `Cannot process another cancellation.`
+                `Request was already cancelled and fully refunded (${refundedAmount} ${paymentIntent.currency.toUpperCase()})`
               );
             }
+            
+            // If partially refunded, throw error
+            throw new BadRequestException(
+              `Request already has a partial refund of ${refundedAmount} ${paymentIntent.currency.toUpperCase()}. ` +
+              `Cannot process another cancellation.`
+            );
           }
-        } catch (error) {
-          // If it's our custom error, re-throw it
-          if (error instanceof BadRequestException) {
-            throw error;
-          }
-          // Otherwise, log and continue (might be network issue, proceed with normal flow)
+        }
+      } catch (error) {
+        // If it's our custom error, re-throw it
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
+        // Otherwise, log and continue (might be network issue, proceed with normal flow)
           this.logger.warn(`Could not check Stripe refund status: ${error.message}`);
         }
       } else if (paymentInfo.provider === 'ORANGE' || paymentInfo.provider === 'MTN') {
@@ -195,13 +196,29 @@ export class CancellationService {
   }
 
   /**
-   * Validate cancellation reason based on payment status from database
+   * Validate cancellation reason based on cancellation type and payment status
    */
-  private validateCancellationReason(isPaid: boolean, reason?: string) {
+  private validateCancellationReason(
+    cancellationType: CancellationType,
+    isPaid: boolean,
+    reason?: string,
+  ) {
     if (!reason) {
       return; // Reason is optional
     }
 
+    // Traveler cancellations use specific traveler reasons (regardless of payment status)
+    if (cancellationType === CancellationType.TRAVELER_CANCEL) {
+      const travelerReasons = Object.values(TravelerCancellationReason);
+      if (!travelerReasons.includes(reason as TravelerCancellationReason)) {
+        throw new BadRequestException(
+          `Invalid reason for traveler cancellation. Allowed reasons: ${travelerReasons.join(', ')}`
+        );
+      }
+      return; // Traveler reasons are validated, no need to check payment status
+    }
+
+    // Sender cancellations use payment-status-based reasons
     const unpaidReasons = Object.values(UnpaidCancellationReason);
     const paidReasons = Object.values(PaidCancellationReason);
 
@@ -301,12 +318,12 @@ export class CancellationService {
     let actualPaymentAmount = deliveryFee;
     if (paymentInfo.provider === 'STRIPE' && paymentInfo.paymentIntentId) {
       const paymentIntent = await this.stripeService.getPaymentIntent(paymentInfo.paymentIntentId);
-      // PaymentIntent amount is in cents, convert to currency units
-      actualPaymentAmount = paymentIntent.amount / 100;
-      this.logger.log(
-        `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
-        `Delivery fee (traveler price): ${deliveryFee} ${currency}`
-      );
+        // PaymentIntent amount is in cents, convert to currency units
+        actualPaymentAmount = paymentIntent.amount / 100;
+        this.logger.log(
+          `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
+          `Delivery fee (traveler price): ${deliveryFee} ${currency}`
+        );
     } else if (paymentInfo.transaction) {
       // For mobile money, use transaction amount
       actualPaymentAmount = Number(paymentInfo.transaction.amount_requested);
@@ -581,12 +598,12 @@ export class CancellationService {
     let actualPaymentAmount = deliveryFee;
     if (paymentInfo.provider === 'STRIPE' && paymentInfo.paymentIntentId) {
       const paymentIntent = await this.stripeService.getPaymentIntent(paymentInfo.paymentIntentId);
-      // PaymentIntent amount is in cents, convert to currency units
-      actualPaymentAmount = paymentIntent.amount / 100;
-      this.logger.log(
-        `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
-        `Delivery fee (traveler price): ${deliveryFee} ${currency}`
-      );
+        // PaymentIntent amount is in cents, convert to currency units
+        actualPaymentAmount = paymentIntent.amount / 100;
+        this.logger.log(
+          `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
+          `Delivery fee (traveler price): ${deliveryFee} ${currency}`
+        );
     } else if (paymentInfo.transaction) {
       // For mobile money, use transaction amount
       actualPaymentAmount = Number(paymentInfo.transaction.amount_requested);
@@ -789,12 +806,12 @@ export class CancellationService {
     let actualPaymentAmount = deliveryFee;
     if (paymentInfo.provider === 'STRIPE' && paymentInfo.paymentIntentId) {
       const paymentIntent = await this.stripeService.getPaymentIntent(paymentInfo.paymentIntentId);
-      // PaymentIntent amount is in cents, convert to currency units
-      actualPaymentAmount = paymentIntent.amount / 100;
-      this.logger.log(
-        `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
-        `Delivery fee (traveler price): ${deliveryFee} ${currency}`
-      );
+        // PaymentIntent amount is in cents, convert to currency units
+        actualPaymentAmount = paymentIntent.amount / 100;
+        this.logger.log(
+          `Actual payment amount from Stripe: ${actualPaymentAmount} ${paymentIntent.currency.toUpperCase()}, ` +
+          `Delivery fee (traveler price): ${deliveryFee} ${currency}`
+        );
     } else if (paymentInfo.transaction) {
       // For mobile money, use transaction amount
       actualPaymentAmount = Number(paymentInfo.transaction.amount_requested);
@@ -1161,24 +1178,24 @@ export class CancellationService {
 
       // Perform wallet update and transaction creation atomically
       await this.prisma.$transaction(async (prisma) => {
-        // Wallet should already exist if payment was made - find it or throw error
+      // Wallet should already exist if payment was made - find it or throw error
         const wallet = await prisma.wallet.findUnique({
-          where: { userId: travelerId },
-        });
+        where: { userId: travelerId },
+      });
 
-        if (!wallet) {
-          // Wallet should exist if payment was made - this indicates a data integrity issue
-          this.logger.error(
-            `Wallet not found for traveler ${travelerId} during cancellation compensation. ` +
-            `This should not happen if payment was successful.`
-          );
-          throw new NotFoundException(
-            `Traveler wallet not found. This indicates a data integrity issue.`
-          );
-        }
+      if (!wallet) {
+        // Wallet should exist if payment was made - this indicates a data integrity issue
+        this.logger.error(
+          `Wallet not found for traveler ${travelerId} during cancellation compensation. ` +
+          `This should not happen if payment was successful.`
+        );
+        throw new NotFoundException(
+          `Traveler wallet not found. This indicates a data integrity issue.`
+        );
+      }
 
-        // Resolve balance column by currency
-        const { availableColumn } = this.getCurrencyColumns(currency);
+      // Resolve balance column by currency
+      const { availableColumn } = this.getCurrencyColumns(currency);
 
         // Get current balance within transaction to avoid race conditions
         const walletWithBalance = await prisma.wallet.findUnique({
@@ -1192,32 +1209,32 @@ export class CancellationService {
         const currentBalance = this.getWalletCurrencyBalance(walletWithBalance, currency);
         const newBalance = currentBalance + amount;
 
-        // Add compensation to available balance in the specific currency
+      // Add compensation to available balance in the specific currency
         await prisma.wallet.update({
-          where: { userId: travelerId },
-          data: {
-            [availableColumn]: {
-              increment: amount,
-            },
-          } as any,
-        });
+        where: { userId: travelerId },
+        data: {
+          [availableColumn]: {
+            increment: amount,
+          },
+        } as any,
+      });
 
         // Record transaction with correct provider (atomic with wallet update)
         await prisma.transaction.create({
-          data: {
-            userId: travelerId,
-            type: 'CREDIT',
-            amount_requested: amount,
-            fee_applied: 0,
-            amount_paid: amount,
-            wallet_id: wallet.id,
+        data: {
+          userId: travelerId,
+          type: 'CREDIT',
+          amount_requested: amount,
+          fee_applied: 0,
+          amount_paid: amount,
+          wallet_id: wallet.id,
             request_id: requestId,
-            currency: currency,
-            description: `Cancellation compensation for request ${requestId}`,
-            source: 'CANCELLATION_COMPENSATION',
+          currency: currency,
+          description: `Cancellation compensation for request ${requestId}`,
+          source: 'CANCELLATION_COMPENSATION',
             balance_after: newBalance,
             provider: provider,
-          },
+        },
         });
       });
 
