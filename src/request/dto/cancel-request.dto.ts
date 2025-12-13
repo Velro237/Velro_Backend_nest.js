@@ -27,9 +27,16 @@ export enum PaidCancellationReason {
   FOUND_ANOTHER_OPTION = 'Found another option',
 }
 
+export enum TravelerCancellationReason {
+  SENDER_NOT_RESPONDING = 'The sender isn\'t responding',
+  NOT_TRAVELLING = 'I don\'t travel anymore',
+  NO_SPACE_LEFT = 'I don\'t have any space left',
+  OTHER = 'Other',
+}
+
 export class CancelRequestDto {
   @ApiProperty({
-    description: 'Reason for cancellation. For unpaid requests: "Changed my mind", "Found a better option", "Plans changed", "Other". For paid requests: "Emergency/urgent situation", "Plans changed", "Found another option"',
+    description: 'Reason for cancellation. For traveler cancellations: "The sender isn\'t responding", "I don\'t travel anymore", "I don\'t have any space left", "Other". For sender unpaid requests: "Changed my mind", "Found a better option", "Plans changed", "Other". For sender paid requests: "Emergency/urgent situation", "Plans changed", "Found another option"',
     example: 'Plans changed',
     required: false,
   })
