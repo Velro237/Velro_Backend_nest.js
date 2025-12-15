@@ -78,7 +78,7 @@ model WithdrawalNumber {
 
 model User {
   id            String    @id @default(uuid())
-  email         String    @unique
+  email         String
   username      String?
   password      String
   firstName     String?
@@ -119,6 +119,12 @@ model User {
   is_suspended               Boolean @default(false)
   status_message_fr          String?
   status_message_en          String?
+
+  push_notification  Boolean @default(true)
+  email_notification Boolean @default(true)
+  sms_notification   Boolean @default(true)
+
+  is_deleted Boolean @default(false)
 
   services CompanyService[] @relation("UserServices")
   cities   CompanyCity[]    @relation("UserCities")

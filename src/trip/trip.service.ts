@@ -4267,7 +4267,7 @@ export class TripService {
     tripData: any,
   ): Promise<void> {
     try {
-      // Get all users with device_id (users who have the app installed)
+      // Get all users with device_id and push_notification enabled (users who have the app installed and want push notifications)
       const users = await this.prisma.user.findMany({
         where: {
           device_id: {
@@ -4276,6 +4276,7 @@ export class TripService {
           role: {
             not: UserRole.ADMIN, // Exclude admins
           },
+          push_notification: true, // Only send to users who have push notifications enabled
         },
         select: {
           id: true,

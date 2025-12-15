@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Query,
   Param,
@@ -434,5 +435,40 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminSuspendUserResponseDto> {
     return this.userService.suspendUser(userId, dto, lang);
+  }
+
+  @Delete('users/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete user (Admin only)',
+    description: 'Soft delete a user account by setting is_deleted to true',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'User ID to delete',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User deleted successfully',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid UUID',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.userService.remove(id);
   }
 }

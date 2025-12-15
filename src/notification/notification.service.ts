@@ -640,15 +640,23 @@ export class NotificationService {
     lang: string = 'en',
   ): Promise<void> {
     try {
-      // Get user's device_id
+      // Get user's device_id and push_notification preference
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        select: { device_id: true },
+        select: { device_id: true, push_notification: true },
       });
 
       if (!user || !user.device_id) {
         this.logger.log(
           `User ${userId} has no device_id, skipping push notification`,
+        );
+        return;
+      }
+
+      // Check if user has push notifications enabled
+      if (!user.push_notification) {
+        this.logger.log(
+          `User ${userId} has push_notification disabled, skipping push notification`,
         );
         return;
       }

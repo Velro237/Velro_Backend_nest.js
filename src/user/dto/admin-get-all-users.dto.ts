@@ -138,6 +138,12 @@ export class AdminUserDto {
     example: 'active',
   })
   status!: 'active' | 'unverified' | 'travelling';
+
+  @ApiProperty({
+    description: 'Whether the user account is soft deleted',
+    example: false,
+  })
+  is_deleted!: boolean;
 }
 
 export class AdminGetAllUsersResponseDto {

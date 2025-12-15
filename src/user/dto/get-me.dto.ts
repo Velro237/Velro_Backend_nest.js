@@ -36,6 +36,9 @@ export class GetMeResponseDto {
       payout_currency: 'EUR',
       transfers_capability: 'active',
       stripe_onboarding_complete: true,
+      push_notification: true,
+      email_notification: true,
+      sms_notification: true,
       services: [
         {
           id: '123e4567-e89b-12d3-a456-426614174000',
@@ -91,6 +94,9 @@ export class GetMeResponseDto {
     payout_currency?: string | null;
     transfers_capability?: string | null;
     stripe_onboarding_complete?: boolean | null;
+    push_notification?: boolean;
+    email_notification?: boolean;
+    sms_notification?: boolean;
     services?: Array<{
       id: string;
       name: string;

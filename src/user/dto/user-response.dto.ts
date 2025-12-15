@@ -61,6 +61,27 @@ export class UserResponseDto {
   updatedAt!: Date;
 
   @ApiProperty({
+    example: true,
+    description: 'Enable push notifications',
+    default: true,
+  })
+  push_notification!: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: 'Enable email notifications',
+    default: true,
+  })
+  email_notification!: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: 'Enable SMS notifications',
+    default: true,
+  })
+  sms_notification!: boolean;
+
+  @ApiProperty({
     example: 4.5,
     description: 'Average user rating out of 5 (0 if no ratings)',
   })

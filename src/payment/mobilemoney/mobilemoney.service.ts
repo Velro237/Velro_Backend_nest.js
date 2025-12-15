@@ -1109,7 +1109,7 @@ export class MobilemoneyService {
 
         // Send push notifications to both users
         try {
-          // Get payer (user who made the payment) with language preference
+          // Get payer (user who made the payment) with language preference and email notification setting
           const payer = await this.prisma.user.findUnique({
             where: { id: transaction.userId },
             select: {
@@ -1118,10 +1118,11 @@ export class MobilemoneyService {
               name: true,
               device_id: true,
               lang: true,
+              email_notification: true,
             },
           });
 
-          // Get trip creator with language preference (already have tripCreator but need lang)
+          // Get trip creator with language preference and email notification setting
           const tripCreatorWithLang = await this.prisma.user.findUnique({
             where: { id: tripCreator.id },
             select: {
@@ -1130,6 +1131,7 @@ export class MobilemoneyService {
               name: true,
               device_id: true,
               lang: true,
+              email_notification: true,
             },
           });
 
@@ -1210,9 +1212,121 @@ export class MobilemoneyService {
               normalizedTripCreatorLang,
             );
           }
+
+          // Send email notifications to both users if payment is successful
+          const amount = Number(transaction.amount_requested);
+          const currency = transaction.currency || 'XAF';
+          const formattedAmount = `${amount.toLocaleString('en-US', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2,
+          })} ${currency}`;
+
+          // Send email to payer (user who made the payment)
+          if (payer?.email && payer.email_notification) {
+            const payerLangRaw = payer.lang || 'en';
+            const payerLang = payerLangRaw
+              ? payerLangRaw.toLowerCase().trim()
+              : 'en';
+            const normalizedPayerLang = payerLang === 'fr' ? 'fr' : 'en';
+
+            const payerSubject = await this.i18n.translate(
+              'translation.notification.payment.success.email.subject',
+              {
+                lang: normalizedPayerLang,
+                defaultValue: 'Payment Successful',
+              },
+            );
+            const payerEmailTitle = await this.i18n.translate(
+              'translation.notification.payment.success.email.title',
+              {
+                lang: normalizedPayerLang,
+                defaultValue: 'Payment Successful',
+              },
+            );
+            const payerEmailMessage = await this.i18n.translate(
+              'translation.notification.payment.success.email.message',
+              {
+                lang: normalizedPayerLang,
+                args: { amount: formattedAmount },
+                defaultValue: `Your payment of ${formattedAmount} has been successfully processed and received.`,
+              },
+            );
+
+            await this.notificationService.sendEmail(
+              {
+                to: payer.email,
+                subject: payerSubject,
+                html: `
+                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #333;">${payerEmailTitle}</h2>
+                    <p style="color: #555; line-height: 1.6;">${payerEmailMessage}</p>
+                    <div style="background-color: #f4f4f4; padding: 20px; margin: 20px 0; border-radius: 5px;">
+                      <p style="margin: 5px 0;"><strong>Amount:</strong> ${formattedAmount}</p>
+                      <p style="margin: 5px 0;"><strong>Transaction ID:</strong> ${transaction.id}</p>
+                    </div>
+                  </div>
+                `,
+              },
+              normalizedPayerLang,
+            );
+          }
+
+          // Send email to trip creator (user who received the payment)
+          if (
+            tripCreatorWithLang?.email &&
+            tripCreatorWithLang.email_notification
+          ) {
+            const tripCreatorLangRaw = tripCreatorWithLang.lang || 'en';
+            const tripCreatorLang = tripCreatorLangRaw
+              ? tripCreatorLangRaw.toLowerCase().trim()
+              : 'en';
+            const normalizedTripCreatorLang =
+              tripCreatorLang === 'fr' ? 'fr' : 'en';
+
+            const tripCreatorSubject = await this.i18n.translate(
+              'translation.notification.payment.received.email.subject',
+              {
+                lang: normalizedTripCreatorLang,
+                defaultValue: 'Payment Received',
+              },
+            );
+            const tripCreatorEmailTitle = await this.i18n.translate(
+              'translation.notification.payment.received.email.title',
+              {
+                lang: normalizedTripCreatorLang,
+                defaultValue: 'Payment Received',
+              },
+            );
+            const tripCreatorEmailMessage = await this.i18n.translate(
+              'translation.notification.payment.received.email.message',
+              {
+                lang: normalizedTripCreatorLang,
+                args: { amount: formattedAmount },
+                defaultValue: `You have received a payment of ${formattedAmount} for your trip.`,
+              },
+            );
+
+            await this.notificationService.sendEmail(
+              {
+                to: tripCreatorWithLang.email,
+                subject: tripCreatorSubject,
+                html: `
+                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #333;">${tripCreatorEmailTitle}</h2>
+                    <p style="color: #555; line-height: 1.6;">${tripCreatorEmailMessage}</p>
+                    <div style="background-color: #f4f4f4; padding: 20px; margin: 20px 0; border-radius: 5px;">
+                      <p style="margin: 5px 0;"><strong>Amount:</strong> ${formattedAmount}</p>
+                      <p style="margin: 5px 0;"><strong>Transaction ID:</strong> ${transaction.id}</p>
+                    </div>
+                  </div>
+                `,
+              },
+              normalizedTripCreatorLang,
+            );
+          }
         } catch (notificationError) {
           this.logger.error(
-            `Failed to send push notifications: ${notificationError.message}`,
+            `Failed to send push notifications or email notifications: ${notificationError.message}`,
           );
           // Don't fail the payment processing if notifications fail
         }
