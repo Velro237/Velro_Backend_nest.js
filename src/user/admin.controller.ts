@@ -65,6 +65,26 @@ import {
   AdminSuspendUserDto,
   AdminSuspendUserResponseDto,
 } from './dto/admin-suspend-user.dto';
+import { AdminRequestStatsResponseDto } from './dto/admin-request-stats.dto';
+import {
+  AdminGetRequestsQueryDto,
+  AdminGetRequestsResponseDto,
+} from './dto/admin-get-requests.dto';
+import {
+  UpdateTripRequestDto,
+  UpdateTripRequestResponseDto,
+} from '../request/dto/update-trip-request.dto';
+import { RequestService } from '../request/request.service';
+import { AdminChatsStatsResponseDto } from './dto/admin-chats-stats.dto';
+import { ChatService } from '../chat/chat.service';
+import {
+  GetChatsQueryDto,
+  GetChatsResponseDto,
+} from '../chat/dto/get-chats.dto';
+import {
+  GetMessagesQueryDto,
+  GetMessagesResponseDto,
+} from '../chat/dto/get-messages.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth('JWT-auth')
@@ -75,6 +95,8 @@ export class AdminController {
     private readonly userService: UserService,
     private readonly authService: AuthService,
     private readonly walletService: WalletService,
+    private readonly requestService: RequestService,
+    private readonly chatService: ChatService,
   ) {}
 
   @Get('reports')
@@ -178,6 +200,85 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminUsersStatsResponseDto> {
     return this.userService.getAdminUsersStats(lang);
+  }
+
+  @Get('request/stats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get request statistics (Admin only)',
+    description:
+      'Retrieve comprehensive request statistics including total requests, requests per status, average request price in EUR, and percentage increase of total requests this month compared to last month.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request statistics retrieved successfully',
+    type: AdminRequestStatsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getRequestStats(
+    @I18nLang() lang: string,
+  ): Promise<AdminRequestStatsResponseDto> {
+    return this.userService.getAdminRequestStats(lang);
+  }
+
+  @Get('chats/stats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get chat statistics (Admin only)',
+    description:
+      'Retrieve comprehensive chat statistics including total chats, total messages, messages today, percentage increase of messages this month compared to last month, and total users online.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Chat statistics retrieved successfully',
+    type: AdminChatsStatsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getChatsStats(
+    @I18nLang() lang: string,
+  ): Promise<AdminChatsStatsResponseDto> {
+    return this.userService.getAdminChatsStats(lang);
+  }
+
+  @Get('requests')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all requests with filters (Admin only)',
+    description:
+      'Retrieve all requests with optional filters: requestId, departure (trip country or city), destination (trip country or city), from (created_at date), to (created_at date), status. Returns request information including sender, traveler, trip details, requested items, and cost in EUR.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Requests retrieved successfully',
+    type: AdminGetRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getRequests(
+    @Query() query: AdminGetRequestsQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminGetRequestsResponseDto> {
+    return this.userService.getAdminRequests(query, lang);
   }
 
   @Get('users')
@@ -471,5 +572,108 @@ export class AdminController {
   })
   async remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.remove(id);
+  }
+
+  @Patch('requests/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update a trip request (Admin only)',
+    description:
+      'Update a trip request status or message. Admin access required.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip request ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({
+    type: UpdateTripRequestDto,
+    description: 'Trip request update data',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Trip request updated successfully',
+    type: UpdateTripRequestResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid input data',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip request not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async updateTripRequest(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @Body() updateTripRequestDto: UpdateTripRequestDto,
+    @I18nLang() lang: string,
+  ): Promise<UpdateTripRequestResponseDto> {
+    return this.requestService.updateTripRequest(
+      requestId,
+      updateTripRequestDto,
+      lang,
+    );
+  }
+
+  @Get('chats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all chats (Admin only)',
+    description:
+      'Retrieve all chats with pagination and optional search filter. Admin can see all chats regardless of membership.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Chats retrieved successfully',
+    type: GetChatsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getAllChats(
+    @Query() query: GetChatsQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<GetChatsResponseDto> {
+    return this.chatService.getAllChatsForAdmin(query, lang);
+  }
+
+  @Get('chats/messages')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all messages of a chat (Admin only)',
+    description:
+      'Retrieve all messages from a specific chat with pagination. Admin can access any chat regardless of membership.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Messages retrieved successfully',
+    type: GetMessagesResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getChatMessages(
+    @Query() query: GetMessagesQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<GetMessagesResponseDto> {
+    return this.chatService.getChatMessagesForAdmin(query, lang);
   }
 }

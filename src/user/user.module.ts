@@ -8,6 +8,9 @@ import { ImageModule } from '../shared/image.module';
 import { NotificationModule } from '../notification/notification.module';
 import { CurrencyModule } from '../currency/currency.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { RequestModule } from '../request/request.module';
+import { RedisModule } from '../redis/redis.module';
+import { ChatModule } from '../chat/chat.module';
 
 @Module({
   imports: [
@@ -17,6 +20,9 @@ import { WalletModule } from '../wallet/wallet.module';
     NotificationModule,
     CurrencyModule,
     WalletModule,
+    RequestModule,
+    RedisModule,
+    ChatModule,
   ],
   controllers: [UserController, AdminController],
   providers: [UserService],

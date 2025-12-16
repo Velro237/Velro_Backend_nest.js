@@ -1142,6 +1142,791 @@ export class ChatService {
     }
   }
 
+  /**
+   * Get all chats for admin (no membership filtering)
+   * NOTE: This method is read-only and does NOT affect read counts or mark messages as read
+   */
+  async getAllChatsForAdmin(
+    query: GetChatsQueryDto,
+    lang?: string,
+  ): Promise<GetChatsResponseDto> {
+    try {
+      const { page = 1, limit = 10, search } = query;
+      const skip = (page - 1) * limit;
+
+      const whereClause: any = {};
+
+      // No membership filter for admin
+      // No type filter - show all chat types
+      if (search) {
+        whereClause.name = {
+          contains: search,
+          mode: 'insensitive',
+        };
+      }
+
+      const [chats, total] = await Promise.all([
+        this.prisma.chat.findMany({
+          where: whereClause,
+          include: {
+            members: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    role: true,
+                    picture: true,
+                  },
+                },
+              },
+            },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              include: {
+                sender: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    picture: true,
+                  },
+                },
+              },
+            },
+            trip: {
+              select: {
+                id: true,
+                pickup: true,
+                departure: true,
+                destination: true,
+                departure_date: true,
+                departure_time: true,
+                currency: true,
+                airline_id: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                  },
+                },
+                trip_items: {
+                  include: {
+                    trip_item: {
+                      select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_id: true,
+                        translations: {
+                          select: {
+                            id: true,
+                            language: true,
+                            name: true,
+                            description: true,
+                          },
+                        },
+                      },
+                    },
+                    prices: {
+                      select: {
+                        currency: true,
+                        price: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            request: {
+              select: {
+                id: true,
+                status: true,
+                cost: true,
+                currency: true,
+                created_at: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    picture: true,
+                  },
+                },
+                request_items: {
+                  select: {
+                    trip_item_id: true,
+                    quantity: true,
+                    special_notes: true,
+                    trip_item: {
+                      select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_id: true,
+                        translations: {
+                          select: {
+                            id: true,
+                            language: true,
+                            name: true,
+                            description: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            _count: {
+              select: {
+                messages: {
+                  where: {
+                    isRead: false,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { updatedAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.chat.count({ where: whereClause }),
+      ]);
+
+      const chatSummaries: ChatSummaryDto[] = chats.map((chat) => {
+        const lastMsg = chat.messages[0];
+
+        // Ensure data field is properly serialized (convert to JSON if needed)
+        let messageData: Record<string, any> | null = null;
+        if (lastMsg?.data) {
+          try {
+            messageData =
+              typeof lastMsg.data === 'object' &&
+              lastMsg.data !== null &&
+              !Array.isArray(lastMsg.data)
+                ? (lastMsg.data as Record<string, any>)
+                : null;
+          } catch (e) {
+            messageData = null;
+          }
+        }
+
+        return {
+          id: chat.id,
+          name: chat.name,
+          lastMessage: lastMsg
+            ? {
+                id: lastMsg.id,
+                content: lastMsg.content || null,
+                type: lastMsg.type,
+                imageUrls: messageData?.imageUrls || null,
+                data: messageData,
+                createdAt: lastMsg.createdAt,
+                sender: lastMsg.sender
+                  ? {
+                      id: lastMsg.sender.id,
+                      email: lastMsg.sender.email || '',
+                      name: lastMsg.sender.name || '',
+                      firstName: lastMsg.sender.firstName || null,
+                      lastName: lastMsg.sender.lastName || null,
+                      picture: lastMsg.sender.picture || null,
+                    }
+                  : null,
+              }
+            : null,
+          lastMessageAt: lastMsg?.createdAt || null,
+          unreadCount: chat._count.messages,
+          members: chat.members.map((member) => ({
+            id: member.user.id,
+            email: member.user.email,
+            name: member.user.name,
+            firstName: member.user.firstName,
+            lastName: member.user.lastName,
+            role: member.user.role,
+            picture: member.user.picture,
+          })),
+          createdAt: chat.createdAt,
+          trip: chat.trip
+            ? {
+                id: chat.trip.id,
+                pickup: chat.trip.pickup,
+                departure: chat.trip.departure,
+                destination: chat.trip.destination,
+                departure_date: chat.trip.departure_date,
+                departure_time: chat.trip.departure_time,
+                currency: chat.trip.currency,
+                airline_id: chat.trip.airline_id,
+                user: chat.trip.user
+                  ? {
+                      id: chat.trip.user.id,
+                      email: chat.trip.user.email,
+                      firstName: chat.trip.user.firstName,
+                      lastName: chat.trip.user.lastName,
+                    }
+                  : undefined,
+                trip_items: (chat.trip as any).trip_items
+                  ? (chat.trip as any).trip_items.map((ti: any) => ({
+                      trip_item_id: ti.trip_item_id,
+                      price: ti.price ? Number(ti.price) : null,
+                      available_kg: ti.avalailble_kg
+                        ? Number(ti.avalailble_kg)
+                        : null,
+                      prices: ti.prices
+                        ? ti.prices.map((p: any) => ({
+                            currency: p.currency,
+                            price: Number(p.price),
+                          }))
+                        : [],
+                      trip_item: ti.trip_item
+                        ? {
+                            ...ti.trip_item,
+                            translations: ti.trip_item.translations || [],
+                          }
+                        : null,
+                    }))
+                  : undefined,
+              }
+            : undefined,
+          request: chat.request
+            ? {
+                id: chat.request.id,
+                status: chat.request.status,
+                cost: chat.request.cost ? Number(chat.request.cost) : null,
+                currency: chat.request.currency,
+                created_at: chat.request.created_at,
+                availableKgs: chat.request.request_items
+                  ? chat.request.request_items.reduce(
+                      (total, item) => total + item.quantity,
+                      0,
+                    )
+                  : 0,
+                user: chat.request.user
+                  ? {
+                      id: chat.request.user.id,
+                      email: chat.request.user.email,
+                      name: chat.request.user.name,
+                      firstName: chat.request.user.firstName,
+                      lastName: chat.request.user.lastName,
+                      picture: chat.request.user.picture,
+                    }
+                  : undefined,
+                requestItems: chat.request.request_items
+                  ? chat.request.request_items.map((item: any) => ({
+                      trip_item_id: item.trip_item_id,
+                      quantity: item.quantity,
+                      special_notes: item.special_notes,
+                      trip_item: item.trip_item
+                        ? {
+                            ...item.trip_item,
+                            translations: item.trip_item.translations || [],
+                          }
+                        : null,
+                    }))
+                  : undefined,
+              }
+            : undefined,
+        };
+      });
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.chat.getAll.success',
+        { lang },
+      );
+
+      return {
+        message,
+        chats: chatSummaries,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.chat.getAll.failed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get all messages of a chat for admin (no membership check)
+   * NOTE: This method is read-only and does NOT:
+   * - Update user's last_seen
+   * - Mark messages as read
+   * - Invalidate cache
+   * - Modify any data
+   */
+  async getChatMessagesForAdmin(
+    query: GetMessagesQueryDto,
+    lang?: string,
+  ): Promise<GetMessagesResponseDto> {
+    const { chatId, page = 1, limit = 20 } = query;
+    const skip = (page - 1) * limit;
+
+    // No membership check for admin
+
+    try {
+      const [messages, total] = await Promise.all([
+        this.prisma.message.findMany({
+          where: { chat_id: chatId },
+          include: {
+            sender: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+            request: {
+              include: {
+                trip: {
+                  select: {
+                    id: true,
+                    pickup: true,
+                    departure: true,
+                    destination: true,
+                    departure_date: true,
+                    departure_time: true,
+                    currency: true,
+                    airline_id: true,
+                    user: {
+                      select: {
+                        id: true,
+                        email: true,
+                        name: true,
+                        firstName: true,
+                        lastName: true,
+                      },
+                    },
+                    trip_items: {
+                      include: {
+                        trip_item: {
+                          select: {
+                            id: true,
+                            name: true,
+                            description: true,
+                            image_id: true,
+                            created_at: true,
+                            updated_at: true,
+                            translations: {
+                              select: {
+                                id: true,
+                                language: true,
+                                name: true,
+                                description: true,
+                              },
+                            },
+                          },
+                        },
+                        prices: {
+                          select: {
+                            currency: true,
+                            price: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    picture: true,
+                  },
+                },
+                request_items: {
+                  include: {
+                    trip_item: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.message.count({ where: { chat_id: chatId } }),
+      ]);
+
+      // Transform messages using the same logic as getMessages
+      const messageResponses: MessageResponseDto[] = await Promise.all(
+        messages.map(async (message) => {
+          // Fetch review data if message type is REVIEW
+          let reviewData = undefined;
+          if (message.type === 'REVIEW' && message.review_id) {
+            try {
+              const rating = await this.prisma.rating.findUnique({
+                where: { id: message.review_id },
+                include: {
+                  giver: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                      firstName: true,
+                      lastName: true,
+                    },
+                  },
+                  receiver: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                      firstName: true,
+                      lastName: true,
+                    },
+                  },
+                  trip: {
+                    select: {
+                      id: true,
+                      pickup: true,
+                      departure: true,
+                      destination: true,
+                    },
+                  },
+                  request: {
+                    select: {
+                      id: true,
+                      status: true,
+                    },
+                  },
+                },
+              });
+
+              if (rating) {
+                reviewData = {
+                  id: rating.id,
+                  rating: rating.rating,
+                  comment: rating.comment,
+                  createdAt: rating.created_at,
+                  updatedAt: rating.updated_at,
+                  giver: {
+                    id: rating.giver.id,
+                    email: rating.giver.email,
+                    name: rating.giver.name,
+                  },
+                  receiver: {
+                    id: rating.receiver.id,
+                    email: rating.receiver.email,
+                    name: rating.receiver.name,
+                  },
+                  trip: rating.trip
+                    ? {
+                        id: rating.trip.id,
+                        pickup: rating.trip.pickup,
+                        departure: rating.trip.departure,
+                        destination: rating.trip.destination,
+                      }
+                    : undefined,
+                  request: rating.request
+                    ? {
+                        id: rating.request.id,
+                        status: rating.request.status,
+                      }
+                    : undefined,
+                };
+              }
+            } catch (reviewError) {
+              console.error('Error fetching review data:', reviewError);
+            }
+          }
+
+          return {
+            id: message.id,
+            chatId: message.chat_id,
+            sender: {
+              id: message.sender.id,
+              email: message.sender.email,
+              name: message.sender.name,
+              firstName: message.sender.firstName,
+              lastName: message.sender.lastName,
+            },
+            content: message.content,
+            imageUrls: (message.data as Record<string, any>)?.imageUrls || null,
+            type: message.type,
+            isRead: message.isRead,
+            createdAt: message.createdAt,
+            updatedAt: message.createdAt,
+            data: (message.data as Record<string, any>) || null,
+            tripData: message.request?.trip
+              ? {
+                  id: message.request.trip.id,
+                  pickup: message.request.trip.pickup,
+                  departure: message.request.trip.departure,
+                  destination: message.request.trip.destination,
+                  departure_date: message.request.trip.departure_date,
+                  departure_time: message.request.trip.departure_time,
+                  currency: message.request.trip.currency,
+                  airline_id: message.request.trip.airline_id,
+                  user: message.request.trip.user
+                    ? {
+                        id: message.request.trip.user.id,
+                        email: message.request.trip.user.email,
+                        name: message.request.trip.user.name,
+                        firstName: message.request.trip.user.firstName,
+                        lastName: message.request.trip.user.lastName,
+                      }
+                    : undefined,
+                  trip_items: (message.request.trip as any).trip_items
+                    ? (message.request.trip as any).trip_items.map(
+                        (ti: any) => ({
+                          trip_item_id: ti.trip_item_id,
+                          price:
+                            ti.price !== undefined ? Number(ti.price) : null,
+                          available_kg:
+                            ti.avalailble_kg !== undefined &&
+                            ti.avalailble_kg !== null
+                              ? Number(ti.avalailble_kg)
+                              : null,
+                          createdAt: ti.created_at,
+                          updatedAt: ti.updated_at,
+                          prices: ti.prices
+                            ? ti.prices.map((p: any) => ({
+                                currency: p.currency,
+                                price: Number(p.price),
+                              }))
+                            : [],
+                          trip_item: ti.trip_item
+                            ? {
+                                id: ti.trip_item.id,
+                                name: ti.trip_item.name,
+                                description: ti.trip_item.description,
+                                image_id: ti.trip_item.image_id,
+                                createdAt: ti.trip_item.created_at,
+                                updatedAt: ti.trip_item.updated_at,
+                                translations:
+                                  (ti.trip_item as any).translations || [],
+                              }
+                            : null,
+                        }),
+                      )
+                    : undefined,
+                }
+              : undefined,
+            requestData: message.request
+              ? {
+                  id: message.request.id,
+                  status: message.request.status,
+                  message: message.request.message,
+                  cost: message.request.cost
+                    ? Number(message.request.cost)
+                    : null,
+                  currency: message.request.currency,
+                  createdAt: message.request.created_at,
+                  updatedAt: message.request.updated_at,
+                  availableKgs: message.request.request_items
+                    ? message.request.request_items.reduce(
+                        (total, item) => total + item.quantity,
+                        0,
+                      )
+                    : 0,
+                  requestItems: message.request.request_items
+                    ? (() => {
+                        const tripItems =
+                          (message.request as any).trip?.trip_items || [];
+                        return message.request.request_items.map(
+                          (item: any) => {
+                            const tripItem = tripItems.find(
+                              (ti: any) =>
+                                ti.trip_item_id === item.trip_item_id,
+                            );
+                            return {
+                              quantity: item.quantity,
+                              specialNotes: item.special_notes,
+                              createdAt: item.created_at,
+                              updatedAt: item.updated_at,
+                              price: tripItem ? Number(tripItem.price) : null,
+                              available_kg: tripItem
+                                ? tripItem.avalailble_kg
+                                  ? Number(tripItem.avalailble_kg)
+                                  : null
+                                : null,
+                              tripItem: item.trip_item
+                                ? {
+                                    id: item.trip_item.id,
+                                    name: item.trip_item.name,
+                                    description: item.trip_item.description,
+                                    image_id: item.trip_item.image_id,
+                                    createdAt: item.trip_item.created_at,
+                                    updatedAt: item.trip_item.updated_at,
+                                    translations: item.trip_item.translations
+                                      ? item.trip_item.translations.map(
+                                          (t: any) => ({
+                                            id: t.id,
+                                            language: t.language,
+                                            name: t.name,
+                                            description: t.description,
+                                          }),
+                                        )
+                                      : [],
+                                  }
+                                : undefined,
+                            };
+                          },
+                        );
+                      })()
+                    : [],
+                  user: message.request.user
+                    ? {
+                        id: message.request.user.id,
+                        email: message.request.user.email,
+                        name: message.request.user.name,
+                        firstName: message.request.user.firstName,
+                        lastName: message.request.user.lastName,
+                        picture: message.request.user.picture,
+                      }
+                    : undefined,
+                }
+              : undefined,
+            reviewData,
+          };
+        }),
+      );
+
+      // Calculate average response time per member
+      const responseTimeMap = new Map<
+        string,
+        { total: number; count: number }
+      >();
+      const sortedMessages = [...messages].sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+      );
+
+      let previousMessage: (typeof messages)[number] | null = null;
+      for (const msg of sortedMessages) {
+        if (previousMessage && previousMessage.sender_id !== msg.sender_id) {
+          const delta =
+            msg.createdAt.getTime() - previousMessage.createdAt.getTime();
+          if (delta >= 0) {
+            const entry = responseTimeMap.get(msg.sender_id) || {
+              total: 0,
+              count: 0,
+            };
+            entry.total += delta;
+            entry.count += 1;
+            responseTimeMap.set(msg.sender_id, entry);
+          }
+        }
+        previousMessage = msg;
+      }
+
+      const averageResponseTimes = new Map<string, number>();
+      for (const [userId, { total, count }] of responseTimeMap.entries()) {
+        if (count > 0) {
+          averageResponseTimes.set(userId, total / count);
+        }
+      }
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message_text = await this.i18n.translate(
+        'translation.chat.messages.success',
+        { lang },
+      );
+
+      // Get chat request and trip data
+      const chatData = await this.getChatWithRequestAndTripData(chatId);
+
+      // Get chat info including members with last_seen
+      const chat = await this.prisma.chat.findUnique({
+        where: { id: chatId },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          updatedAt: true,
+          members: {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  picture: true,
+                  role: true,
+                  last_seen: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const chat_info = chat
+        ? {
+            id: chat.id,
+            name: chat.name,
+            createdAt: chat.createdAt,
+            updatedAt: chat.updatedAt,
+            members: chat.members.map((member) => ({
+              id: member.user.id,
+              email: member.user.email,
+              name: member.user.name,
+              picture: member.user.picture,
+              role: member.user.role,
+              last_seen: member.user.last_seen,
+              average_message_response_time: averageResponseTimes.has(
+                member.user.id,
+              )
+                ? averageResponseTimes.get(member.user.id)! / 1000
+                : null,
+            })),
+          }
+        : null;
+
+      const result = {
+        message: message_text,
+        messages: messageResponses,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+        chat_info,
+        request: chatData?.request || null,
+        trip: chatData?.trip || null,
+      };
+
+      return result;
+    } catch (error) {
+      const message = await this.i18n.translate(
+        'translation.chat.messages.failed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
   async createMessage(data: {
     chatId: string;
     senderId: string;

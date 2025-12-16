@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
@@ -9,57 +8,12 @@ import { TripStatus } from 'generated/prisma/client';
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
-  private readonly SCHEDULER_NOTIFICATION_EMAIL = 'kinslycho237@gmail.com';
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly i18n: I18nService,
-    private readonly configService: ConfigService,
   ) {}
-
-  /**
-   * Helper method to send scheduler notification email
-   */
-  private async sendSchedulerNotification(
-    schedulerName: string,
-    status: 'START' | 'END' | 'ERROR',
-    details?: string,
-  ): Promise<void> {
-    try {
-      const timestamp = new Date().toISOString();
-      const subject = `[Velro Scheduler] ${schedulerName} - ${status}`;
-      const statusEmoji =
-        status === 'START' ? '▶️' : status === 'END' ? '✅' : '❌';
-
-      const text = `${statusEmoji} ${schedulerName}\nStatus: ${status}\nTime: ${timestamp}${details ? `\n\nDetails:\n${details}` : ''}`;
-
-      const html = `
-        <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">${statusEmoji} ${schedulerName}</h2>
-          <p><strong>Status:</strong> ${status}</p>
-          <p><strong>Time:</strong> ${timestamp}</p>
-          ${details ? `<div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;"><strong>Details:</strong><pre style="white-space: pre-wrap; font-family: monospace;">${details}</pre></div>` : ''}
-        </div>
-      `;
-
-      await this.notificationService.sendEmail(
-        {
-          to: this.SCHEDULER_NOTIFICATION_EMAIL,
-          subject,
-          text,
-          html,
-        },
-        'en',
-      );
-    } catch (error) {
-      // Log error but don't throw - we don't want email failures to break schedulers
-      this.logger.error(
-        `Failed to send scheduler notification email for ${schedulerName}:`,
-        error,
-      );
-    }
-  }
 
   /**
    * Check for new trips created in the last hour and match them against alerts
@@ -71,8 +25,6 @@ export class SchedulerService {
     this.logger.log(
       `[CRON START] Alert Check - Running at ${startTime.toISOString()}`,
     );
-
-    await this.sendSchedulerNotification('Alert Check', 'START');
 
     try {
       // Get trips created in the last hour
@@ -110,18 +62,8 @@ export class SchedulerService {
       this.logger.log(
         `[CRON END] Alert Check - Completed in ${duration}ms at ${endTime.toISOString()}`,
       );
-      await this.sendSchedulerNotification(
-        'Alert Check',
-        'END',
-        `Completed in ${duration}ms`,
-      );
     } catch (error) {
       this.logger.error('[CRON ERROR] Alert Check failed:', error);
-      await this.sendSchedulerNotification(
-        'Alert Check',
-        'ERROR',
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
-      );
     }
   }
 
@@ -409,8 +351,6 @@ export class SchedulerService {
       `[CRON START] Trip Status Update - Running at ${startTime.toISOString()}`,
     );
 
-    await this.sendSchedulerNotification('Trip Status Update', 'START');
-
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -465,18 +405,8 @@ export class SchedulerService {
       this.logger.log(
         `[CRON END] Trip Status Update - Updated ${totalUpdated} trips in ${duration}ms at ${endTime.toISOString()}`,
       );
-      await this.sendSchedulerNotification(
-        'Trip Status Update',
-        'END',
-        `Updated ${totalUpdated} trips (${completedResult.count} COMPLETED, ${inProgressResult.count} INPROGRESS) in ${duration}ms`,
-      );
     } catch (error) {
       this.logger.error('[CRON ERROR] Trip Status Update failed:', error);
-      await this.sendSchedulerNotification(
-        'Trip Status Update',
-        'ERROR',
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
-      );
     }
   }
 
@@ -490,8 +420,6 @@ export class SchedulerService {
     this.logger.log(
       `[CRON START] Cleanup Expired Data - Running at ${startTime.toISOString()}`,
     );
-
-    await this.sendSchedulerNotification('Cleanup Expired Data', 'START');
 
     try {
       const now = new Date();
@@ -525,22 +453,12 @@ export class SchedulerService {
       this.logger.log(
         `[CRON END] Cleanup Expired Data - Completed in ${duration}ms`,
       );
-      await this.sendSchedulerNotification(
-        'Cleanup Expired Data',
-        'END',
-        `Deleted ${deletedPendingUsers.count} pending users and ${deletedOTPs.count} OTPs in ${duration}ms`,
-      );
     } catch (error) {
       const endTime = new Date();
       const duration = endTime.getTime() - startTime.getTime();
       this.logger.error(
         `[CRON ERROR] Cleanup Expired Data - Failed after ${duration}ms`,
         error,
-      );
-      await this.sendSchedulerNotification(
-        'Cleanup Expired Data',
-        'ERROR',
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -576,16 +494,11 @@ export class SchedulerService {
    * Update CONFIRMED requests to IN_TRANSIT when departure date is today
    * Runs every hour
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @Cron(CronExpression.EVERY_2_HOURS)
   async updateConfirmedRequestsToInTransit(): Promise<void> {
     const startTime = new Date();
     this.logger.log(
       `[CRON START] Update Confirmed Requests to In Transit - Running at ${startTime.toISOString()}`,
-    );
-
-    await this.sendSchedulerNotification(
-      'Update Confirmed Requests to In Transit',
-      'START',
     );
 
     try {
@@ -636,20 +549,10 @@ export class SchedulerService {
       this.logger.log(
         `[CRON END] Update Confirmed Requests to In Transit - Completed in ${duration}ms at ${endTime.toISOString()}`,
       );
-      await this.sendSchedulerNotification(
-        'Update Confirmed Requests to In Transit',
-        'END',
-        `Updated ${updateResult.count} requests to IN_TRANSIT in ${duration}ms`,
-      );
     } catch (error) {
       this.logger.error(
         '[CRON ERROR] Update Confirmed Requests to In Transit failed:',
         error,
-      );
-      await this.sendSchedulerNotification(
-        'Update Confirmed Requests to In Transit',
-        'ERROR',
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -663,11 +566,6 @@ export class SchedulerService {
     const startTime = new Date();
     this.logger.log(
       `[CRON START] Update Pending Requests to Expired - Running at ${startTime.toISOString()}`,
-    );
-
-    await this.sendSchedulerNotification(
-      'Update Pending Requests to Expired',
-      'START',
     );
 
     try {
@@ -701,20 +599,10 @@ export class SchedulerService {
       this.logger.log(
         `[CRON END] Update Pending Requests to Expired - Completed in ${duration}ms at ${endTime.toISOString()}`,
       );
-      await this.sendSchedulerNotification(
-        'Update Pending Requests to Expired',
-        'END',
-        `Updated ${updatedRequests.count} requests to EXPIRED in ${duration}ms`,
-      );
     } catch (error) {
       this.logger.error(
         '[CRON ERROR] Update Pending Requests to Expired failed:',
         error,
-      );
-      await this.sendSchedulerNotification(
-        'Update Pending Requests to Expired',
-        'ERROR',
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
