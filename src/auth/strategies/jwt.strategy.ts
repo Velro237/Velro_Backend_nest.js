@@ -25,10 +25,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: true,
         role: true,
         createdAt: true,
+        is_deleted: true,
       },
     });
 
-    if (!user) {
+    if (!user || user.is_deleted) {
       throw new UnauthorizedException('User not found');
     }
 

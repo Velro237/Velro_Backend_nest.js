@@ -293,11 +293,13 @@ export class PaymentService {
         let customer;
         try {
           // Try to find existing customer by email
-          const existingCustomers = await this.stripeService.getStripeInstance().customers.list({
-            email: order.user.email,
-            limit: 1,
-          });
-          
+          const existingCustomers = await this.stripeService
+            .getStripeInstance()
+            .customers.list({
+              email: order.user.email,
+              limit: 1,
+            });
+
           if (existingCustomers.data.length > 0) {
             customer = existingCustomers.data[0];
             this.logger.log(`Using existing customer: ${customer.id}`);
@@ -313,17 +315,29 @@ export class PaymentService {
             });
           }
         } catch (error) {
-          this.logger.error('Failed to create/get customer for existing intent:', error);
-          throw new BadRequestException('Failed to create customer for payment');
+          this.logger.error(
+            'Failed to create/get customer for existing intent:',
+            error,
+          );
+          throw new BadRequestException(
+            'Failed to create customer for payment',
+          );
         }
 
         // Create ephemeral key for the customer
         let ephemeralKey;
         try {
-          ephemeralKey = await this.stripeService.createEphemeralKey(customer.id);
+          ephemeralKey = await this.stripeService.createEphemeralKey(
+            customer.id,
+          );
         } catch (error) {
-          this.logger.error('Failed to create ephemeral key for existing intent:', error);
-          throw new BadRequestException('Failed to create ephemeral key for payment');
+          this.logger.error(
+            'Failed to create ephemeral key for existing intent:',
+            error,
+          );
+          throw new BadRequestException(
+            'Failed to create ephemeral key for payment',
+          );
         }
 
         return {
@@ -344,7 +358,7 @@ export class PaymentService {
       // The request cost is stored in user's currency (XAF), but Stripe should charge in trip currency
       const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
       const requestCurrency = (order.currency || 'XAF').toUpperCase();
-      
+
       // Get traveler price from request (may be in XAF)
       const requestCost = Number(order.cost || 0);
       if (requestCost <= 0) {
@@ -354,19 +368,19 @@ export class PaymentService {
       // Convert request cost back to trip currency if needed
       let travelerPrice: number;
       let currency: string;
-      
+
       if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
         // Request cost is in XAF, convert back to trip currency (USD/EUR/CAD)
         const conversion = this.currencyService.convertCurrency(
           requestCost,
           'XAF',
-          tripCurrency
+          tripCurrency,
         );
         travelerPrice = conversion.convertedAmount;
         currency = tripCurrency;
-        
+
         this.logger.log(
-          `Currency conversion for Stripe: ${requestCost} ${requestCurrency} = ${travelerPrice} ${currency} (rate: ${conversion.exchangeRate})`
+          `Currency conversion for Stripe: ${requestCost} ${requestCurrency} = ${travelerPrice} ${currency} (rate: ${conversion.exchangeRate})`,
         );
       } else if (requestCurrency !== 'XAF') {
         // Request is already in trip currency, use it directly
@@ -377,13 +391,13 @@ export class PaymentService {
         const conversion = this.currencyService.convertCurrency(
           requestCost,
           'XAF',
-          'EUR'
+          'EUR',
         );
         travelerPrice = conversion.convertedAmount;
         currency = 'EUR';
-        
+
         this.logger.log(
-          `XAF to EUR conversion for Stripe: ${requestCost} XAF = ${travelerPrice} EUR (rate: ${conversion.exchangeRate})`
+          `XAF to EUR conversion for Stripe: ${requestCost} XAF = ${travelerPrice} EUR (rate: ${conversion.exchangeRate})`,
         );
       }
 
@@ -392,7 +406,7 @@ export class PaymentService {
 
       // Calculate total sender pays in trip currency
       const senderTotal = travelerPrice + platformFee;
-      
+
       // Validate currency is supported by Stripe (let Stripe handle validation)
       // Stripe will throw an error if currency is not supported
 
@@ -452,11 +466,13 @@ export class PaymentService {
       let customer;
       try {
         // Try to find existing customer by email
-        const existingCustomers = await this.stripeService.getStripeInstance().customers.list({
-          email: order.user.email,
-          limit: 1,
-        });
-        
+        const existingCustomers = await this.stripeService
+          .getStripeInstance()
+          .customers.list({
+            email: order.user.email,
+            limit: 1,
+          });
+
         if (existingCustomers.data.length > 0) {
           customer = existingCustomers.data[0];
           this.logger.log(`Using existing customer: ${customer.id}`);
@@ -482,7 +498,9 @@ export class PaymentService {
         ephemeralKey = await this.stripeService.createEphemeralKey(customer.id);
       } catch (error) {
         this.logger.error('Failed to create ephemeral key:', error);
-        throw new BadRequestException('Failed to create ephemeral key for payment');
+        throw new BadRequestException(
+          'Failed to create ephemeral key for payment',
+        );
       }
 
       return {
@@ -527,10 +545,11 @@ export class PaymentService {
 
       // IMPORTANT: Get actual payment currency and amount from Stripe PaymentIntent
       // The order.currency may be XAF (stored), but payment was made in trip currency (USD/EUR/CAD)
-      const paymentIntent = await this.stripeService.getPaymentIntent(paymentIntentId);
+      const paymentIntent =
+        await this.stripeService.getPaymentIntent(paymentIntentId);
       const paymentCurrency = paymentIntent.currency.toUpperCase();
       const totalPaid = paymentIntent.amount / 100; // Convert from cents
-      
+
       // Get traveler price from PaymentIntent metadata (if available) or calculate from total
       let travelerPrice: number;
       if (paymentIntent.metadata?.travelerPrice) {
@@ -541,13 +560,13 @@ export class PaymentService {
         const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
         const requestCurrency = (order.currency || 'XAF').toUpperCase();
         const requestCost = Number(order.cost || 0);
-        
+
         // Convert request cost back to trip currency (same logic as createPaymentIntent)
         if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
           const conversion = this.currencyService.convertCurrency(
             requestCost,
             'XAF',
-            tripCurrency
+            tripCurrency,
           );
           travelerPrice = conversion.convertedAmount;
         } else {
@@ -556,21 +575,22 @@ export class PaymentService {
       }
 
       // IDEMPOTENCY: Check if payment already processed
-      const isAlreadyProcessed = order.payment_status === PaymentStatus.SUCCEEDED;
+      const isAlreadyProcessed =
+        order.payment_status === PaymentStatus.SUCCEEDED;
 
       // Optional: device token of the payer if it was provided when creating the PaymentIntent
       const payerDeviceId: string | null =
         (paymentIntent.metadata as any)?.payerDeviceId ||
         (paymentIntent.metadata as any)?.deviceId ||
         null;
-      
+
       // Get traveler's language preference
       const traveler = await this.prisma.user.findUnique({
         where: { id: order.trip.user_id },
         select: { lang: true, device_id: true },
       });
       const travelerLang = traveler?.lang || 'en';
-      
+
       // Notification data
       const notificationTitle = 'Payment Received';
       const notificationMessage = `You've received a payment of ${paymentCurrency} ${travelerPrice.toFixed(2)} for your trip. The funds are on hold until delivery is confirmed.`;
@@ -581,10 +601,10 @@ export class PaymentService {
         amount: travelerPrice,
         currency: paymentCurrency,
       };
-      
+
       if (isAlreadyProcessed) {
         this.logger.log(`Payment already processed for order ${order.id}`);
-        
+
         // Still create in-app notification and send push notification even if payment was already processed
         // (in case notification wasn't sent before or user now has device_id)
         try {
@@ -601,7 +621,7 @@ export class PaymentService {
             },
             travelerLang,
           );
-          
+
           // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
           await this.notificationService.sendPushNotificationToUser(
             order.trip.user_id,
@@ -616,40 +636,45 @@ export class PaymentService {
             try {
               const payer = await this.prisma.user.findUnique({
                 where: { id: order.user_id },
-                select: { lang: true },
+                select: { lang: true, push_notification: true },
               });
-              const payerLang = payer?.lang || 'en';
 
-              const payerTitle = await this.i18n.translate(
-                'translation.notification.payment.success.title',
-                {
-                  lang: payerLang,
-                  defaultValue: 'Payment Successful',
-                },
-              );
-              const payerMessage = await this.i18n.translate(
-                'translation.notification.payment.success.message',
-                {
-                  lang: payerLang,
-                  defaultValue: 'Your payment has been successfully processed',
-                },
-              );
+              // Only send if user has push_notification enabled
+              if (payer?.push_notification) {
+                const payerLang = payer?.lang || 'en';
 
-              await this.notificationService.sendPushNotification(
-                {
-                  deviceId: payerDeviceId,
-                  title: payerTitle,
-                  body: payerMessage,
-                  data: {
-                    type: 'payment_success',
-                    order_id: order.id,
-                    trip_id: order.trip_id,
-                    amount: totalPaid,
-                    currency: paymentCurrency,
+                const payerTitle = await this.i18n.translate(
+                  'translation.notification.payment.success.title',
+                  {
+                    lang: payerLang,
+                    defaultValue: 'Payment Successful',
                   },
-                },
-                payerLang,
-              );
+                );
+                const payerMessage = await this.i18n.translate(
+                  'translation.notification.payment.success.message',
+                  {
+                    lang: payerLang,
+                    defaultValue:
+                      'Your payment has been successfully processed',
+                  },
+                );
+
+                await this.notificationService.sendPushNotification(
+                  {
+                    deviceId: payerDeviceId,
+                    title: payerTitle,
+                    body: payerMessage,
+                    data: {
+                      type: 'payment_success',
+                      order_id: order.id,
+                      trip_id: order.trip_id,
+                      amount: totalPaid,
+                      currency: paymentCurrency,
+                    },
+                  },
+                  payerLang,
+                );
+              }
             } catch (error) {
               this.logger.warn(
                 `Failed to send payment success push to payer (already processed) via deviceId: ${error.message}`,
@@ -657,32 +682,34 @@ export class PaymentService {
             }
           }
         } catch (error) {
-          this.logger.warn(`Failed to create/send notification for already processed payment: ${error.message}`);
+          this.logger.warn(
+            `Failed to create/send notification for already processed payment: ${error.message}`,
+          );
           // Don't fail the operation if notification fails
         }
-        
+
         return;
       }
 
-        // Update payment status only
-        await this.prisma.tripRequest.update({
-          where: { id: order.id },
-          data: {
-            payment_status: PaymentStatus.SUCCEEDED,
-            paid_at: new Date(),
-          },
-        });
+      // Update payment status only
+      await this.prisma.tripRequest.update({
+        where: { id: order.id },
+        data: {
+          payment_status: PaymentStatus.SUCCEEDED,
+          paid_at: new Date(),
+        },
+      });
 
-        // Use the proper endpoint to change status to CONFIRMED
-        // For payment success, we use the sender ID since they initiated the payment
-        // Pass from_app: true to allow automatic status change from payment flow
-        await this.requestService.changeRequestStatus(
-          order.id,
-          'CONFIRMED',
-          order.user_id, // sender ID (who made the payment)
-          'en',
-          true // from_app: true - this is a system call from payment flow
-        );
+      // Use the proper endpoint to change status to CONFIRMED
+      // For payment success, we use the sender ID since they initiated the payment
+      // Pass from_app: true to allow automatic status change from payment flow
+      await this.requestService.changeRequestStatus(
+        order.id,
+        'CONFIRMED',
+        order.user_id, // sender ID (who made the payment)
+        'en',
+        true, // from_app: true - this is a system call from payment flow
+      );
 
       // Wallet should already exist from user registration - find it or throw error
       const wallet = await this.prisma.wallet.findUnique({
@@ -692,15 +719,15 @@ export class PaymentService {
       if (!wallet) {
         this.logger.error(
           `Wallet not found for traveler ${order.trip.user_id} during payment success. ` +
-          `This should not happen - wallet should be created at user registration.`
+            `This should not happen - wallet should be created at user registration.`,
         );
         throw new NotFoundException(
-          `Traveler wallet not found. This indicates a data integrity issue.`
+          `Traveler wallet not found. This indicates a data integrity issue.`,
         );
       }
-      
+
       const pendingEarnings = travelerPrice;
-      
+
       // Update wallet currency to match the payment currency if it's the first payment
       if (wallet.currency !== paymentCurrency) {
         await this.prisma.wallet.update({
@@ -734,7 +761,7 @@ export class PaymentService {
 
       // Get the appropriate currency columns for the payment currency
       const currencyColumns = this.getCurrencyColumns(paymentCurrency);
-      
+
       // Add to pending balance using currency-specific column
       await this.prisma.wallet.update({
         where: { id: wallet.id },
@@ -747,7 +774,7 @@ export class PaymentService {
 
       // Get current balance for the specific currency
       const currentBalance = Number(wallet[currencyColumns.hold] || 0);
-      
+
       // Create transaction record
       await this.prisma.transaction.create({
         data: {
@@ -790,7 +817,7 @@ export class PaymentService {
           },
           travelerLang,
         );
-        
+
         // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
         await this.notificationService.sendPushNotificationToUser(
           order.trip.user_id,
@@ -805,40 +832,44 @@ export class PaymentService {
           try {
             const payer = await this.prisma.user.findUnique({
               where: { id: order.user_id },
-              select: { lang: true },
+              select: { lang: true, push_notification: true },
             });
-            const payerLang = payer?.lang || 'en';
 
-            const payerTitle = await this.i18n.translate(
-              'translation.notification.payment.success.title',
-              {
-                lang: payerLang,
-                defaultValue: 'Payment Successful',
-              },
-            );
-            const payerMessage = await this.i18n.translate(
-              'translation.notification.payment.success.message',
-              {
-                lang: payerLang,
-                defaultValue: 'Your payment has been successfully processed',
-              },
-            );
+            // Only send if user has push_notification enabled
+            if (payer?.push_notification) {
+              const payerLang = payer?.lang || 'en';
 
-            await this.notificationService.sendPushNotification(
-              {
-                deviceId: payerDeviceId,
-                title: payerTitle,
-                body: payerMessage,
-                data: {
-                  type: 'payment_success',
-                  order_id: order.id,
-                  trip_id: order.trip_id,
-                  amount: totalPaid,
-                  currency: paymentCurrency,
+              const payerTitle = await this.i18n.translate(
+                'translation.notification.payment.success.title',
+                {
+                  lang: payerLang,
+                  defaultValue: 'Payment Successful',
                 },
-              },
-              payerLang,
-            );
+              );
+              const payerMessage = await this.i18n.translate(
+                'translation.notification.payment.success.message',
+                {
+                  lang: payerLang,
+                  defaultValue: 'Your payment has been successfully processed',
+                },
+              );
+
+              await this.notificationService.sendPushNotification(
+                {
+                  deviceId: payerDeviceId,
+                  title: payerTitle,
+                  body: payerMessage,
+                  data: {
+                    type: 'payment_success',
+                    order_id: order.id,
+                    trip_id: order.trip_id,
+                    amount: totalPaid,
+                    currency: paymentCurrency,
+                  },
+                },
+                payerLang,
+              );
+            }
           } catch (error) {
             this.logger.warn(
               `Failed to send payment success push to payer via deviceId: ${error.message}`,
@@ -846,7 +877,9 @@ export class PaymentService {
           }
         }
       } catch (error) {
-        this.logger.warn(`Failed to create/send payment notification: ${error.message}`);
+        this.logger.warn(
+          `Failed to create/send payment notification: ${error.message}`,
+        );
         // Don't fail the operation if notification fails
       }
     } catch (error) {
@@ -883,16 +916,16 @@ export class PaymentService {
         isNewAccount = false;
         this.logger.log(`User already has Stripe account: ${accountId}`);
       } else {
- 
         // Try to use user's country preference if provided, otherwise use detected country
         // If that fails or is unsupported, fallback to 'US' for account creation
         // User can always change their country during Stripe onboarding
-        const preferredCountry = dto.country || await this.detectCountryFromUser(user) || 'US';
-        
+        const preferredCountry =
+          dto.country || (await this.detectCountryFromUser(user)) || 'US';
+
         // Try with preferred country first, fallback to US if it fails
         let accountCreationCountry = preferredCountry;
         let result;
-        
+
         try {
           result = await this.stripeService.ensureConnectedAccount({
             userId: user.id,
@@ -906,7 +939,7 @@ export class PaymentService {
           // If preferred country fails (e.g., unsupported), retry with US
           if (accountCreationCountry !== 'US') {
             this.logger.warn(
-              `Failed to create account with country ${accountCreationCountry}, retrying with US: ${error.message}`
+              `Failed to create account with country ${accountCreationCountry}, retrying with US: ${error.message}`,
             );
             accountCreationCountry = 'US';
             result = await this.stripeService.ensureConnectedAccount({
@@ -957,16 +990,18 @@ export class PaymentService {
     // 1. Try to get country from KYC phone verification data
     const kycCountry = await this.getCountryFromKYCPhone(user.id);
     if (kycCountry) {
-      this.logger.log(`Detected country from KYC phone verification: ${kycCountry}`);
+      this.logger.log(
+        `Detected country from KYC phone verification: ${kycCountry}`,
+      );
       return kycCountry;
     }
-    
+
     // 2. Try address country if stored
     if (user.country) {
       this.logger.log(`Using stored country: ${user.country}`);
       return user.country;
     }
-    
+
     // 3. Default fallback to US (most permissive for testing)
     this.logger.log('No country detected, defaulting to US');
     return 'US';
@@ -987,17 +1022,22 @@ export class PaymentService {
       }
 
       const verificationData = kycData.verificationData as any;
-      
+
       // Check if phone verification data exists and has country_code in decision.phone
       if (verificationData.decision?.phone?.country_code) {
         const countryCode = verificationData.decision.phone.country_code;
-        this.logger.log(`Found country code from KYC phone verification: ${countryCode}`);
+        this.logger.log(
+          `Found country code from KYC phone verification: ${countryCode}`,
+        );
         return countryCode;
       }
-      
+
       return null;
     } catch (error) {
-      this.logger.error(`Failed to get country from KYC phone verification:`, error);
+      this.logger.error(
+        `Failed to get country from KYC phone verification:`,
+        error,
+      );
       return null;
     }
   }
@@ -1057,7 +1097,8 @@ export class PaymentService {
       const requirements = (account as any).requirements;
       const currentlyDue = requirements?.currently_due || [];
       const pastDue = requirements?.past_due || [];
-      const hasPendingRequirements = currentlyDue.length > 0 || pastDue.length > 0;
+      const hasPendingRequirements =
+        currentlyDue.length > 0 || pastDue.length > 0;
 
       // Log for debugging
       this.logger.log(
@@ -1104,7 +1145,9 @@ export class PaymentService {
       this.configService.get<number>('VELRO_FEE_PERCENT'),
     );
     // Fee fixed and min values from config are in EUR
-    const feeFixedEUR = Number(this.configService.get<number>('VELRO_FEE_FIXED'));
+    const feeFixedEUR = Number(
+      this.configService.get<number>('VELRO_FEE_FIXED'),
+    );
     const feeMinEUR = Number(this.configService.get<number>('VELRO_FEE_MIN'));
 
     // Convert fee fixed and min from EUR to input currency
@@ -1266,7 +1309,10 @@ export class PaymentService {
 
         if (senderWallet) {
           const refundCurrency = refund.currency?.toUpperCase?.() || 'EUR';
-          const balanceAfter = this.getWalletCurrencyBalance(senderWallet, refundCurrency);
+          const balanceAfter = this.getWalletCurrencyBalance(
+            senderWallet,
+            refundCurrency,
+          );
           await this.prisma.transaction.create({
             data: {
               userId: order.user_id, // Sender
@@ -1284,7 +1330,9 @@ export class PaymentService {
           });
         }
       } catch (error) {
-        this.logger.warn(`Could not record refund transaction: ${error.message}`);
+        this.logger.warn(
+          `Could not record refund transaction: ${error.message}`,
+        );
         // Continue without failing the refund
       }
 
@@ -1296,7 +1344,7 @@ export class PaymentService {
         select: { lang: true, device_id: true },
       });
       const senderLang = sender?.lang || 'en';
-      
+
       // Notification data
       const refundCurrency = refund.currency?.toUpperCase?.() || 'EUR';
       const refundAmount = refund.amount / 100; // Convert from cents
@@ -1309,7 +1357,7 @@ export class PaymentService {
         amount: refundAmount,
         currency: refundCurrency,
       };
-      
+
       // Create in-app notification and send push notification to sender about refund
       try {
         // Create in-app notification (always)
@@ -1325,7 +1373,7 @@ export class PaymentService {
           },
           senderLang,
         );
-        
+
         // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
         await this.notificationService.sendPushNotificationToUser(
           order.user_id, // sender
@@ -1335,7 +1383,9 @@ export class PaymentService {
           senderLang,
         );
       } catch (error) {
-        this.logger.warn(`Failed to create/send refund notification: ${error.message}`);
+        this.logger.warn(
+          `Failed to create/send refund notification: ${error.message}`,
+        );
         // Don't fail the operation if notification fails
       }
     } catch (error) {
@@ -1349,7 +1399,9 @@ export class PaymentService {
    */
   async handlePaymentCancellation(paymentIntentId: string): Promise<void> {
     try {
-      this.logger.log(`Handling PaymentIntent cancellation: ${paymentIntentId}`);
+      this.logger.log(
+        `Handling PaymentIntent cancellation: ${paymentIntentId}`,
+      );
 
       // Find the related order
       const order = await this.prisma.tripRequest.findFirst({
@@ -1365,7 +1417,9 @@ export class PaymentService {
       });
 
       if (!order) {
-        this.logger.warn(`Order not found for canceled PaymentIntent ${paymentIntentId}`);
+        this.logger.warn(
+          `Order not found for canceled PaymentIntent ${paymentIntentId}`,
+        );
         return;
       }
 
@@ -1387,7 +1441,10 @@ export class PaymentService {
 
         if (senderWallet) {
           const cancelCurrency = (order.currency || 'EUR').toUpperCase();
-          const balanceAfter = this.getWalletCurrencyBalance(senderWallet, cancelCurrency);
+          const balanceAfter = this.getWalletCurrencyBalance(
+            senderWallet,
+            cancelCurrency,
+          );
           await this.prisma.transaction.create({
             data: {
               userId: order.user_id, // Sender
@@ -1405,13 +1462,17 @@ export class PaymentService {
           });
         }
       } catch (error) {
-        this.logger.warn(`Could not record cancellation transaction: ${error.message}`);
+        this.logger.warn(
+          `Could not record cancellation transaction: ${error.message}`,
+        );
         // Continue without failing the cancellation
       }
 
       this.logger.log(`Payment cancellation processed for order ${order.id}`);
     } catch (error) {
-      this.logger.error(`Failed to handle payment cancellation: ${error.message}`);
+      this.logger.error(
+        `Failed to handle payment cancellation: ${error.message}`,
+      );
       throw error;
     }
   }

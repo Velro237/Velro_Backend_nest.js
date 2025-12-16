@@ -2056,13 +2056,19 @@ export class ChatService {
       // Send push notification to each other member
       for (const member of otherMembers) {
         try {
-          // Get user's device_id and language for push notification
+          // Get user's device_id, language, and push_notification preference for push notification
           const user = await this.prisma.user.findUnique({
             where: { id: member.user_id },
-            select: { id: true, device_id: true, name: true, lang: true },
+            select: {
+              id: true,
+              device_id: true,
+              name: true,
+              lang: true,
+              push_notification: true,
+            },
           });
 
-          if (!user || !user.device_id) continue;
+          if (!user || !user.device_id || !user.push_notification) continue;
 
           // Get user's language preference and normalize it
           const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';

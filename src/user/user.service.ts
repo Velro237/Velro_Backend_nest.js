@@ -40,6 +40,10 @@ const userSelect = {
   transfers_capability: true,
   stripe_onboarding_complete: true,
   is_suspended: true,
+  push_notification: true,
+  email_notification: true,
+  sms_notification: true,
+  is_deleted: true,
   createdAt: true,
   updatedAt: true,
   services: {
@@ -195,6 +199,9 @@ export class UserService {
           payout_currency: user.payout_currency,
           transfers_capability: user.transfers_capability,
           stripe_onboarding_complete: user.stripe_onboarding_complete,
+          push_notification: user.push_notification,
+          email_notification: user.email_notification,
+          sms_notification: user.sms_notification,
           // additionalInfo: user.additionalInfo, // TODO: Add this field to User model in schema.prisma first
           services: (user.services || []).map((s) => ({
             id: s.id,
@@ -254,7 +261,13 @@ export class UserService {
   async create(createUserDto: CreateUserDto) {
     const { email, password, name, picture, role } = createUserDto;
 
-    const exists = await this.prisma.user.findUnique({ where: { email } });
+    // Check if user already exists (non-deleted users only)
+    const exists = await this.prisma.user.findFirst({
+      where: {
+        email,
+        is_deleted: false,
+      },
+    });
     if (exists)
       throw new ConflictException('User with this email already exists');
 
@@ -348,44 +361,76 @@ export class UserService {
   }
 
   async findByEmail(email: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    const users = await this.prisma.user.findMany({
+      where: {
+        email,
+      },
       select: userSelect,
+      orderBy: {
+        createdAt: 'desc', // Return most recently created users first
+      },
     });
-    if (!user)
+    if (!users || users.length === 0)
       throw new NotFoundException(`User with email ${email} not found`);
 
-    // Calculate statistics in parallel
-    const [ratings, tripsCount, requestsCount] = await Promise.all([
-      // Get all ratings received by this user
+    // Get all user IDs for batch queries
+    const userIds = users.map((u) => u.id);
+
+    // Batch queries for aggregations
+    const [allRatings, tripCounts, requestCounts] = await Promise.all([
+      // Get all ratings received by these users
       this.prisma.rating.findMany({
-        where: { receiver_id: user.id },
-        select: { rating: true },
+        where: { receiver_id: { in: userIds } },
+        select: { receiver_id: true, rating: true },
       }),
-      // Count trips created by this user
-      this.prisma.trip.count({
-        where: { user_id: user.id },
+      // Count trips created by these users
+      this.prisma.trip.groupBy({
+        by: ['user_id'],
+        where: { user_id: { in: userIds } },
+        _count: { id: true },
       }),
-      // Count requests made by this user
-      this.prisma.tripRequest.count({
-        where: { user_id: user.id },
+      // Count requests made by these users
+      this.prisma.tripRequest.groupBy({
+        by: ['user_id'],
+        where: { user_id: { in: userIds } },
+        _count: { id: true },
       }),
     ]);
 
-    // Calculate average rating
-    const totalRatings = ratings.length;
-    const averageRating =
-      totalRatings > 0
-        ? ratings.reduce((sum, r) => sum + r.rating, 0) / totalRatings
-        : 0;
+    // Create maps for quick lookup
+    const ratingMap = new Map<string, number[]>();
+    allRatings.forEach((rating) => {
+      const existing = ratingMap.get(rating.receiver_id) || [];
+      existing.push(rating.rating);
+      ratingMap.set(rating.receiver_id, existing);
+    });
 
-    return {
-      ...user,
-      averageRating: Number(averageRating.toFixed(2)),
-      totalRatings,
-      totalTrips: tripsCount,
-      totalRequests: requestsCount,
-    };
+    const tripCountMap = new Map<string, number>(
+      tripCounts.map((t) => [t.user_id, t._count.id] as [string, number]),
+    );
+    const requestCountMap = new Map<string, number>(
+      requestCounts.map((r) => [r.user_id, r._count.id] as [string, number]),
+    );
+
+    // Build response array with statistics for each user
+    const userDtos = users.map((user) => {
+      const ratings = ratingMap.get(user.id) || [];
+      const totalRatings = ratings.length;
+      const averageRating =
+        totalRatings > 0
+          ? ratings.reduce((sum, r) => sum + r, 0) / totalRatings
+          : 0;
+
+      return {
+        ...user,
+        averageRating: Number(averageRating.toFixed(2)),
+        totalRatings,
+        totalTrips: tripCountMap.get(user.id) ?? 0,
+        totalRequests: requestCountMap.get(user.id) ?? 0,
+      };
+    });
+
+    return userDtos;
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
@@ -455,10 +500,13 @@ export class UserService {
       throw new ConflictException('Username cannot be null or empty');
     }
 
-    // Validate email uniqueness with trimmed email
+    // Validate email uniqueness with trimmed email (non-deleted users only)
     if (email) {
-      const dup = await this.prisma.user.findUnique({
-        where: { email },
+      const dup = await this.prisma.user.findFirst({
+        where: {
+          email,
+          is_deleted: false,
+        },
       });
       if (dup && dup.id !== id)
         throw new ConflictException('User with this email already exists');
@@ -732,12 +780,34 @@ export class UserService {
 
   async remove(id: string) {
     try {
-      const user = await this.prisma.user.delete({
+      // First get the user's current email
+      const existingUser = await this.prisma.user.findUnique({
         where: { id },
+        select: { email: true },
+      });
+
+      if (!existingUser) {
+        throw new NotFoundException(`User #${id} not found`);
+      }
+
+      // Soft delete: set is_deleted to true and change email to deleted.{original_email}
+      const newEmail = existingUser.email.startsWith('deleted.')
+        ? existingUser.email // If already prefixed with deleted., keep it as is
+        : `deleted.${existingUser.email}`;
+
+      const user = await this.prisma.user.update({
+        where: { id },
+        data: {
+          is_deleted: true,
+          email: newEmail,
+        },
         select: userSelect,
       });
       return user;
     } catch (e) {
+      if (e instanceof NotFoundException) {
+        throw e;
+      }
       const exists = await this.prisma.user.findUnique({ where: { id } });
       if (!exists) throw new NotFoundException(`User #${id} not found`);
       throw e;
@@ -1703,9 +1773,12 @@ export class UserService {
     try {
       const { email, password } = adminChangePasswordDto;
 
-      // Find user by email
-      const user = await this.prisma.user.findUnique({
-        where: { email },
+      // Find user by email (non-deleted users only)
+      const user = await this.prisma.user.findFirst({
+        where: {
+          email,
+          is_deleted: false,
+        },
         select: { id: true, email: true },
       });
 
@@ -2011,6 +2084,7 @@ export class UserService {
             lastName: true,
             isFreightForwarder: true,
             createdAt: true,
+            is_deleted: true,
             kycRecords: {
               select: {
                 status: true,
@@ -2205,6 +2279,7 @@ export class UserService {
           total_revenue: revenueInEUR,
           rating: ratingMap.get(user.id) ?? 0,
           status: userStatus,
+          is_deleted: user.is_deleted,
         };
       });
 
@@ -2585,7 +2660,12 @@ export class UserService {
       const skip = (page - 1) * limit;
 
       // Build where clause
-      const whereClause: any = {};
+      const whereClause: any = {
+        // Exclude trips from deleted users
+        user: {
+          is_deleted: false,
+        },
+      };
 
       // Filter by userId if provided
       if (userId) {

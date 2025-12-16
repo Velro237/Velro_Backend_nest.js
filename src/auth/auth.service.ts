@@ -185,9 +185,12 @@ export class AuthService {
       currency = 'XAF';
     }
 
-    // Check if user already exists
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email },
+    // Check if user already exists (non-deleted users only)
+    const existingUser = await this.prisma.user.findFirst({
+      where: {
+        email,
+        is_deleted: false,
+      },
     });
 
     if (existingUser) {
@@ -266,18 +269,6 @@ export class AuthService {
         },
       });
 
-      // Use the lang parameter from signup (user's preferred language)
-      const userLang = lang || 'en';
-
-      const emailDto: SendEmailDto = {
-        to: user.email,
-        subject: 'Welcome to Velro',
-        text: 'Thank you for joining Velro! We are excited to have you on board.',
-        html: `<h1> Your verification code is: <strong>${otpCode}</strong></h1>`,
-      };
-
-      await this.sendEmail(emailDto, userLang);
-
       const message = await this.i18n.translate(
         'translation.auth.signup.success',
         {
@@ -347,8 +338,11 @@ export class AuthService {
   }
 
   async validateUser(email: string, password: string): Promise<any> {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    const user = await this.prisma.user.findFirst({
+      where: {
+        email,
+        is_deleted: false,
+      },
       select: {
         id: true,
         email: true,
@@ -369,6 +363,7 @@ export class AuthService {
         is_suspended: true,
         status_message_en: true,
         status_message_fr: true,
+        is_deleted: true,
       },
     });
 
@@ -478,9 +473,14 @@ export class AuthService {
     const provider = oauth.provider;
     const { skipOtpEmail = false } = options;
 
-    // Si on a un email, on tente de relier à un user existant
+    // Si on a un email, on tente de relier à un user existant (non-deleted only)
     let user = oauth.email
-      ? await this.prisma.user.findUnique({ where: { email: oauth.email } })
+      ? await this.prisma.user.findFirst({
+          where: {
+            email: oauth.email,
+            is_deleted: false,
+          },
+        })
       : null;
 
     // Sinon: tenter par account (provider+providerAccountId)
@@ -825,9 +825,12 @@ export class AuthService {
     // Use lang from DTO or fallback to request lang parameter, then to 'en'
     const finalLang = userLang || lang || 'en';
 
-    // Check if email already exists in User table
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: trimmedEmail },
+    // Check if email already exists in User table (non-deleted users only)
+    const existingUser = await this.prisma.user.findFirst({
+      where: {
+        email: trimmedEmail,
+        is_deleted: false,
+      },
     });
 
     if (existingUser) {
@@ -1234,9 +1237,12 @@ export class AuthService {
   ): Promise<RequestPasswordResetResponseDto> {
     const { email } = requestPasswordResetDto;
 
-    // Check if user exists
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    // Check if user exists (non-deleted users only)
+    const user = await this.prisma.user.findFirst({
+      where: {
+        email,
+        is_deleted: false,
+      },
       select: { id: true, email: true, name: true, lang: true },
     });
 
@@ -1294,9 +1300,12 @@ export class AuthService {
   ): Promise<CheckPasswordResetOtpResponseDto> {
     const { email, code } = checkPasswordResetOtpDto;
 
-    // Check if user exists
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    // Check if user exists (non-deleted users only)
+    const user = await this.prisma.user.findFirst({
+      where: {
+        email,
+        is_deleted: false,
+      },
       select: { id: true, email: true },
     });
 
@@ -1389,9 +1398,12 @@ export class AuthService {
         throw new BadRequestException(message);
       }
 
-      // Find user by email
-      const user = await this.prisma.user.findUnique({
-        where: { email: otp.email! },
+      // Find user by email (non-deleted users only)
+      const user = await this.prisma.user.findFirst({
+        where: {
+          email: otp.email!,
+          is_deleted: false,
+        },
         select: { id: true, email: true, name: true },
       });
 
@@ -1530,9 +1542,12 @@ export class AuthService {
   ): Promise<CreateAccountDeleteRequestResponseDto> {
     const { email, reason } = createAccountDeleteRequestDto;
 
-    // Check if user exists
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    // Check if user exists (non-deleted users only)
+    const user = await this.prisma.user.findFirst({
+      where: {
+        email,
+        is_deleted: false,
+      },
       select: { id: true, email: true },
     });
 
@@ -1557,6 +1572,45 @@ export class AuthService {
           status: 'PENDING',
         },
       });
+
+      // Send email notification to admin
+      try {
+        const adminEmail = this.configService.get<string>('ADMIN_EMAIL');
+
+        if (adminEmail) {
+          const emailSubject = 'New Account Deletion Request';
+          const emailHtml = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #333;">New Account Deletion Request</h2>
+              <p>A new account deletion request has been submitted.</p>
+              <div style="background-color: #f4f4f4; padding: 20px; margin: 20px 0; border-radius: 5px;">
+                <p><strong>Request ID:</strong> ${deleteRequest.id}</p>
+                <p><strong>User Email:</strong> ${email}</p>
+                <p><strong>User ID:</strong> ${user.id}</p>
+                <p><strong>Reason:</strong> ${reason || 'No reason provided'}</p>
+                <p><strong>Created At:</strong> ${deleteRequest.createdAt.toLocaleString()}</p>
+                <p><strong>Status:</strong> ${deleteRequest.status}</p>
+              </div>
+              <p>Please review and take appropriate action.</p>
+            </div>
+          `;
+
+          await this.notificationService.sendEmail(
+            {
+              to: adminEmail,
+              subject: emailSubject,
+              html: emailHtml,
+            },
+            'en',
+          );
+        }
+      } catch (emailError) {
+        // Log email error but don't fail the request creation
+        console.error(
+          'Failed to send admin notification email for account deletion request:',
+          emailError,
+        );
+      }
 
       const message = await this.i18n.translate(
         'translation.auth.accountDeleteRequest.created',

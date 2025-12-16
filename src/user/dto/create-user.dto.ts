@@ -242,4 +242,31 @@ export class CreateUserDto {
   @ValidateNested({ each: true })
   @Type(() => CompanyCityDto)
   cities?: CompanyCityDto[];
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Enable push notifications',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  push_notification?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Enable email notifications',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  email_notification?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Enable SMS notifications',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  sms_notification?: boolean;
 }

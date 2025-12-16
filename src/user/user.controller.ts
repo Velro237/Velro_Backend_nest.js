@@ -55,7 +55,6 @@ import {
   ApiCreateUser,
   ApiFindAllUsers,
   ApiFindOneUser,
-  ApiRemoveUser,
   ApiUpdateUser,
   ApiUpdateProfilePicture,
   ApiCreateReport,
@@ -103,17 +102,23 @@ export class UserController {
   @Get('email/:email')
   @UseGuards(JwtAuthGuard, AdminGuard)
   @ApiOperation({
-    summary: 'Get user by email (Admin only)',
+    summary: 'Get users by email (Admin only)',
     description:
-      'Retrieve a user by their email address. Admin access required.',
+      'Retrieve all users (including deleted) with the given email address. Returns an array as there may be multiple users with the same email. Admin access required.',
   })
   @ApiResponse({
     status: 200,
-    description: 'User retrieved successfully',
+    description: 'Users retrieved successfully',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+      },
+    },
   })
   @ApiResponse({
     status: 404,
-    description: 'User not found',
+    description: 'No users found with this email',
   })
   @ApiResponse({
     status: 403,
@@ -148,12 +153,6 @@ export class UserController {
       throw new BadRequestException('Picture file is required');
     }
     return this.userService.updateProfilePicture(user.id, picture);
-  }
-
-  @ApiRemoveUser()
-  @Delete(':id')
-  remove(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.userService.remove(id);
   }
 
   /* ---------------- REPORT ENDPOINTS ---------------- */

@@ -2319,10 +2319,10 @@ export class RequestService {
     deviceId?: string,
   ): Promise<void> {
     try {
-      // Get recipient user's language preference and normalize it
+      // Get recipient user's language preference, push_notification, and normalize it
       const recipient = await this.prisma.user.findUnique({
         where: { id: recipientUserId },
-        select: { id: true, lang: true },
+        select: { id: true, lang: true, push_notification: true },
       });
       const recipientLangRaw = recipient?.lang || 'en';
       // Normalize language to ensure it matches i18n format (lowercase)
@@ -2360,8 +2360,8 @@ export class RequestService {
         normalizedRecipientLang,
       );
 
-      // Send push notification if user has device_id (with user's language)
-      if (deviceId) {
+      // Send push notification if user has device_id and push_notification enabled (with user's language)
+      if (deviceId && recipient?.push_notification) {
         await this.notificationService.sendPushNotification(
           {
             deviceId,

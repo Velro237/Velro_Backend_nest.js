@@ -1435,13 +1435,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Send push notification to each other member (excluding sender)
       for (const member of otherMembers) {
         try {
-          // Get user's language for push notification
+          // Get user's language and push_notification preference for push notification
           const user = await this.prisma.user.findUnique({
             where: { id: member.user_id },
-            select: { id: true, name: true, lang: true },
+            select: {
+              id: true,
+              name: true,
+              lang: true,
+              push_notification: true,
+            },
           });
 
-          if (!user) continue;
+          if (!user || !user.push_notification) continue;
 
           // Get user's language preference and normalize it
           const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';
