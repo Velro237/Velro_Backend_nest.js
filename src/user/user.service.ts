@@ -138,6 +138,13 @@ import {
   AdminSuspendUserDto,
   AdminSuspendUserResponseDto,
 } from './dto/admin-suspend-user.dto';
+import { AdminRequestStatsResponseDto } from './dto/admin-request-stats.dto';
+import {
+  AdminGetRequestsQueryDto,
+  AdminGetRequestsResponseDto,
+} from './dto/admin-get-requests.dto';
+import { AdminChatsStatsResponseDto } from './dto/admin-chats-stats.dto';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class UserService {
@@ -148,6 +155,7 @@ export class UserService {
     private readonly notificationService: NotificationService,
     private readonly currencyService: CurrencyService,
     private readonly walletService: WalletService,
+    private readonly redisService: RedisService,
   ) {}
 
   async getMe(userId: string, lang: string = 'en'): Promise<GetMeResponseDto> {
@@ -1994,6 +2002,497 @@ export class UserService {
         {
           lang,
           defaultValue: 'Failed to retrieve user statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get request statistics for admin dashboard
+   */
+  async getAdminRequestStats(
+    lang?: string,
+  ): Promise<AdminRequestStatsResponseDto> {
+    try {
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+
+      // Get all requests with cost and currency for price calculation
+      const allRequests = await this.prisma.tripRequest.findMany({
+        where: {
+          cost: {
+            not: null,
+          },
+        },
+        select: {
+          cost: true,
+          currency: true,
+        },
+      });
+
+      // Calculate average price in EUR
+      let totalPriceEUR = 0;
+      let requestCountWithPrice = 0;
+
+      for (const request of allRequests) {
+        if (request.cost && request.currency) {
+          const cost = Number(request.cost);
+          const currency = String(request.currency);
+          const conversion = this.currencyService.convertCurrency(
+            cost,
+            currency,
+            'EUR',
+          );
+          totalPriceEUR += conversion.convertedAmount;
+          requestCountWithPrice++;
+        }
+      }
+
+      const averageRequestPriceEUR =
+        requestCountWithPrice > 0
+          ? Math.round((totalPriceEUR / requestCountWithPrice) * 100) / 100
+          : 0;
+
+      // Get total requests and requests by status
+      const [
+        totalRequests,
+        requestsByStatus,
+        totalRequestsThisMonth,
+        totalRequestsLastMonth,
+      ] = await Promise.all([
+        this.prisma.tripRequest.count(),
+        this.prisma.tripRequest.groupBy({
+          by: ['status'],
+          _count: {
+            id: true,
+          },
+        }),
+        this.prisma.tripRequest.count({
+          where: {
+            created_at: {
+              gte: currentMonthStart,
+            },
+          },
+        }),
+        this.prisma.tripRequest.count({
+          where: {
+            created_at: {
+              gte: lastMonthStart,
+              lte: lastMonthEnd,
+            },
+          },
+        }),
+      ]);
+
+      // Create a map of status counts
+      const statusMap = new Map<string, number>();
+      requestsByStatus.forEach((item) => {
+        statusMap.set(item.status, item._count.id);
+      });
+
+      // Calculate percentage increase
+      const calculatePercentageIncrease = (
+        current: number,
+        previous: number,
+      ): number => {
+        if (previous === 0) {
+          return current > 0 ? 100 : 0;
+        }
+        return Math.round(((current - previous) / previous) * 100 * 100) / 100;
+      };
+
+      const percentageIncrease = calculatePercentageIncrease(
+        totalRequestsThisMonth,
+        totalRequestsLastMonth,
+      );
+
+      const message = await this.i18n.translate(
+        'translation.admin.requestStatsSuccess',
+        {
+          lang,
+          defaultValue: 'Request statistics retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        stats: {
+          totalRequests,
+          averageRequestPriceEUR,
+          totalRequestsThisMonth,
+          totalRequestsLastMonth,
+          percentageIncrease,
+          requestsByStatus: {
+            total_request_pending: statusMap.get(RequestStatus.PENDING) || 0,
+            total_request_accepted: statusMap.get(RequestStatus.ACCEPTED) || 0,
+            total_request_declined: statusMap.get(RequestStatus.DECLINED) || 0,
+            total_request_cancelled:
+              statusMap.get(RequestStatus.CANCELLED) || 0,
+            total_request_refunded: statusMap.get(RequestStatus.REFUNDED) || 0,
+            total_request_expired: statusMap.get(RequestStatus.EXPIRED) || 0,
+            total_request_confirmed:
+              statusMap.get(RequestStatus.CONFIRMED) || 0,
+            total_request_sent: statusMap.get(RequestStatus.SENT) || 0,
+            total_request_received: statusMap.get(RequestStatus.RECEIVED) || 0,
+            total_request_in_transit:
+              statusMap.get(RequestStatus.IN_TRANSIT) || 0,
+            total_request_pending_delivery:
+              statusMap.get(RequestStatus.PENDING_DELIVERY) || 0,
+            total_request_delivered:
+              statusMap.get(RequestStatus.DELIVERED) || 0,
+            total_request_reviewed: statusMap.get(RequestStatus.REVIEWED) || 0,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('Error getting admin request statistics:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.requestStatsFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve request statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get chat statistics for admin
+   */
+  async getAdminChatsStats(lang?: string): Promise<AdminChatsStatsResponseDto> {
+    try {
+      const now = new Date();
+      const todayStart = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+      );
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+
+      // Get statistics in parallel
+      const [
+        totalChats,
+        totalMessages,
+        totalMessagesToday,
+        totalMessagesThisMonth,
+        totalMessagesLastMonth,
+        onlineUsers,
+      ] = await Promise.all([
+        this.prisma.chat.count(),
+        this.prisma.message.count(),
+        this.prisma.message.count({
+          where: {
+            createdAt: {
+              gte: todayStart,
+            },
+          },
+        }),
+        this.prisma.message.count({
+          where: {
+            createdAt: {
+              gte: currentMonthStart,
+            },
+          },
+        }),
+        this.prisma.message.count({
+          where: {
+            createdAt: {
+              gte: lastMonthStart,
+              lte: lastMonthEnd,
+            },
+          },
+        }),
+        this.redisService.getOnlineUsers(),
+      ]);
+
+      // Calculate percentage increase
+      const calculatePercentageIncrease = (
+        current: number,
+        previous: number,
+      ): number => {
+        if (previous === 0) {
+          return current > 0 ? 100 : 0;
+        }
+        return Math.round(((current - previous) / previous) * 100 * 100) / 100;
+      };
+
+      const percentageIncrease = calculatePercentageIncrease(
+        totalMessagesThisMonth,
+        totalMessagesLastMonth,
+      );
+
+      const message = await this.i18n.translate(
+        'translation.admin.chatsStatsSuccess',
+        {
+          lang,
+          defaultValue: 'Chat statistics retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        stats: {
+          totalChats,
+          totalMessages,
+          totalMessagesToday,
+          totalMessagesThisMonth,
+          totalMessagesLastMonth,
+          percentageIncrease,
+          totalUsersOnline: onlineUsers.length,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting admin chat statistics:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.chatsStatsFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve chat statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get all requests for admin with filters and pagination
+   */
+  async getAdminRequests(
+    query: AdminGetRequestsQueryDto,
+    lang?: string,
+  ): Promise<AdminGetRequestsResponseDto> {
+    try {
+      const {
+        page = 1,
+        limit = 20,
+        requestId,
+        departure,
+        destination,
+        from,
+        to,
+        status,
+      } = query;
+      const skip = (page - 1) * limit;
+
+      // Build where clause
+      const whereClause: any = {};
+
+      // Request ID filter
+      if (requestId) {
+        whereClause.id = requestId;
+      }
+
+      // Status filter
+      if (status) {
+        whereClause.status = status;
+      }
+
+      // Date range filter
+      if (from || to) {
+        whereClause.created_at = {};
+        if (from) {
+          whereClause.created_at.gte = new Date(from);
+        }
+        if (to) {
+          whereClause.created_at.lte = new Date(to);
+        }
+      }
+
+      // Build trip filters for departure and destination (JSON fields)
+      // For departure: match city OR country
+      // For destination: match city OR country
+      // If both are provided, combine with AND
+      const tripWhereClause: any = {};
+
+      if (departure) {
+        tripWhereClause.OR = [
+          {
+            departure: {
+              path: ['city'],
+              string_contains: departure,
+              mode: 'insensitive',
+            },
+          },
+          {
+            departure: {
+              path: ['country'],
+              string_contains: departure,
+              mode: 'insensitive',
+            },
+          },
+        ];
+      }
+
+      if (destination) {
+        const destinationFilters = [
+          {
+            destination: {
+              path: ['city'],
+              string_contains: destination,
+              mode: 'insensitive',
+            },
+          },
+          {
+            destination: {
+              path: ['country'],
+              string_contains: destination,
+              mode: 'insensitive',
+            },
+          },
+        ];
+
+        if (tripWhereClause.OR) {
+          // We have both departure and destination - need to combine them properly
+          // Create nested structure: (departure match) AND (destination match)
+          tripWhereClause.AND = [
+            { OR: tripWhereClause.OR },
+            { OR: destinationFilters },
+          ];
+          delete tripWhereClause.OR;
+        } else {
+          tripWhereClause.OR = destinationFilters;
+        }
+      }
+
+      // Apply trip filters to whereClause
+      if (Object.keys(tripWhereClause).length > 0) {
+        whereClause.trip = tripWhereClause;
+      }
+
+      // Get requests with pagination
+      const [requests, total] = await Promise.all([
+        this.prisma.tripRequest.findMany({
+          where: whereClause,
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+            trip: {
+              select: {
+                id: true,
+                departure: true,
+                destination: true,
+                user: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                  },
+                },
+              },
+            },
+            request_items: {
+              select: {
+                trip_item_id: true,
+                quantity: true,
+                special_notes: true,
+              },
+            },
+          },
+          skip,
+          take: limit,
+          orderBy: { created_at: 'desc' },
+        }),
+        this.prisma.tripRequest.count({ where: whereClause }),
+      ]);
+
+      // Convert costs to EUR and build response
+      const requestDtos = await Promise.all(
+        requests.map(async (request) => {
+          let costEUR: number | null = null;
+          if (request.cost && request.currency) {
+            const cost = Number(request.cost);
+            const currency = String(request.currency);
+            const conversion = this.currencyService.convertCurrency(
+              cost,
+              currency,
+              'EUR',
+            );
+            costEUR = Math.round(conversion.convertedAmount * 100) / 100;
+          }
+
+          return {
+            id: request.id,
+            sender: {
+              id: request.user.id,
+              firstName: request.user.firstName,
+              lastName: request.user.lastName,
+            },
+            traveler: {
+              id: request.trip.user.id,
+              firstName: request.trip.user.firstName,
+              lastName: request.trip.user.lastName,
+            },
+            trip_id: request.trip.id,
+            requested_items: request.request_items.map((item) => ({
+              trip_item_id: item.trip_item_id,
+              quantity: item.quantity,
+              special_notes: item.special_notes,
+            })),
+            trip_departure: request.trip.departure,
+            trip_destination: request.trip.destination,
+            cost_eur: costEUR,
+            status: request.status,
+            created_at: request.created_at,
+          };
+        }),
+      );
+
+      const totalPages = Math.ceil(total / limit);
+
+      const message = await this.i18n.translate(
+        'translation.admin.getRequestsSuccess',
+        {
+          lang,
+          defaultValue: 'Requests retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        requests: requestDtos,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting admin requests:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.getRequestsFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve requests',
         },
       );
       throw new InternalServerErrorException(message);

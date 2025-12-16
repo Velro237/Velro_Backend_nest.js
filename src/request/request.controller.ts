@@ -39,10 +39,6 @@ import {
   TripRequestSummaryDto,
 } from './dto/get-trip-requests.dto';
 import {
-  UpdateTripRequestDto,
-  UpdateTripRequestResponseDto,
-} from './dto/update-trip-request.dto';
-import {
   ChangeRequestStatusDto,
   ChangeRequestStatusResponseDto,
 } from './dto/change-request-status.dto';
@@ -64,7 +60,6 @@ import {
 import {
   ApiCreateTripRequest,
   ApiGetTripRequests,
-  ApiUpdateTripRequest,
   ApiChangeRequestStatus,
 } from './decorators/api-docs.decorator';
 
@@ -76,8 +71,6 @@ import {
   GetTripRequestsQueryDto,
   GetTripRequestsResponseDto,
   GetRequestByIdResponseDto,
-  UpdateTripRequestDto,
-  UpdateTripRequestResponseDto,
   TripItemImageDto,
   TripItemDetailsDto,
   TripRequestItemSummaryDto,
@@ -174,23 +167,6 @@ export class RequestController {
     @I18nLang() lang: string,
   ): Promise<GetRequestByIdResponseDto> {
     return this.requestService.getRequestById(requestId, lang);
-  }
-
-  @Patch('trip/:id')
-  @ApiUpdateTripRequest()
-  async updateTripRequest(
-    @Param('id') requestId: string,
-    @Body() updateTripRequestDto: UpdateTripRequestDto,
-    @I18nLang() lang: string,
-  ): Promise<UpdateTripRequestResponseDto> {
-    if (process.env.NODE_ENV === 'production') {
-      throw new NotFoundException();
-    }
-    return this.requestService.updateTripRequest(
-      requestId,
-      updateTripRequestDto,
-      lang,
-    );
   }
 
   @Patch('status')
