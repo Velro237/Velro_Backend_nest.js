@@ -441,7 +441,8 @@ export class AdminController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Delete user (Admin only)',
-    description: 'Soft delete a user account by setting is_deleted to true',
+    description:
+      'Soft delete a user account by setting is_deleted to true and changing email to deleted.{original_email}',
   })
   @ApiParam({
     name: 'id',

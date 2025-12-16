@@ -780,14 +780,34 @@ export class UserService {
 
   async remove(id: string) {
     try {
-      // Soft delete: set is_deleted to true
+      // First get the user's current email
+      const existingUser = await this.prisma.user.findUnique({
+        where: { id },
+        select: { email: true },
+      });
+
+      if (!existingUser) {
+        throw new NotFoundException(`User #${id} not found`);
+      }
+
+      // Soft delete: set is_deleted to true and change email to deleted.{original_email}
+      const newEmail = existingUser.email.startsWith('deleted.')
+        ? existingUser.email // If already prefixed with deleted., keep it as is
+        : `deleted.${existingUser.email}`;
+
       const user = await this.prisma.user.update({
         where: { id },
-        data: { is_deleted: true },
+        data: {
+          is_deleted: true,
+          email: newEmail,
+        },
         select: userSelect,
       });
       return user;
     } catch (e) {
+      if (e instanceof NotFoundException) {
+        throw e;
+      }
       const exists = await this.prisma.user.findUnique({ where: { id } });
       if (!exists) throw new NotFoundException(`User #${id} not found`);
       throw e;

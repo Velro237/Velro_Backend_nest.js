@@ -19,7 +19,7 @@ export class SchedulerService {
   ) {}
 
   /**
-   * Helper method to send scheduler notification email (production only)
+   * Helper method to send scheduler notification email
    */
   private async sendSchedulerNotification(
     schedulerName: string,
