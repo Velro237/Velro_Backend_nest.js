@@ -26,6 +26,7 @@ import {
 } from './dto/get-messages.dto';
 import { NotificationService } from '../notification/notification.service';
 import { ImageService } from '../shared/services/image.service';
+import { CurrencyService } from '../currency/currency.service';
 
 @Injectable()
 export class ChatService {
@@ -35,6 +36,7 @@ export class ChatService {
     private readonly redis: RedisService,
     private readonly notificationService: NotificationService,
     private readonly imageService: ImageService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   async createChat(
@@ -725,6 +727,18 @@ export class ChatService {
         this.prisma.message.count({ where: { chat_id: chatId } }),
       ]);
 
+      // Get user's currency for price conversion
+      let userCurrency = 'XAF';
+      try {
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { currency: true },
+        });
+        userCurrency = (user?.currency || 'XAF').toUpperCase();
+      } catch (error) {
+        console.error('Error fetching user currency:', error);
+      }
+
       // Transform messages using the same logic as createMessage
       const messageResponses: MessageResponseDto[] = await Promise.all(
         messages.map(async (message) => {
@@ -883,79 +897,184 @@ export class ChatService {
                 }
               : undefined,
             requestData: message.request
-              ? {
-                  id: message.request.id,
-                  status: message.request.status,
-                  message: message.request.message,
-                  cost: message.request.cost
+              ? (() => {
+                  // Convert cost to user's currency
+                  let cost = message.request.cost
                     ? Number(message.request.cost)
-                    : null,
-                  currency: message.request.currency,
-                  createdAt: message.request.created_at,
-                  updatedAt: message.request.updated_at,
-                  availableKgs: message.request.request_items
-                    ? message.request.request_items.reduce(
-                        (total, item) => total + item.quantity,
-                        0,
-                      )
-                    : 0,
-                  requestItems: message.request.request_items
-                    ? (() => {
-                        const tripItems =
-                          (message.request as any).trip?.trip_items || [];
-                        return message.request.request_items.map(
-                          (item: any) => {
-                            const tripItem = tripItems.find(
-                              (ti: any) =>
-                                ti.trip_item_id === item.trip_item_id,
-                            );
-                            return {
-                              quantity: item.quantity,
-                              specialNotes: item.special_notes,
-                              createdAt: item.created_at,
-                              updatedAt: item.updated_at,
-                              price: tripItem ? Number(tripItem.price) : null,
-                              available_kg: tripItem
-                                ? tripItem.avalailble_kg
-                                  ? Number(tripItem.avalailble_kg)
-                                  : null
-                                : null,
-                              tripItem: item.trip_item
-                                ? {
-                                    id: item.trip_item.id,
-                                    name: item.trip_item.name,
-                                    description: item.trip_item.description,
-                                    image_id: item.trip_item.image_id,
-                                    createdAt: item.trip_item.created_at,
-                                    updatedAt: item.trip_item.updated_at,
-                                    translations: item.trip_item.translations
-                                      ? item.trip_item.translations.map(
-                                          (t: any) => ({
-                                            id: t.id,
-                                            language: t.language,
-                                            name: t.name,
-                                            description: t.description,
-                                          }),
-                                        )
-                                      : [],
+                    : null;
+                  let currency: string | null = message.request.currency;
+
+                  if (
+                    cost &&
+                    currency &&
+                    currency.toUpperCase() !== userCurrency
+                  ) {
+                    try {
+                      const conversion = this.currencyService.convertCurrency(
+                        cost,
+                        currency.toUpperCase(),
+                        userCurrency,
+                      );
+                      cost = conversion.convertedAmount;
+                      currency = userCurrency;
+                    } catch (error) {
+                      console.error(
+                        `Failed to convert request cost for request ${message.request.id}:`,
+                        error,
+                      );
+                      // Keep original cost and currency if conversion fails
+                    }
+                  } else if (currency) {
+                    currency = currency.toUpperCase();
+                  }
+
+                  return {
+                    id: message.request.id,
+                    status: message.request.status,
+                    message: message.request.message,
+                    cost,
+                    currency,
+                    createdAt: message.request.created_at,
+                    updatedAt: message.request.updated_at,
+                    availableKgs: message.request.request_items
+                      ? message.request.request_items.reduce(
+                          (total, item) => total + item.quantity,
+                          0,
+                        )
+                      : 0,
+                    requestItems: message.request.request_items
+                      ? (() => {
+                          const tripItems =
+                            (message.request as any).trip?.trip_items || [];
+                          return message.request.request_items.map(
+                            (item: any) => {
+                              const tripItem = tripItems.find(
+                                (ti: any) =>
+                                  ti.trip_item_id === item.trip_item_id,
+                              );
+
+                              // Convert price to user's currency
+                              let price = null;
+                              if (tripItem) {
+                                const tripCurrency = (
+                                  message.request.trip?.currency || 'XAF'
+                                ).toUpperCase();
+
+                                // Try to find price in user's currency from prices array
+                                if (
+                                  tripItem.prices &&
+                                  Array.isArray(tripItem.prices)
+                                ) {
+                                  const userCurrencyPrice =
+                                    tripItem.prices.find(
+                                      (p: any) =>
+                                        p.currency?.toUpperCase() ===
+                                        userCurrency,
+                                    );
+                                  if (userCurrencyPrice) {
+                                    price = Number(userCurrencyPrice.price);
+                                  } else {
+                                    // Convert from trip currency to user currency
+                                    const basePrice = Number(tripItem.price);
+                                    if (
+                                      basePrice &&
+                                      tripCurrency !== userCurrency
+                                    ) {
+                                      try {
+                                        const conversion =
+                                          this.currencyService.convertCurrency(
+                                            basePrice,
+                                            tripCurrency,
+                                            userCurrency,
+                                          );
+                                        price = conversion.convertedAmount;
+                                      } catch (error) {
+                                        console.error(
+                                          `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                          error,
+                                        );
+                                        price = basePrice; // Fallback to original price
+                                      }
+                                    } else {
+                                      price = basePrice;
+                                    }
                                   }
-                                : undefined,
-                            };
-                          },
-                        );
-                      })()
-                    : [],
-                  user: message.request.user
-                    ? {
-                        id: message.request.user.id,
-                        email: message.request.user.email,
-                        name: message.request.user.name,
-                        firstName: message.request.user.firstName,
-                        lastName: message.request.user.lastName,
-                        picture: message.request.user.picture,
-                      }
-                    : undefined,
-                }
+                                } else {
+                                  // No prices array, convert from trip currency
+                                  const basePrice = Number(tripItem.price);
+                                  if (
+                                    basePrice &&
+                                    tripCurrency !== userCurrency
+                                  ) {
+                                    try {
+                                      const conversion =
+                                        this.currencyService.convertCurrency(
+                                          basePrice,
+                                          tripCurrency,
+                                          userCurrency,
+                                        );
+                                      price = conversion.convertedAmount;
+                                    } catch (error) {
+                                      console.error(
+                                        `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                        error,
+                                      );
+                                      price = basePrice; // Fallback to original price
+                                    }
+                                  } else {
+                                    price = basePrice;
+                                  }
+                                }
+                              }
+
+                              return {
+                                quantity: item.quantity,
+                                specialNotes: item.special_notes,
+                                createdAt: item.created_at,
+                                updatedAt: item.updated_at,
+                                price,
+                                available_kg: tripItem
+                                  ? tripItem.avalailble_kg
+                                    ? Number(tripItem.avalailble_kg)
+                                    : null
+                                  : null,
+                                tripItem: item.trip_item
+                                  ? {
+                                      id: item.trip_item.id,
+                                      name: item.trip_item.name,
+                                      description: item.trip_item.description,
+                                      image_id: item.trip_item.image_id,
+                                      createdAt: item.trip_item.created_at,
+                                      updatedAt: item.trip_item.updated_at,
+                                      translations: item.trip_item.translations
+                                        ? item.trip_item.translations.map(
+                                            (t: any) => ({
+                                              id: t.id,
+                                              language: t.language,
+                                              name: t.name,
+                                              description: t.description,
+                                            }),
+                                          )
+                                        : [],
+                                    }
+                                  : undefined,
+                              };
+                            },
+                          );
+                        })()
+                      : [],
+                    user: message.request.user
+                      ? {
+                          id: message.request.user.id,
+                          email: message.request.user.email,
+                          name: message.request.user.name,
+                          firstName: message.request.user.firstName,
+                          lastName: message.request.user.lastName,
+                          picture: message.request.user.picture,
+                        }
+                      : undefined,
+                  };
+                })()
               : undefined,
             reviewData,
           };
@@ -1485,6 +1604,16 @@ export class ChatService {
 
     // No membership check for admin
 
+    // Get admin user's currency for price conversion (if needed, otherwise use XAF)
+    let userCurrency = 'XAF';
+    try {
+      // For admin, we can't determine a specific user, so we'll use XAF as default
+      // Or you could get it from a parameter, but for now using default
+      userCurrency = 'XAF';
+    } catch (error) {
+      console.error('Error setting user currency:', error);
+    }
+
     try {
       const [messages, total] = await Promise.all([
         this.prisma.message.findMany({
@@ -1731,79 +1860,184 @@ export class ChatService {
                 }
               : undefined,
             requestData: message.request
-              ? {
-                  id: message.request.id,
-                  status: message.request.status,
-                  message: message.request.message,
-                  cost: message.request.cost
+              ? (() => {
+                  // Convert cost to user's currency (for admin, using XAF as default)
+                  let cost = message.request.cost
                     ? Number(message.request.cost)
-                    : null,
-                  currency: message.request.currency,
-                  createdAt: message.request.created_at,
-                  updatedAt: message.request.updated_at,
-                  availableKgs: message.request.request_items
-                    ? message.request.request_items.reduce(
-                        (total, item) => total + item.quantity,
-                        0,
-                      )
-                    : 0,
-                  requestItems: message.request.request_items
-                    ? (() => {
-                        const tripItems =
-                          (message.request as any).trip?.trip_items || [];
-                        return message.request.request_items.map(
-                          (item: any) => {
-                            const tripItem = tripItems.find(
-                              (ti: any) =>
-                                ti.trip_item_id === item.trip_item_id,
-                            );
-                            return {
-                              quantity: item.quantity,
-                              specialNotes: item.special_notes,
-                              createdAt: item.created_at,
-                              updatedAt: item.updated_at,
-                              price: tripItem ? Number(tripItem.price) : null,
-                              available_kg: tripItem
-                                ? tripItem.avalailble_kg
-                                  ? Number(tripItem.avalailble_kg)
-                                  : null
-                                : null,
-                              tripItem: item.trip_item
-                                ? {
-                                    id: item.trip_item.id,
-                                    name: item.trip_item.name,
-                                    description: item.trip_item.description,
-                                    image_id: item.trip_item.image_id,
-                                    createdAt: item.trip_item.created_at,
-                                    updatedAt: item.trip_item.updated_at,
-                                    translations: item.trip_item.translations
-                                      ? item.trip_item.translations.map(
-                                          (t: any) => ({
-                                            id: t.id,
-                                            language: t.language,
-                                            name: t.name,
-                                            description: t.description,
-                                          }),
-                                        )
-                                      : [],
+                    : null;
+                  let currency: string | null = message.request.currency;
+
+                  if (
+                    cost &&
+                    currency &&
+                    currency.toUpperCase() !== userCurrency
+                  ) {
+                    try {
+                      const conversion = this.currencyService.convertCurrency(
+                        cost,
+                        currency.toUpperCase(),
+                        userCurrency,
+                      );
+                      cost = conversion.convertedAmount;
+                      currency = userCurrency;
+                    } catch (error) {
+                      console.error(
+                        `Failed to convert request cost for request ${message.request.id}:`,
+                        error,
+                      );
+                      // Keep original cost and currency if conversion fails
+                    }
+                  } else if (currency) {
+                    currency = currency.toUpperCase();
+                  }
+
+                  return {
+                    id: message.request.id,
+                    status: message.request.status,
+                    message: message.request.message,
+                    cost,
+                    currency,
+                    createdAt: message.request.created_at,
+                    updatedAt: message.request.updated_at,
+                    availableKgs: message.request.request_items
+                      ? message.request.request_items.reduce(
+                          (total, item) => total + item.quantity,
+                          0,
+                        )
+                      : 0,
+                    requestItems: message.request.request_items
+                      ? (() => {
+                          const tripItems =
+                            (message.request as any).trip?.trip_items || [];
+                          return message.request.request_items.map(
+                            (item: any) => {
+                              const tripItem = tripItems.find(
+                                (ti: any) =>
+                                  ti.trip_item_id === item.trip_item_id,
+                              );
+
+                              // Convert price to user's currency (for admin, using XAF as default)
+                              let price = null;
+                              if (tripItem) {
+                                const tripCurrency = (
+                                  message.request.trip?.currency || 'XAF'
+                                ).toUpperCase();
+
+                                // Try to find price in user's currency from prices array
+                                if (
+                                  tripItem.prices &&
+                                  Array.isArray(tripItem.prices)
+                                ) {
+                                  const userCurrencyPrice =
+                                    tripItem.prices.find(
+                                      (p: any) =>
+                                        p.currency?.toUpperCase() ===
+                                        userCurrency,
+                                    );
+                                  if (userCurrencyPrice) {
+                                    price = Number(userCurrencyPrice.price);
+                                  } else {
+                                    // Convert from trip currency to user currency
+                                    const basePrice = Number(tripItem.price);
+                                    if (
+                                      basePrice &&
+                                      tripCurrency !== userCurrency
+                                    ) {
+                                      try {
+                                        const conversion =
+                                          this.currencyService.convertCurrency(
+                                            basePrice,
+                                            tripCurrency,
+                                            userCurrency,
+                                          );
+                                        price = conversion.convertedAmount;
+                                      } catch (error) {
+                                        console.error(
+                                          `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                          error,
+                                        );
+                                        price = basePrice; // Fallback to original price
+                                      }
+                                    } else {
+                                      price = basePrice;
+                                    }
                                   }
-                                : undefined,
-                            };
-                          },
-                        );
-                      })()
-                    : [],
-                  user: message.request.user
-                    ? {
-                        id: message.request.user.id,
-                        email: message.request.user.email,
-                        name: message.request.user.name,
-                        firstName: message.request.user.firstName,
-                        lastName: message.request.user.lastName,
-                        picture: message.request.user.picture,
-                      }
-                    : undefined,
-                }
+                                } else {
+                                  // No prices array, convert from trip currency
+                                  const basePrice = Number(tripItem.price);
+                                  if (
+                                    basePrice &&
+                                    tripCurrency !== userCurrency
+                                  ) {
+                                    try {
+                                      const conversion =
+                                        this.currencyService.convertCurrency(
+                                          basePrice,
+                                          tripCurrency,
+                                          userCurrency,
+                                        );
+                                      price = conversion.convertedAmount;
+                                    } catch (error) {
+                                      console.error(
+                                        `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                        error,
+                                      );
+                                      price = basePrice; // Fallback to original price
+                                    }
+                                  } else {
+                                    price = basePrice;
+                                  }
+                                }
+                              }
+
+                              return {
+                                quantity: item.quantity,
+                                specialNotes: item.special_notes,
+                                createdAt: item.created_at,
+                                updatedAt: item.updated_at,
+                                price,
+                                available_kg: tripItem
+                                  ? tripItem.avalailble_kg
+                                    ? Number(tripItem.avalailble_kg)
+                                    : null
+                                  : null,
+                                tripItem: item.trip_item
+                                  ? {
+                                      id: item.trip_item.id,
+                                      name: item.trip_item.name,
+                                      description: item.trip_item.description,
+                                      image_id: item.trip_item.image_id,
+                                      createdAt: item.trip_item.created_at,
+                                      updatedAt: item.trip_item.updated_at,
+                                      translations: item.trip_item.translations
+                                        ? item.trip_item.translations.map(
+                                            (t: any) => ({
+                                              id: t.id,
+                                              language: t.language,
+                                              name: t.name,
+                                              description: t.description,
+                                            }),
+                                          )
+                                        : [],
+                                    }
+                                  : undefined,
+                              };
+                            },
+                          );
+                        })()
+                      : [],
+                    user: message.request.user
+                      ? {
+                          id: message.request.user.id,
+                          email: message.request.user.email,
+                          name: message.request.user.name,
+                          firstName: message.request.user.firstName,
+                          lastName: message.request.user.lastName,
+                          picture: message.request.user.picture,
+                        }
+                      : undefined,
+                  };
+                })()
               : undefined,
             reviewData,
           };
@@ -2173,6 +2407,18 @@ export class ChatService {
         ((message as any).data as Record<string, any>) || null;
       const imageUrls = messageDataFromDb?.imageUrls || null;
 
+      // Get sender's currency for price conversion
+      let senderCurrency = 'XAF';
+      try {
+        const sender = await this.prisma.user.findUnique({
+          where: { id: senderId },
+          select: { currency: true },
+        });
+        senderCurrency = (sender?.currency || 'XAF').toUpperCase();
+      } catch (error) {
+        console.error('Error fetching sender currency:', error);
+      }
+
       const result = {
         id: message.id,
         chatId: message.chat_id,
@@ -2243,65 +2489,167 @@ export class ChatService {
             }
           : undefined,
         requestData: message.request
-          ? {
-              id: message.request.id,
-              status: message.request.status,
-              message: message.request.message,
-              cost: message.request.cost ? Number(message.request.cost) : null,
-              currency: message.request.currency,
-              createdAt: message.request.created_at,
-              updatedAt: message.request.updated_at,
-              availableKgs: message.request.request_items
-                ? message.request.request_items.reduce(
-                    (total, item) => total + item.quantity,
-                    0,
-                  )
-                : 0,
-              requestItems: message.request.request_items
-                ? (() => {
-                    const tripItems =
-                      (message.request as any).trip?.trip_items || [];
-                    return message.request.request_items.map((item: any) => {
-                      const tripItem = tripItems.find(
-                        (ti: any) => ti.trip_item_id === item.trip_item_id,
-                      );
-                      return {
-                        quantity: item.quantity,
-                        specialNotes: item.special_notes,
-                        createdAt: item.created_at,
-                        updatedAt: item.updated_at,
-                        price: tripItem ? Number(tripItem.price) : null,
-                        available_kg: tripItem
-                          ? tripItem.avalailble_kg
-                            ? Number(tripItem.avalailble_kg)
-                            : null
-                          : null,
-                        tripItem: item.trip_item
-                          ? {
-                              id: item.trip_item.id,
-                              name: item.trip_item.name,
-                              description: item.trip_item.description,
-                              image_id: item.trip_item.image_id,
-                              createdAt: item.trip_item.created_at,
-                              updatedAt: item.trip_item.updated_at,
-                              translations: item.trip_item.translations || [],
+          ? (() => {
+              // Convert cost to sender's currency
+              let cost = message.request.cost
+                ? Number(message.request.cost)
+                : null;
+              let currency: string | null = message.request.currency;
+
+              if (
+                cost &&
+                currency &&
+                currency.toUpperCase() !== senderCurrency
+              ) {
+                try {
+                  const conversion = this.currencyService.convertCurrency(
+                    cost,
+                    currency.toUpperCase(),
+                    senderCurrency,
+                  );
+                  cost = conversion.convertedAmount;
+                  currency = senderCurrency;
+                } catch (error) {
+                  console.error(
+                    `Failed to convert request cost for request ${message.request.id}:`,
+                    error,
+                  );
+                  // Keep original cost and currency if conversion fails
+                }
+              } else if (currency) {
+                currency = currency.toUpperCase();
+              }
+
+              return {
+                id: message.request.id,
+                status: message.request.status,
+                message: message.request.message,
+                cost,
+                currency,
+                createdAt: message.request.created_at,
+                updatedAt: message.request.updated_at,
+                availableKgs: message.request.request_items
+                  ? message.request.request_items.reduce(
+                      (total, item) => total + item.quantity,
+                      0,
+                    )
+                  : 0,
+                requestItems: message.request.request_items
+                  ? (() => {
+                      const tripItems =
+                        (message.request as any).trip?.trip_items || [];
+                      return message.request.request_items.map((item: any) => {
+                        const tripItem = tripItems.find(
+                          (ti: any) => ti.trip_item_id === item.trip_item_id,
+                        );
+
+                        // Convert price to sender's currency
+                        let price = null;
+                        if (tripItem) {
+                          const tripCurrency = (
+                            message.request.trip?.currency || 'XAF'
+                          ).toUpperCase();
+
+                          // Try to find price in sender's currency from prices array
+                          if (
+                            tripItem.prices &&
+                            Array.isArray(tripItem.prices)
+                          ) {
+                            const senderCurrencyPrice = tripItem.prices.find(
+                              (p: any) =>
+                                p.currency?.toUpperCase() === senderCurrency,
+                            );
+                            if (senderCurrencyPrice) {
+                              price = Number(senderCurrencyPrice.price);
+                            } else {
+                              // Convert from trip currency to sender currency
+                              const basePrice = Number(tripItem.price);
+                              if (
+                                basePrice &&
+                                tripCurrency !== senderCurrency
+                              ) {
+                                try {
+                                  const conversion =
+                                    this.currencyService.convertCurrency(
+                                      basePrice,
+                                      tripCurrency,
+                                      senderCurrency,
+                                    );
+                                  price = conversion.convertedAmount;
+                                } catch (error) {
+                                  console.error(
+                                    `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                    error,
+                                  );
+                                  price = basePrice; // Fallback to original price
+                                }
+                              } else {
+                                price = basePrice;
+                              }
                             }
-                          : undefined,
-                      };
-                    });
-                  })()
-                : [],
-              user: message.request.user
-                ? {
-                    id: message.request.user.id,
-                    email: message.request.user.email,
-                    name: message.request.user.name,
-                    firstName: message.request.user.firstName,
-                    lastName: message.request.user.lastName,
-                    picture: message.request.user.picture,
-                  }
-                : undefined,
-            }
+                          } else {
+                            // No prices array, convert from trip currency
+                            const basePrice = Number(tripItem.price);
+                            if (basePrice && tripCurrency !== senderCurrency) {
+                              try {
+                                const conversion =
+                                  this.currencyService.convertCurrency(
+                                    basePrice,
+                                    tripCurrency,
+                                    senderCurrency,
+                                  );
+                                price = conversion.convertedAmount;
+                              } catch (error) {
+                                console.error(
+                                  `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                  error,
+                                );
+                                price = basePrice; // Fallback to original price
+                              }
+                            } else {
+                              price = basePrice;
+                            }
+                          }
+                        }
+
+                        return {
+                          quantity: item.quantity,
+                          specialNotes: item.special_notes,
+                          createdAt: item.created_at,
+                          updatedAt: item.updated_at,
+                          price,
+                          available_kg: tripItem
+                            ? tripItem.avalailble_kg
+                              ? Number(tripItem.avalailble_kg)
+                              : null
+                            : null,
+                          tripItem: item.trip_item
+                            ? {
+                                id: item.trip_item.id,
+                                name: item.trip_item.name,
+                                description: item.trip_item.description,
+                                image_id: item.trip_item.image_id,
+                                createdAt: item.trip_item.created_at,
+                                updatedAt: item.trip_item.updated_at,
+                                translations: item.trip_item.translations || [],
+                              }
+                            : undefined,
+                        };
+                      });
+                    })()
+                  : [],
+                user: message.request.user
+                  ? {
+                      id: message.request.user.id,
+                      email: message.request.user.email,
+                      name: message.request.user.name,
+                      firstName: message.request.user.firstName,
+                      lastName: message.request.user.lastName,
+                      picture: message.request.user.picture,
+                    }
+                  : undefined,
+              };
+            })()
           : undefined,
         reviewData,
       };
