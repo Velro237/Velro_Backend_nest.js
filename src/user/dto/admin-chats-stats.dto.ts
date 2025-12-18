@@ -47,6 +47,16 @@ export class AdminChatsStatsResponseDto {
         example: 25,
         description: 'Total number of users currently online',
       },
+      totalFlaggedMessages: {
+        type: 'number',
+        example: 15,
+        description: 'Total number of flagged messages',
+      },
+      totalFlaggedChats: {
+        type: 'number',
+        example: 8,
+        description: 'Total number of flagged chats',
+      },
     },
   })
   stats!: {
@@ -57,5 +67,7 @@ export class AdminChatsStatsResponseDto {
     totalMessagesLastMonth: number;
     percentageIncrease: number;
     totalUsersOnline: number;
+    totalFlaggedMessages: number;
+    totalFlaggedChats: number;
   };
 }

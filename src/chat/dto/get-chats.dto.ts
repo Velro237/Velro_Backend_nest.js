@@ -128,6 +128,12 @@ export class ChatSummaryDto {
   createdAt: Date;
 
   @ApiProperty({
+    description: 'Whether the chat is flagged',
+    example: false,
+  })
+  is_flagged: boolean;
+
+  @ApiProperty({
     description: 'Trip information if chat is linked to a trip',
     required: false,
   })
