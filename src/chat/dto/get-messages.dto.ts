@@ -278,7 +278,8 @@ export class GetMessagesResponseDto {
       transport_mode: {
         type: 'string',
         nullable: true,
-        description: 'Transport mode for ride trips and boat trips (if applicable)',
+        description:
+          'Transport mode for ride trips and boat trips (if applicable)',
         example: 'CAR',
         enum: ['CAR', 'AIRPLANE', 'BOAT'],
       },
@@ -349,16 +350,16 @@ export class GetMessagesResponseDto {
     departure_time: string;
     currency: string;
     airline_id?: string;
-     transport_mode?: string | null;
-     seats_available?: number | null;
-     base_price_per_seat?: number | null;
-     driver_message?: string | null;
-     notes?: string | null;
-     stops?: Array<{
-       stop_order: number;
-       stop_location: any;
-       price_per_seat_to_stop?: number | null;
-     }> | null;
+    transport_mode?: string | null;
+    seats_available?: number | null;
+    base_price_per_seat?: number | null;
+    driver_message?: string | null;
+    notes?: string | null;
+    stops?: Array<{
+      stop_order: number;
+      stop_location: any;
+      price_per_seat_to_stop?: number | null;
+    }> | null;
     updated_at: Date;
     user: {
       id: string;
@@ -398,6 +399,16 @@ export class GetMessagesResponseDto {
             },
             email: { type: 'string', example: 'user@example.com' },
             name: { type: 'string', nullable: true, example: 'John Doe' },
+            firstName: {
+              type: 'string',
+              nullable: true,
+              example: 'John',
+            },
+            lastName: {
+              type: 'string',
+              nullable: true,
+              example: 'Doe',
+            },
             picture: {
               type: 'string',
               nullable: true,
@@ -418,6 +429,11 @@ export class GetMessagesResponseDto {
               description:
                 'Average time in seconds it takes for this member to respond after the previous message sent by another member',
               example: 45.3,
+            },
+            isOnline: {
+              type: 'boolean',
+              description: 'Whether the user is currently online',
+              example: true,
             },
           },
         },
@@ -451,10 +467,13 @@ export class GetMessagesResponseDto {
       id: string;
       email: string;
       name: string | null;
+      firstName: string | null;
+      lastName: string | null;
       picture: string | null;
       role: string;
       last_seen: Date | null;
       average_message_response_time: number | null;
+      isOnline: boolean;
     }>;
   } | null;
 }

@@ -45,4 +45,3 @@ export class AdminChangeReportStatusResponseDto {
     updated_at: Date;
   };
 }
-

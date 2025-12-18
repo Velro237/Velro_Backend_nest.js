@@ -1590,6 +1590,21 @@ export class UserService {
                 email: true,
                 firstName: true,
                 lastName: true,
+                kycRecords: {
+                  select: {
+                    id: true,
+                    status: true,
+                    provider: true,
+                    rejectionReason: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    verifiedAt: true,
+                  },
+                  take: 1,
+                  orderBy: {
+                    updatedAt: 'desc',
+                  },
+                },
               },
             },
             reported: {
@@ -1598,6 +1613,21 @@ export class UserService {
                 email: true,
                 firstName: true,
                 lastName: true,
+                kycRecords: {
+                  select: {
+                    id: true,
+                    status: true,
+                    provider: true,
+                    rejectionReason: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    verifiedAt: true,
+                  },
+                  take: 1,
+                  orderBy: {
+                    updatedAt: 'desc',
+                  },
+                },
               },
             },
             trip: {
@@ -1648,12 +1678,20 @@ export class UserService {
           email: report.user.email,
           firstName: report.user.firstName,
           lastName: report.user.lastName,
+          kyc:
+            report.user.kycRecords && report.user.kycRecords.length > 0
+              ? report.user.kycRecords[0]
+              : null,
         },
         reported_user: {
           id: report.reported.id,
           email: report.reported.email,
           firstName: report.reported.firstName,
           lastName: report.reported.lastName,
+          kyc:
+            report.reported.kycRecords && report.reported.kycRecords.length > 0
+              ? report.reported.kycRecords[0]
+              : null,
         },
         trip: {
           id: report.trip.id,
@@ -2923,7 +2961,13 @@ export class UserService {
             is_deleted: true,
             kycRecords: {
               select: {
+                id: true,
                 status: true,
+                provider: true,
+                rejectionReason: true,
+                createdAt: true,
+                updatedAt: true,
+                verifiedAt: true,
               },
               take: 1,
               orderBy: {
@@ -3116,6 +3160,10 @@ export class UserService {
           rating: ratingMap.get(user.id) ?? 0,
           status: userStatus,
           is_deleted: user.is_deleted,
+          kyc:
+            user.kycRecords && user.kycRecords.length > 0
+              ? user.kycRecords[0]
+              : null,
         };
       });
 

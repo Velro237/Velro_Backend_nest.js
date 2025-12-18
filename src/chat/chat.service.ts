@@ -243,6 +243,41 @@ export class ChatService {
     }
   }
 
+  /**
+   * Delete all chats that have no messages
+   */
+  private async deleteEmptyChats(): Promise<void> {
+    try {
+      // Find all chats with no messages
+      const emptyChats = await this.prisma.chat.findMany({
+        where: {
+          messages: {
+            none: {},
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (emptyChats.length > 0) {
+        // Delete all empty chats
+        // This will cascade delete chat members due to onDelete: Cascade
+        await this.prisma.chat.deleteMany({
+          where: {
+            id: {
+              in: emptyChats.map((chat) => chat.id),
+            },
+          },
+        });
+        console.log(`Deleted ${emptyChats.length} empty chats`);
+      }
+    } catch (error) {
+      console.error('Error deleting empty chats:', error);
+      // Don't throw - this is a cleanup operation
+    }
+  }
+
   async getChats(
     userId: string,
     query: GetChatsQueryDto,
@@ -274,6 +309,12 @@ export class ChatService {
 
       const isAdmin = user?.role === 'ADMIN';
 
+      // Delete all chats with no messages (cleanup)
+      // This runs in the background and doesn't block the request
+      this.deleteEmptyChats().catch((error) => {
+        console.error('Failed to delete empty chats:', error);
+      });
+
       // Try to get from cache first
       const cacheKey = `user:${userId}:chats:${page}:${limit}:${search || ''}`;
       const cachedResult = await this.redis.getChatCacheEx(cacheKey);
@@ -286,6 +327,10 @@ export class ChatService {
           some: {
             user_id: userId,
           },
+        },
+        // Only include chats that have at least one message
+        messages: {
+          some: {},
         },
       };
 
@@ -1044,7 +1089,7 @@ export class ChatService {
                                     ? Number(tripItem.avalailble_kg)
                                     : null
                                   : null,
-                                tripItem: item.trip_item
+                                trip_item: item.trip_item
                                   ? {
                                       id: item.trip_item.id,
                                       name: item.trip_item.name,
@@ -1206,6 +1251,8 @@ export class ChatService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                   picture: true,
                   role: true,
                   last_seen: true,
@@ -1215,6 +1262,17 @@ export class ChatService {
           },
         },
       });
+
+      // Get online status for all members
+      const onlineStatusMap = new Map<string, boolean>();
+      if (chat) {
+        await Promise.all(
+          chat.members.map(async (member) => {
+            const isOnline = await this.redis.isUserOnline(member.user.id);
+            onlineStatusMap.set(member.user.id, isOnline);
+          }),
+        );
+      }
 
       const chat_info = chat
         ? {
@@ -1226,6 +1284,8 @@ export class ChatService {
               id: member.user.id,
               email: member.user.email,
               name: member.user.name,
+              firstName: member.user.firstName,
+              lastName: member.user.lastName,
               picture: member.user.picture,
               role: member.user.role,
               last_seen: member.user.last_seen,
@@ -1234,6 +1294,7 @@ export class ChatService {
               )
                 ? averageResponseTimes.get(member.user.id)! / 1000
                 : null,
+              isOnline: onlineStatusMap.get(member.user.id) || false,
             })),
           }
         : null;
@@ -1279,7 +1340,12 @@ export class ChatService {
       const { page = 1, limit = 10, search } = query;
       const skip = (page - 1) * limit;
 
-      const whereClause: any = {};
+      const whereClause: any = {
+        // Only include chats that have at least one message
+        messages: {
+          some: {},
+        },
+      };
 
       // No membership filter for admin
       // No type filter - show all chat types
@@ -2008,7 +2074,7 @@ export class ChatService {
                                     ? Number(tripItem.avalailble_kg)
                                     : null
                                   : null,
-                                tripItem: item.trip_item
+                                trip_item: item.trip_item
                                   ? {
                                       id: item.trip_item.id,
                                       name: item.trip_item.name,
@@ -2110,6 +2176,8 @@ export class ChatService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                   picture: true,
                   role: true,
                   last_seen: true,
@@ -2119,6 +2187,17 @@ export class ChatService {
           },
         },
       });
+
+      // Get online status for all members
+      const onlineStatusMap = new Map<string, boolean>();
+      if (chat) {
+        await Promise.all(
+          chat.members.map(async (member) => {
+            const isOnline = await this.redis.isUserOnline(member.user.id);
+            onlineStatusMap.set(member.user.id, isOnline);
+          }),
+        );
+      }
 
       const chat_info = chat
         ? {
@@ -2130,6 +2209,8 @@ export class ChatService {
               id: member.user.id,
               email: member.user.email,
               name: member.user.name,
+              firstName: member.user.firstName,
+              lastName: member.user.lastName,
               picture: member.user.picture,
               role: member.user.role,
               last_seen: member.user.last_seen,
@@ -2138,6 +2219,7 @@ export class ChatService {
               )
                 ? averageResponseTimes.get(member.user.id)! / 1000
                 : null,
+              isOnline: onlineStatusMap.get(member.user.id) || false,
             })),
           }
         : null;
@@ -2633,7 +2715,7 @@ export class ChatService {
                               ? Number(tripItem.avalailble_kg)
                               : null
                             : null,
-                          tripItem: item.trip_item
+                          trip_item: item.trip_item
                             ? {
                                 id: item.trip_item.id,
                                 name: item.trip_item.name,
@@ -3317,6 +3399,8 @@ export class ChatService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                   role: true,
                   picture: true,
                 },
@@ -3553,6 +3637,8 @@ export class ChatService {
           id: member.user.id,
           email: member.user.email,
           name: member.user.name,
+          firstName: member.user.firstName,
+          lastName: member.user.lastName,
           role: member.user.role,
           picture: member.user.picture,
         })),

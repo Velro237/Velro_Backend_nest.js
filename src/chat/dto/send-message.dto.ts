@@ -186,7 +186,7 @@ export class MessageResponseDto {
     requestItems: Array<{
       quantity: number;
       specialNotes: string | null;
-      tripItem?: {
+      trip_item?: {
         id: string;
         name: string;
         description: string | null;

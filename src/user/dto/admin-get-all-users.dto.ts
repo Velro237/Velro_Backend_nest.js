@@ -144,6 +144,43 @@ export class AdminUserDto {
     example: false,
   })
   is_deleted!: boolean;
+
+  @ApiProperty({
+    description: 'Latest KYC record for the user',
+    type: 'object',
+    nullable: true,
+    properties: {
+      id: { type: 'string', example: '123e4567-e89b-12d3-a456-426614174000' },
+      status: { type: 'string', example: 'APPROVED' },
+      provider: { type: 'string', example: 'DIDIT' },
+      rejectionReason: { type: 'string', example: null, nullable: true },
+      createdAt: {
+        type: 'string',
+        format: 'date-time',
+        example: '2024-01-01T00:00:00Z',
+      },
+      updatedAt: {
+        type: 'string',
+        format: 'date-time',
+        example: '2024-01-01T00:00:00Z',
+      },
+      verifiedAt: {
+        type: 'string',
+        format: 'date-time',
+        example: null,
+        nullable: true,
+      },
+    },
+  })
+  kyc!: {
+    id: string;
+    status: string;
+    provider: string;
+    rejectionReason?: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    verifiedAt?: Date | null;
+  } | null;
 }
 
 export class AdminGetAllUsersResponseDto {
