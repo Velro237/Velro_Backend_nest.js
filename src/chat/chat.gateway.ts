@@ -11,7 +11,12 @@ import {
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { JwtWsGuard } from './guards/jwt-ws.guard';
-import { UseGuards, ExecutionContext } from '@nestjs/common';
+import {
+  UseGuards,
+  ExecutionContext,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { SendMessageDto, MessageType } from './dto/send-message.dto';
 import { MessageType as PrismaMessageType, loggerType } from 'generated/prisma';
 import { JwtService } from '@nestjs/jwt';
@@ -33,6 +38,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private socketUser = new Map<string, string>();
 
   constructor(
+    @Inject(forwardRef(() => ChatService))
     private readonly chatService: ChatService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,

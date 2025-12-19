@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsUUID,
   IsDateString,
+  IsString,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ReportType, ReportPriority, ReportStatus } from 'generated/prisma';
@@ -109,6 +110,16 @@ export class AdminGetAllReportsQueryDto {
   @IsOptional()
   @IsDateString()
   end_date?: string;
+
+  @ApiProperty({
+    description:
+      'Search key to filter by report ID, reporter firstname/lastname, or reported firstname/lastname',
+    example: 'John Doe',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  searchKey?: string;
 }
 
 export class AdminGetAllReportsResponseDto {

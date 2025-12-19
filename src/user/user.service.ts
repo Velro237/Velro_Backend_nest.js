@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -87,6 +88,8 @@ import {
   AdminGetAllReportsQueryDto,
   AdminGetAllReportsResponseDto,
 } from './dto/admin-get-all-reports.dto';
+import { AdminReportsStatsResponseDto } from './dto/admin-reports-stats.dto';
+import { AdminChangeReportStatusResponseDto } from './dto/admin-change-report-status.dto';
 import {
   CreateRatingDto,
   CreateRatingResponseDto,
@@ -109,6 +112,7 @@ import {
   KYCStatus,
   RequestStatus,
   TripStatus,
+  ReportStatus,
 } from 'generated/prisma';
 import { I18nService } from 'nestjs-i18n';
 import { ImageService } from '../shared/services/image.service';
@@ -144,6 +148,11 @@ import {
   AdminGetRequestsResponseDto,
 } from './dto/admin-get-requests.dto';
 import { AdminChatsStatsResponseDto } from './dto/admin-chats-stats.dto';
+import { AdminTripsStatsResponseDto } from './dto/admin-trips-stats.dto';
+import {
+  AdminFlagContentDto,
+  AdminFlagContentResponseDto,
+} from './dto/admin-flag-content.dto';
 import { RedisService } from '../redis/redis.service';
 
 @Injectable()
@@ -1124,6 +1133,92 @@ export class UserService {
     }
   }
 
+  /**
+   * Change report status (Admin only)
+   */
+  async changeReportStatus(
+    reportId: string,
+    status: ReportStatus,
+    lang?: string,
+  ): Promise<AdminChangeReportStatusResponseDto> {
+    try {
+      // Find the report
+      const report = await this.prisma.report.findUnique({
+        where: { id: reportId },
+        select: {
+          id: true,
+          status: true,
+          reply_to_id: true,
+        },
+      });
+
+      if (!report) {
+        const message = await this.i18n.translate(
+          'translation.report.notFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Only allow changing status of original reports, not replies
+      if (report.reply_to_id) {
+        const message = await this.i18n.translate(
+          'translation.report.cannotChangeReplyStatus',
+          {
+            lang,
+            defaultValue:
+              'Cannot change status of reply reports. Only original reports can have their status changed.',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Update the report status
+      const updatedReport = await this.prisma.report.update({
+        where: { id: reportId },
+        data: { status },
+        select: {
+          id: true,
+          status: true,
+          updated_at: true,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.report.statusUpdated',
+        {
+          lang,
+          defaultValue: 'Report status updated successfully',
+        },
+      );
+
+      return {
+        message,
+        report: {
+          id: updatedReport.id,
+          status: updatedReport.status,
+          updated_at: updatedReport.updated_at,
+        },
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+
+      const message = await this.i18n.translate(
+        'translation.report.statusUpdateFailed',
+        {
+          lang,
+          defaultValue: 'Failed to update report status',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
   async replyToReport(
     replyReportDto: ReplyReportDto,
     adminId: string,
@@ -1209,6 +1304,190 @@ export class UserService {
     }
   }
 
+  /**
+   * Get report statistics for admin
+   */
+  async getAdminReportsStats(
+    lang?: string,
+  ): Promise<AdminReportsStatsResponseDto> {
+    try {
+      // Get current date boundaries
+      const now = new Date();
+      const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfLastMonth = new Date(
+        now.getFullYear(),
+        now.getMonth() - 1,
+        1,
+      );
+      const startOfLastMonthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0,
+      );
+
+      // Get total reports
+      const totalReports = await this.prisma.report.count({
+        where: {
+          reply_to_id: null, // Only count original reports, not replies
+        },
+      });
+
+      // Get reports grouped by status (only original reports, not replies)
+      const reportsByStatus = await this.prisma.report.groupBy({
+        by: ['status'],
+        where: {
+          reply_to_id: null,
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      // Build status map
+      const statusMap = new Map<string, number>();
+      reportsByStatus.forEach((item) => {
+        statusMap.set(item.status, item._count.id);
+      });
+
+      // Get total replied this month (original reports that have a reply created this month)
+      const originalReportsWithRepliesThisMonth =
+        await this.prisma.report.findMany({
+          where: {
+            reply_to_id: null, // Only original reports
+            status: 'REPLIED',
+            replies: {
+              some: {
+                created_at: {
+                  gte: startOfThisMonth,
+                },
+              },
+            },
+          },
+          select: {
+            id: true,
+          },
+        });
+      const totalRepliedThisMonth = originalReportsWithRepliesThisMonth.length;
+
+      // Get all original reports with status REPLIED and their first reply
+      const repliedReports = await this.prisma.report.findMany({
+        where: {
+          status: 'REPLIED',
+          reply_to_id: null, // Only original reports
+        },
+        include: {
+          replies: {
+            orderBy: {
+              created_at: 'asc',
+            },
+            take: 1,
+            select: {
+              created_at: true,
+            },
+          },
+        },
+      });
+
+      // Calculate reply times (in milliseconds)
+      const replyTimes: number[] = [];
+      const replyTimesThisMonth: number[] = [];
+      const replyTimesLastMonth: number[] = [];
+
+      repliedReports.forEach((report) => {
+        const firstReply = report.replies[0];
+        if (firstReply) {
+          const replyTime =
+            firstReply.created_at.getTime() - report.created_at.getTime();
+
+          // Only include positive reply times (should always be positive)
+          if (replyTime > 0) {
+            replyTimes.push(replyTime);
+
+            // Check if reply was created this month
+            if (firstReply.created_at >= startOfThisMonth) {
+              replyTimesThisMonth.push(replyTime);
+            }
+
+            // Check if reply was created last month
+            if (
+              firstReply.created_at >= startOfLastMonth &&
+              firstReply.created_at <= startOfLastMonthEnd
+            ) {
+              replyTimesLastMonth.push(replyTime);
+            }
+          }
+        }
+      });
+
+      // Calculate average reply times
+      const averageReplyTime =
+        replyTimes.length > 0
+          ? replyTimes.reduce((sum, time) => sum + time, 0) / replyTimes.length
+          : 0;
+
+      const averageReplyTimeThisMonth =
+        replyTimesThisMonth.length > 0
+          ? replyTimesThisMonth.reduce((sum, time) => sum + time, 0) /
+            replyTimesThisMonth.length
+          : 0;
+
+      const averageReplyTimeLastMonth =
+        replyTimesLastMonth.length > 0
+          ? replyTimesLastMonth.reduce((sum, time) => sum + time, 0) /
+            replyTimesLastMonth.length
+          : 0;
+
+      // Calculate percentage increase
+      let percentageIncreaseReplyTime = 0;
+      if (averageReplyTimeLastMonth > 0) {
+        percentageIncreaseReplyTime =
+          ((averageReplyTimeThisMonth - averageReplyTimeLastMonth) /
+            averageReplyTimeLastMonth) *
+          100;
+      } else if (averageReplyTimeThisMonth > 0) {
+        // If last month had no replies but this month does, it's a 100% increase
+        percentageIncreaseReplyTime = 100;
+      }
+
+      const message = await this.i18n.translate(
+        'translation.admin.reportsStatsSuccess',
+        {
+          lang,
+          defaultValue: 'Report statistics retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        stats: {
+          totalReports,
+          reportsByStatus: {
+            total_report_pending: statusMap.get('PENDING') || 0,
+            total_report_replied: statusMap.get('REPLIED') || 0,
+            total_report_investigation: statusMap.get('INVESTIGATION') || 0,
+            total_report_resolved: statusMap.get('RESOLVED') || 0,
+          },
+          totalRepliedThisMonth,
+          averageReplyTime: Math.round(averageReplyTime),
+          averageReplyTimeThisMonth: Math.round(averageReplyTimeThisMonth),
+          averageReplyTimeLastMonth: Math.round(averageReplyTimeLastMonth),
+          percentageIncreaseReplyTime:
+            Math.round(percentageIncreaseReplyTime * 100) / 100,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting admin reports statistics:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.reportsStatsFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve report statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
   async getAllReports(
     query: AdminGetAllReportsQueryDto,
     lang?: string,
@@ -1224,6 +1503,7 @@ export class UserService {
       replied_by,
       start_date,
       end_date,
+      searchKey,
     } = query;
 
     const skip = (page - 1) * limit;
@@ -1264,6 +1544,41 @@ export class UserService {
         }
       }
 
+      // Add searchKey filter if provided
+      if (searchKey) {
+        const searchConditions: any[] = [
+          { id: { contains: searchKey, mode: 'insensitive' } },
+        ];
+
+        // Search in reporter firstname and lastname
+        searchConditions.push({
+          user: {
+            OR: [
+              { firstName: { contains: searchKey, mode: 'insensitive' } },
+              { lastName: { contains: searchKey, mode: 'insensitive' } },
+            ],
+          },
+        });
+
+        // Search in reported firstname and lastname
+        searchConditions.push({
+          reported: {
+            OR: [
+              { firstName: { contains: searchKey, mode: 'insensitive' } },
+              { lastName: { contains: searchKey, mode: 'insensitive' } },
+            ],
+          },
+        });
+
+        // Combine with existing OR conditions if any
+        if (whereClause.OR) {
+          whereClause.AND = [{ OR: whereClause.OR }, { OR: searchConditions }];
+          delete whereClause.OR;
+        } else {
+          whereClause.OR = searchConditions;
+        }
+      }
+
       // Get reports with pagination
       const [reports, total] = await Promise.all([
         this.prisma.report.findMany({
@@ -1273,12 +1588,46 @@ export class UserService {
               select: {
                 id: true,
                 email: true,
+                firstName: true,
+                lastName: true,
+                kycRecords: {
+                  select: {
+                    id: true,
+                    status: true,
+                    provider: true,
+                    rejectionReason: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    verifiedAt: true,
+                  },
+                  take: 1,
+                  orderBy: {
+                    updatedAt: 'desc',
+                  },
+                },
               },
             },
             reported: {
               select: {
                 id: true,
                 email: true,
+                firstName: true,
+                lastName: true,
+                kycRecords: {
+                  select: {
+                    id: true,
+                    status: true,
+                    provider: true,
+                    rejectionReason: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    verifiedAt: true,
+                  },
+                  take: 1,
+                  orderBy: {
+                    updatedAt: 'desc',
+                  },
+                },
               },
             },
             trip: {
@@ -1327,10 +1676,22 @@ export class UserService {
         reporter_user: {
           id: report.user.id,
           email: report.user.email,
+          firstName: report.user.firstName,
+          lastName: report.user.lastName,
+          kyc:
+            report.user.kycRecords && report.user.kycRecords.length > 0
+              ? report.user.kycRecords[0]
+              : null,
         },
         reported_user: {
           id: report.reported.id,
           email: report.reported.email,
+          firstName: report.reported.firstName,
+          lastName: report.reported.lastName,
+          kyc:
+            report.reported.kycRecords && report.reported.kycRecords.length > 0
+              ? report.reported.kycRecords[0]
+              : null,
         },
         trip: {
           id: report.trip.id,
@@ -2199,6 +2560,8 @@ export class UserService {
         totalMessagesThisMonth,
         totalMessagesLastMonth,
         onlineUsers,
+        totalFlaggedMessages,
+        totalFlaggedChats,
       ] = await Promise.all([
         this.prisma.chat.count(),
         this.prisma.message.count(),
@@ -2225,6 +2588,16 @@ export class UserService {
           },
         }),
         this.redisService.getOnlineUsers(),
+        this.prisma.message.count({
+          where: {
+            is_flagged: true,
+          },
+        }),
+        this.prisma.chat.count({
+          where: {
+            is_flagged: true,
+          },
+        }),
       ]);
 
       // Calculate percentage increase
@@ -2261,6 +2634,8 @@ export class UserService {
           totalMessagesLastMonth,
           percentageIncrease,
           totalUsersOnline: onlineUsers.length,
+          totalFlaggedMessages,
+          totalFlaggedChats,
         },
       };
     } catch (error) {
@@ -2586,7 +2961,13 @@ export class UserService {
             is_deleted: true,
             kycRecords: {
               select: {
+                id: true,
                 status: true,
+                provider: true,
+                rejectionReason: true,
+                createdAt: true,
+                updatedAt: true,
+                verifiedAt: true,
               },
               take: 1,
               orderBy: {
@@ -2779,6 +3160,10 @@ export class UserService {
           rating: ratingMap.get(user.id) ?? 0,
           status: userStatus,
           is_deleted: user.is_deleted,
+          kyc:
+            user.kycRecords && user.kycRecords.length > 0
+              ? user.kycRecords[0]
+              : null,
         };
       });
 
@@ -3140,6 +3525,155 @@ export class UserService {
   }
 
   /**
+   * Get trip statistics for admin dashboard
+   */
+  async getAdminTripsStats(lang?: string): Promise<AdminTripsStatsResponseDto> {
+    try {
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+
+      // Calculate date range for next 7 days
+      const next7DaysStart = new Date(now);
+      next7DaysStart.setHours(0, 0, 0, 0);
+      const next7DaysEnd = new Date(now);
+      next7DaysEnd.setDate(next7DaysEnd.getDate() + 7);
+      next7DaysEnd.setHours(23, 59, 59, 999);
+
+      // Get statistics in parallel
+      const [
+        totalTrips,
+        totalTripsThisMonth,
+        totalTripsLastMonth,
+        totalTripsInProgress,
+        totalTripsDepartingNext7Days,
+        totalTripsCompleted,
+        totalRequests,
+      ] = await Promise.all([
+        this.prisma.trip.count({
+          where: {
+            user: {
+              is_deleted: false,
+            },
+          },
+        }),
+        this.prisma.trip.count({
+          where: {
+            createdAt: {
+              gte: currentMonthStart,
+            },
+            user: {
+              is_deleted: false,
+            },
+          },
+        }),
+        this.prisma.trip.count({
+          where: {
+            createdAt: {
+              gte: lastMonthStart,
+              lte: lastMonthEnd,
+            },
+            user: {
+              is_deleted: false,
+            },
+          },
+        }),
+        this.prisma.trip.count({
+          where: {
+            status: TripStatus.INPROGRESS,
+            user: {
+              is_deleted: false,
+            },
+          },
+        }),
+        this.prisma.trip.count({
+          where: {
+            departure_date: {
+              gte: next7DaysStart,
+              lte: next7DaysEnd,
+            },
+            user: {
+              is_deleted: false,
+            },
+          },
+        }),
+        this.prisma.trip.count({
+          where: {
+            status: TripStatus.COMPLETED,
+            user: {
+              is_deleted: false,
+            },
+          },
+        }),
+        this.prisma.tripRequest.count(),
+      ]);
+
+      // Calculate percentage increase
+      const calculatePercentageIncrease = (
+        current: number,
+        previous: number,
+      ): number => {
+        if (previous === 0) {
+          return current > 0 ? 100 : 0;
+        }
+        return Math.round(((current - previous) / previous) * 100 * 100) / 100;
+      };
+
+      const percentageIncrease = calculatePercentageIncrease(
+        totalTripsThisMonth,
+        totalTripsLastMonth,
+      );
+
+      // Calculate average requests per trip
+      const averageRequestsPerTrip =
+        totalTrips > 0
+          ? Math.round((totalRequests / totalTrips) * 100) / 100
+          : 0;
+
+      const message = await this.i18n.translate(
+        'translation.admin.tripsStatsSuccess',
+        {
+          lang,
+          defaultValue: 'Trip statistics retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        stats: {
+          totalTrips,
+          totalTripsThisMonth,
+          totalTripsLastMonth,
+          percentageIncrease,
+          totalTripsInProgress,
+          totalTripsDepartingNext7Days,
+          totalTripsCompleted,
+          averageRequestsPerTrip,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting admin trip statistics:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.tripsStatsFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve trip statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
    * Get trips for admin with filters, request counts and revenue in EUR
    */
   async getAdminTrips(
@@ -3153,6 +3687,9 @@ export class UserService {
         userId,
         status,
         searchKey,
+        tripId,
+        departure,
+        destination,
         from,
         to,
       } = query;
@@ -3174,6 +3711,59 @@ export class UserService {
       // Filter by status if provided
       if (status) {
         whereClause.status = status;
+      }
+
+      // Filter by tripId if provided
+      if (tripId) {
+        whereClause.id = tripId;
+      }
+
+      // Filter by departure (city or country) if provided
+      if (departure) {
+        whereClause.OR = [
+          {
+            departure: {
+              path: ['city'],
+              string_contains: departure,
+              mode: 'insensitive',
+            },
+          },
+          {
+            departure: {
+              path: ['country'],
+              string_contains: departure,
+              mode: 'insensitive',
+            },
+          },
+        ];
+      }
+
+      // Filter by destination (city or country) if provided
+      if (destination) {
+        const destinationFilter = [
+          {
+            destination: {
+              path: ['city'],
+              string_contains: destination,
+              mode: 'insensitive',
+            },
+          },
+          {
+            destination: {
+              path: ['country'],
+              string_contains: destination,
+              mode: 'insensitive',
+            },
+          },
+        ];
+
+        // If departure filter already exists, combine with AND
+        if (whereClause.OR) {
+          whereClause.AND = [{ OR: whereClause.OR }, { OR: destinationFilter }];
+          delete whereClause.OR;
+        } else {
+          whereClause.OR = destinationFilter;
+        }
       }
 
       // Filter by createdAt date range
@@ -3227,6 +3817,29 @@ export class UserService {
                 id: true,
                 name: true,
                 description: true,
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                kycRecords: {
+                  select: {
+                    id: true,
+                    status: true,
+                    provider: true,
+                    rejectionReason: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    verifiedAt: true,
+                    expiresAt: true,
+                  },
+                  orderBy: {
+                    createdAt: 'desc',
+                  },
+                  take: 1,
+                },
               },
             },
           },
@@ -3293,6 +3906,29 @@ export class UserService {
                   id: true,
                   name: true,
                   description: true,
+                },
+              },
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  kycRecords: {
+                    select: {
+                      id: true,
+                      status: true,
+                      provider: true,
+                      rejectionReason: true,
+                      createdAt: true,
+                      updatedAt: true,
+                      verifiedAt: true,
+                      expiresAt: true,
+                    },
+                    orderBy: {
+                      createdAt: 'desc',
+                    },
+                    take: 1,
+                  },
                 },
               },
             },
@@ -3433,6 +4069,21 @@ export class UserService {
             }, 0)
           : 0;
 
+        // Get KYC data (most recent record)
+        const kycData =
+          trip.user?.kycRecords && trip.user.kycRecords.length > 0
+            ? {
+                id: trip.user.kycRecords[0].id,
+                status: trip.user.kycRecords[0].status,
+                provider: trip.user.kycRecords[0].provider,
+                rejectionReason: trip.user.kycRecords[0].rejectionReason,
+                createdAt: trip.user.kycRecords[0].createdAt,
+                updatedAt: trip.user.kycRecords[0].updatedAt,
+                verifiedAt: trip.user.kycRecords[0].verifiedAt,
+                expiresAt: trip.user.kycRecords[0].expiresAt,
+              }
+            : null;
+
         return {
           id: trip.id,
           departure: trip.departure,
@@ -3449,6 +4100,14 @@ export class UserService {
           revenue: revenueInEUR,
           available_kg: availableKg > 0 ? availableKg : null,
           booked_kg: bookedKg,
+          user: trip.user
+            ? {
+                id: trip.user.id,
+                firstName: trip.user.firstName,
+                lastName: trip.user.lastName,
+                kyc: kycData,
+              }
+            : null,
         };
       });
 
@@ -3555,6 +4214,158 @@ export class UserService {
         {
           lang,
           defaultValue: 'Failed to suspend/unsuspend user',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Flag a message or chat (Admin only)
+   * - For messages: sets is_flagged = true on the message and increments flag_count on the sender by 1
+   * - For chats: sets is_flagged = true on the chat and increments flag_count on both chat members by 1
+   */
+  async flagContent(
+    dto: AdminFlagContentDto,
+    lang?: string,
+  ): Promise<AdminFlagContentResponseDto> {
+    try {
+      if (!dto.messageId && !dto.chatId) {
+        throw new BadRequestException(
+          'Either messageId or chatId must be provided',
+        );
+      }
+
+      if (dto.messageId && dto.chatId) {
+        throw new BadRequestException(
+          'Only one of messageId or chatId should be provided',
+        );
+      }
+
+      if (dto.messageId) {
+        // Flag a message
+        const message = await this.prisma.message.findUnique({
+          where: { id: dto.messageId },
+          select: {
+            id: true,
+            sender_id: true,
+            is_flagged: true,
+          },
+        });
+
+        if (!message) {
+          throw new NotFoundException('Message not found');
+        }
+
+        if (message.is_flagged) {
+          throw new BadRequestException('Message is already flagged');
+        }
+
+        // Update message and increment sender's flag_count in a transaction
+        await this.prisma.$transaction([
+          this.prisma.message.update({
+            where: { id: dto.messageId },
+            data: { is_flagged: true },
+          }),
+          this.prisma.user.update({
+            where: { id: message.sender_id },
+            data: {
+              flag_count: {
+                increment: 1,
+              },
+            },
+          }),
+        ]);
+
+        const message_text = await this.i18n.translate(
+          'translation.admin.flagMessageSuccess',
+          {
+            lang,
+            defaultValue: 'Message flagged successfully',
+          },
+        );
+
+        return {
+          message: message_text,
+          type: 'message',
+        };
+      } else if (dto.chatId) {
+        // Flag a chat
+        const chat = await this.prisma.chat.findUnique({
+          where: { id: dto.chatId },
+          select: {
+            id: true,
+            is_flagged: true,
+            members: {
+              select: {
+                user_id: true,
+              },
+            },
+          },
+        });
+
+        if (!chat) {
+          throw new NotFoundException('Chat not found');
+        }
+
+        if (chat.is_flagged) {
+          throw new BadRequestException('Chat is already flagged');
+        }
+
+        if (chat.members.length < 2) {
+          throw new BadRequestException('Chat must have at least 2 members');
+        }
+
+        const userIds = chat.members.map((member) => member.user_id);
+
+        // Update chat and increment flag_count for both members in a transaction
+        await this.prisma.$transaction([
+          this.prisma.chat.update({
+            where: { id: dto.chatId },
+            data: { is_flagged: true },
+          }),
+          // Increment flag_count for all chat members
+          ...userIds.map((userId) =>
+            this.prisma.user.update({
+              where: { id: userId },
+              data: {
+                flag_count: {
+                  increment: 1,
+                },
+              },
+            }),
+          ),
+        ]);
+
+        const message_text = await this.i18n.translate(
+          'translation.admin.flagChatSuccess',
+          {
+            lang,
+            defaultValue: 'Chat flagged successfully',
+          },
+        );
+
+        return {
+          message: message_text,
+          type: 'chat',
+        };
+      }
+
+      // This should never be reached due to validation above
+      throw new BadRequestException('Invalid request');
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      console.error('Error flagging content:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.flagContentFailed',
+        {
+          lang,
+          defaultValue: 'Failed to flag content',
         },
       );
       throw new InternalServerErrorException(message);

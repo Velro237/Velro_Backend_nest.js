@@ -108,6 +108,8 @@ export class ChatSummaryDto {
         id: { type: 'string' },
         email: { type: 'string' },
         name: { type: 'string' },
+        firstName: { type: 'string', nullable: true },
+        lastName: { type: 'string', nullable: true },
         role: { type: 'string' },
         picture: { type: 'string' },
       },
@@ -117,6 +119,8 @@ export class ChatSummaryDto {
     id: string;
     email: string;
     name: string;
+    firstName: string | null;
+    lastName: string | null;
     role: string;
     picture: string | null;
   }>;
@@ -126,6 +130,12 @@ export class ChatSummaryDto {
     example: '2024-01-15T10:30:00.000Z',
   })
   createdAt: Date;
+
+  @ApiProperty({
+    description: 'Whether the chat is flagged',
+    example: false,
+  })
+  is_flagged: boolean;
 
   @ApiProperty({
     description: 'Trip information if chat is linked to a trip',

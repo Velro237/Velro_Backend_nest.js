@@ -7,6 +7,7 @@ import { RedisModule } from '../redis/redis.module';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationModule } from '../notification/notification.module';
 import { ImageModule } from '../shared/image.module';
+import { CurrencyModule } from '../currency/currency.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { ImageModule } from '../shared/image.module';
     AuthModule,
     NotificationModule,
     ImageModule,
+    CurrencyModule,
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway],

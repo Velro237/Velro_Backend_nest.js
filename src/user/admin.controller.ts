@@ -18,6 +18,11 @@ import {
   AdminGetAllReportsQueryDto,
   AdminGetAllReportsResponseDto,
 } from './dto/admin-get-all-reports.dto';
+import { AdminReportsStatsResponseDto } from './dto/admin-reports-stats.dto';
+import {
+  AdminChangeReportStatusDto,
+  AdminChangeReportStatusResponseDto,
+} from './dto/admin-change-report-status.dto';
 import { ReplyReportDto, ReplyReportResponseDto } from './dto/reply-report.dto';
 import {
   AdminGetDeleteRequestsQueryDto,
@@ -76,7 +81,14 @@ import {
 } from '../request/dto/update-trip-request.dto';
 import { RequestService } from '../request/request.service';
 import { AdminChatsStatsResponseDto } from './dto/admin-chats-stats.dto';
+import { AdminTripsStatsResponseDto } from './dto/admin-trips-stats.dto';
+import {
+  AdminFlagContentDto,
+  AdminFlagContentResponseDto,
+} from './dto/admin-flag-content.dto';
 import { ChatService } from '../chat/chat.service';
+import { ChatGateway } from '../chat/chat.gateway';
+import { PrismaService } from '../prisma/prisma.service';
 import {
   GetChatsQueryDto,
   GetChatsResponseDto,
@@ -85,6 +97,10 @@ import {
   GetMessagesQueryDto,
   GetMessagesResponseDto,
 } from '../chat/dto/get-messages.dto';
+import {
+  AdminSendWarningDto,
+  AdminSendWarningResponseDto,
+} from './dto/admin-send-warning.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth('JWT-auth')
@@ -99,6 +115,32 @@ export class AdminController {
     private readonly chatService: ChatService,
   ) {}
 
+  @Get('reports/stats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get report statistics (Admin only)',
+    description:
+      'Retrieve comprehensive report statistics including total reports, reports per status, total replied this month, average reply time, and percentage increase of average reply time this month compared to last month.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Report statistics retrieved successfully',
+    type: AdminReportsStatsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getReportsStats(
+    @I18nLang() lang: string,
+  ): Promise<AdminReportsStatsResponseDto> {
+    return this.userService.getAdminReportsStats(lang);
+  }
+
   @Get('reports')
   @ApiAdminGetAllReports()
   async getAllReports(
@@ -106,6 +148,52 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminGetAllReportsResponseDto> {
     return this.userService.getAllReports(query, lang);
+  }
+
+  @Patch('reports/:id/status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Change report status (Admin only)',
+    description:
+      'Update the status of a report. Only original reports (not replies) can have their status changed. Admin access required.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Report ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({
+    type: AdminChangeReportStatusDto,
+    description: 'Report status update data',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Report status updated successfully',
+    type: AdminChangeReportStatusResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Bad request - Invalid input data or cannot change reply report status',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Report not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async changeReportStatus(
+    @Param('id', ParseUUIDPipe) reportId: string,
+    @Body() dto: AdminChangeReportStatusDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminChangeReportStatusResponseDto> {
+    return this.userService.changeReportStatus(reportId, dto.status, lang);
   }
 
   @Post('report/reply')
@@ -442,12 +530,38 @@ export class AdminController {
     return this.walletService.changeWalletState(userId, dto);
   }
 
+  @Get('trips/stats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get trip statistics (Admin only)',
+    description:
+      'Retrieve comprehensive trip statistics including total trips, percentage increase this month, trips in progress, trips departing within next 7 days, completed trips, and average requests per trip.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Trip statistics retrieved successfully',
+    type: AdminTripsStatsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getTripsStats(
+    @I18nLang() lang: string,
+  ): Promise<AdminTripsStatsResponseDto> {
+    return this.userService.getAdminTripsStats(lang);
+  }
+
   @Get('trips')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get trips with statistics (Admin only)',
     description:
-      'Retrieve all trips with optional filters. Can filter by userId, status, searchKey (trip ID, departure city/country, destination city/country), and date range (createdAt). Returns trip information including total requests per trip and revenue per trip in EUR.',
+      'Retrieve all trips with optional filters. Can filter by userId, status, tripId (exact trip ID), departure (city or country), destination (city or country), searchKey (trip ID, departure city/country, destination city/country), and date range (createdAt). Returns trip information including total requests per trip and revenue per trip in EUR.',
   })
   @ApiResponse({
     status: 200,
@@ -675,5 +789,118 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<GetMessagesResponseDto> {
     return this.chatService.getChatMessagesForAdmin(query, lang);
+  }
+
+  @Post('flag')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Flag a message or chat (Admin only)',
+    description:
+      'Flag a message or chat. For messages: sets is_flagged = true on the message and increments flag_count on the sender by 1. For chats: sets is_flagged = true on the chat and increments flag_count on both chat members by 1.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Content flagged successfully',
+    type: AdminFlagContentResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid parameters or content already flagged',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Message or chat not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async flagContent(
+    @Body() dto: AdminFlagContentDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminFlagContentResponseDto> {
+    return this.userService.flagContent(dto, lang);
+  }
+
+  @Get('chats/support/:userId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get or create support chat with a user (Admin only)',
+    description:
+      'Get or create a support chat between the admin and a specific user. If no support chat exists, one will be created automatically. Returns the same format as getChats but only for the support chat.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Support chat retrieved successfully',
+    type: GetChatsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getSupportChatForUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() admin: User,
+    @I18nLang() lang: string,
+  ): Promise<GetChatsResponseDto> {
+    return this.chatService.getSupportChatForAdmin(userId, admin.id, lang);
+  }
+
+  @Post('chats/warning')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Send warning message to a chat (Admin only)',
+    description:
+      'Send a warning message of type WARNING to a chat. This works similarly to system messages sent when request status changes.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Warning sent successfully',
+    type: AdminSendWarningResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid parameters',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Chat not found',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async sendWarning(
+    @Body() dto: AdminSendWarningDto,
+    @CurrentUser() admin: User,
+    @I18nLang() lang: string,
+  ): Promise<AdminSendWarningResponseDto> {
+    const warningMessage = await this.chatService.sendWarningToChat(
+      dto.chatId,
+      admin.id,
+      dto.message,
+      lang,
+    );
+
+    return {
+      message: 'Warning sent successfully',
+      warningMessage,
+    };
   }
 }

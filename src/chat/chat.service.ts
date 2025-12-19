@@ -4,6 +4,8 @@ import {
   ForbiddenException,
   ConflictException,
   InternalServerErrorException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
@@ -26,6 +28,8 @@ import {
 } from './dto/get-messages.dto';
 import { NotificationService } from '../notification/notification.service';
 import { ImageService } from '../shared/services/image.service';
+import { CurrencyService } from '../currency/currency.service';
+import { ChatGateway } from './chat.gateway';
 
 @Injectable()
 export class ChatService {
@@ -35,6 +39,9 @@ export class ChatService {
     private readonly redis: RedisService,
     private readonly notificationService: NotificationService,
     private readonly imageService: ImageService,
+    private readonly currencyService: CurrencyService,
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   async createChat(
@@ -236,6 +243,41 @@ export class ChatService {
     }
   }
 
+  /**
+   * Delete all chats that have no messages
+   */
+  private async deleteEmptyChats(): Promise<void> {
+    try {
+      // Find all chats with no messages
+      const emptyChats = await this.prisma.chat.findMany({
+        where: {
+          messages: {
+            none: {},
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (emptyChats.length > 0) {
+        // Delete all empty chats
+        // This will cascade delete chat members due to onDelete: Cascade
+        await this.prisma.chat.deleteMany({
+          where: {
+            id: {
+              in: emptyChats.map((chat) => chat.id),
+            },
+          },
+        });
+        console.log(`Deleted ${emptyChats.length} empty chats`);
+      }
+    } catch (error) {
+      console.error('Error deleting empty chats:', error);
+      // Don't throw - this is a cleanup operation
+    }
+  }
+
   async getChats(
     userId: string,
     query: GetChatsQueryDto,
@@ -267,6 +309,12 @@ export class ChatService {
 
       const isAdmin = user?.role === 'ADMIN';
 
+      // Delete all chats with no messages (cleanup)
+      // This runs in the background and doesn't block the request
+      this.deleteEmptyChats().catch((error) => {
+        console.error('Failed to delete empty chats:', error);
+      });
+
       // Try to get from cache first
       const cacheKey = `user:${userId}:chats:${page}:${limit}:${search || ''}`;
       const cachedResult = await this.redis.getChatCacheEx(cacheKey);
@@ -279,6 +327,10 @@ export class ChatService {
           some: {
             user_id: userId,
           },
+        },
+        // Only include chats that have at least one message
+        messages: {
+          some: {},
         },
       };
 
@@ -462,6 +514,7 @@ export class ChatService {
         return {
           id: chat.id,
           name: chat.name,
+          is_flagged: chat.is_flagged,
           lastMessage: lastMsg
             ? {
                 id: lastMsg.id,
@@ -725,6 +778,18 @@ export class ChatService {
         this.prisma.message.count({ where: { chat_id: chatId } }),
       ]);
 
+      // Get user's currency for price conversion
+      let userCurrency = 'XAF';
+      try {
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { currency: true },
+        });
+        userCurrency = (user?.currency || 'XAF').toUpperCase();
+      } catch (error) {
+        console.error('Error fetching user currency:', error);
+      }
+
       // Transform messages using the same logic as createMessage
       const messageResponses: MessageResponseDto[] = await Promise.all(
         messages.map(async (message) => {
@@ -883,79 +948,184 @@ export class ChatService {
                 }
               : undefined,
             requestData: message.request
-              ? {
-                  id: message.request.id,
-                  status: message.request.status,
-                  message: message.request.message,
-                  cost: message.request.cost
+              ? (() => {
+                  // Convert cost to user's currency
+                  let cost = message.request.cost
                     ? Number(message.request.cost)
-                    : null,
-                  currency: message.request.currency,
-                  createdAt: message.request.created_at,
-                  updatedAt: message.request.updated_at,
-                  availableKgs: message.request.request_items
-                    ? message.request.request_items.reduce(
-                        (total, item) => total + item.quantity,
-                        0,
-                      )
-                    : 0,
-                  requestItems: message.request.request_items
-                    ? (() => {
-                        const tripItems =
-                          (message.request as any).trip?.trip_items || [];
-                        return message.request.request_items.map(
-                          (item: any) => {
-                            const tripItem = tripItems.find(
-                              (ti: any) =>
-                                ti.trip_item_id === item.trip_item_id,
-                            );
-                            return {
-                              quantity: item.quantity,
-                              specialNotes: item.special_notes,
-                              createdAt: item.created_at,
-                              updatedAt: item.updated_at,
-                              price: tripItem ? Number(tripItem.price) : null,
-                              available_kg: tripItem
-                                ? tripItem.avalailble_kg
-                                  ? Number(tripItem.avalailble_kg)
-                                  : null
-                                : null,
-                              tripItem: item.trip_item
-                                ? {
-                                    id: item.trip_item.id,
-                                    name: item.trip_item.name,
-                                    description: item.trip_item.description,
-                                    image_id: item.trip_item.image_id,
-                                    createdAt: item.trip_item.created_at,
-                                    updatedAt: item.trip_item.updated_at,
-                                    translations: item.trip_item.translations
-                                      ? item.trip_item.translations.map(
-                                          (t: any) => ({
-                                            id: t.id,
-                                            language: t.language,
-                                            name: t.name,
-                                            description: t.description,
-                                          }),
-                                        )
-                                      : [],
+                    : null;
+                  let currency: string | null = message.request.currency;
+
+                  if (
+                    cost &&
+                    currency &&
+                    currency.toUpperCase() !== userCurrency
+                  ) {
+                    try {
+                      const conversion = this.currencyService.convertCurrency(
+                        cost,
+                        currency.toUpperCase(),
+                        userCurrency,
+                      );
+                      cost = conversion.convertedAmount;
+                      currency = userCurrency;
+                    } catch (error) {
+                      console.error(
+                        `Failed to convert request cost for request ${message.request.id}:`,
+                        error,
+                      );
+                      // Keep original cost and currency if conversion fails
+                    }
+                  } else if (currency) {
+                    currency = currency.toUpperCase();
+                  }
+
+                  return {
+                    id: message.request.id,
+                    status: message.request.status,
+                    message: message.request.message,
+                    cost,
+                    currency,
+                    createdAt: message.request.created_at,
+                    updatedAt: message.request.updated_at,
+                    availableKgs: message.request.request_items
+                      ? message.request.request_items.reduce(
+                          (total, item) => total + item.quantity,
+                          0,
+                        )
+                      : 0,
+                    requestItems: message.request.request_items
+                      ? (() => {
+                          const tripItems =
+                            (message.request as any).trip?.trip_items || [];
+                          return message.request.request_items.map(
+                            (item: any) => {
+                              const tripItem = tripItems.find(
+                                (ti: any) =>
+                                  ti.trip_item_id === item.trip_item_id,
+                              );
+
+                              // Convert price to user's currency
+                              let price = null;
+                              if (tripItem) {
+                                const tripCurrency = (
+                                  message.request.trip?.currency || 'XAF'
+                                ).toUpperCase();
+
+                                // Try to find price in user's currency from prices array
+                                if (
+                                  tripItem.prices &&
+                                  Array.isArray(tripItem.prices)
+                                ) {
+                                  const userCurrencyPrice =
+                                    tripItem.prices.find(
+                                      (p: any) =>
+                                        p.currency?.toUpperCase() ===
+                                        userCurrency,
+                                    );
+                                  if (userCurrencyPrice) {
+                                    price = Number(userCurrencyPrice.price);
+                                  } else {
+                                    // Convert from trip currency to user currency
+                                    const basePrice = Number(tripItem.price);
+                                    if (
+                                      basePrice &&
+                                      tripCurrency !== userCurrency
+                                    ) {
+                                      try {
+                                        const conversion =
+                                          this.currencyService.convertCurrency(
+                                            basePrice,
+                                            tripCurrency,
+                                            userCurrency,
+                                          );
+                                        price = conversion.convertedAmount;
+                                      } catch (error) {
+                                        console.error(
+                                          `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                          error,
+                                        );
+                                        price = basePrice; // Fallback to original price
+                                      }
+                                    } else {
+                                      price = basePrice;
+                                    }
                                   }
-                                : undefined,
-                            };
-                          },
-                        );
-                      })()
-                    : [],
-                  user: message.request.user
-                    ? {
-                        id: message.request.user.id,
-                        email: message.request.user.email,
-                        name: message.request.user.name,
-                        firstName: message.request.user.firstName,
-                        lastName: message.request.user.lastName,
-                        picture: message.request.user.picture,
-                      }
-                    : undefined,
-                }
+                                } else {
+                                  // No prices array, convert from trip currency
+                                  const basePrice = Number(tripItem.price);
+                                  if (
+                                    basePrice &&
+                                    tripCurrency !== userCurrency
+                                  ) {
+                                    try {
+                                      const conversion =
+                                        this.currencyService.convertCurrency(
+                                          basePrice,
+                                          tripCurrency,
+                                          userCurrency,
+                                        );
+                                      price = conversion.convertedAmount;
+                                    } catch (error) {
+                                      console.error(
+                                        `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                        error,
+                                      );
+                                      price = basePrice; // Fallback to original price
+                                    }
+                                  } else {
+                                    price = basePrice;
+                                  }
+                                }
+                              }
+
+                              return {
+                                quantity: item.quantity,
+                                specialNotes: item.special_notes,
+                                createdAt: item.created_at,
+                                updatedAt: item.updated_at,
+                                price,
+                                available_kg: tripItem
+                                  ? tripItem.avalailble_kg
+                                    ? Number(tripItem.avalailble_kg)
+                                    : null
+                                  : null,
+                                trip_item: item.trip_item
+                                  ? {
+                                      id: item.trip_item.id,
+                                      name: item.trip_item.name,
+                                      description: item.trip_item.description,
+                                      image_id: item.trip_item.image_id,
+                                      createdAt: item.trip_item.created_at,
+                                      updatedAt: item.trip_item.updated_at,
+                                      translations: item.trip_item.translations
+                                        ? item.trip_item.translations.map(
+                                            (t: any) => ({
+                                              id: t.id,
+                                              language: t.language,
+                                              name: t.name,
+                                              description: t.description,
+                                            }),
+                                          )
+                                        : [],
+                                    }
+                                  : undefined,
+                              };
+                            },
+                          );
+                        })()
+                      : [],
+                    user: message.request.user
+                      ? {
+                          id: message.request.user.id,
+                          email: message.request.user.email,
+                          name: message.request.user.name,
+                          firstName: message.request.user.firstName,
+                          lastName: message.request.user.lastName,
+                          picture: message.request.user.picture,
+                        }
+                      : undefined,
+                  };
+                })()
               : undefined,
             reviewData,
           };
@@ -1081,6 +1251,8 @@ export class ChatService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                   picture: true,
                   role: true,
                   last_seen: true,
@@ -1090,6 +1262,17 @@ export class ChatService {
           },
         },
       });
+
+      // Get online status for all members
+      const onlineStatusMap = new Map<string, boolean>();
+      if (chat) {
+        await Promise.all(
+          chat.members.map(async (member) => {
+            const isOnline = await this.redis.isUserOnline(member.user.id);
+            onlineStatusMap.set(member.user.id, isOnline);
+          }),
+        );
+      }
 
       const chat_info = chat
         ? {
@@ -1101,6 +1284,8 @@ export class ChatService {
               id: member.user.id,
               email: member.user.email,
               name: member.user.name,
+              firstName: member.user.firstName,
+              lastName: member.user.lastName,
               picture: member.user.picture,
               role: member.user.role,
               last_seen: member.user.last_seen,
@@ -1109,6 +1294,7 @@ export class ChatService {
               )
                 ? averageResponseTimes.get(member.user.id)! / 1000
                 : null,
+              isOnline: onlineStatusMap.get(member.user.id) || false,
             })),
           }
         : null;
@@ -1154,7 +1340,12 @@ export class ChatService {
       const { page = 1, limit = 10, search } = query;
       const skip = (page - 1) * limit;
 
-      const whereClause: any = {};
+      const whereClause: any = {
+        // Only include chats that have at least one message
+        messages: {
+          some: {},
+        },
+      };
 
       // No membership filter for admin
       // No type filter - show all chat types
@@ -1326,6 +1517,7 @@ export class ChatService {
         return {
           id: chat.id,
           name: chat.name,
+          is_flagged: chat.is_flagged,
           lastMessage: lastMsg
             ? {
                 id: lastMsg.id,
@@ -1484,6 +1676,16 @@ export class ChatService {
     const skip = (page - 1) * limit;
 
     // No membership check for admin
+
+    // Get admin user's currency for price conversion (if needed, otherwise use XAF)
+    let userCurrency = 'XAF';
+    try {
+      // For admin, we can't determine a specific user, so we'll use XAF as default
+      // Or you could get it from a parameter, but for now using default
+      userCurrency = 'XAF';
+    } catch (error) {
+      console.error('Error setting user currency:', error);
+    }
 
     try {
       const [messages, total] = await Promise.all([
@@ -1731,79 +1933,184 @@ export class ChatService {
                 }
               : undefined,
             requestData: message.request
-              ? {
-                  id: message.request.id,
-                  status: message.request.status,
-                  message: message.request.message,
-                  cost: message.request.cost
+              ? (() => {
+                  // Convert cost to user's currency (for admin, using XAF as default)
+                  let cost = message.request.cost
                     ? Number(message.request.cost)
-                    : null,
-                  currency: message.request.currency,
-                  createdAt: message.request.created_at,
-                  updatedAt: message.request.updated_at,
-                  availableKgs: message.request.request_items
-                    ? message.request.request_items.reduce(
-                        (total, item) => total + item.quantity,
-                        0,
-                      )
-                    : 0,
-                  requestItems: message.request.request_items
-                    ? (() => {
-                        const tripItems =
-                          (message.request as any).trip?.trip_items || [];
-                        return message.request.request_items.map(
-                          (item: any) => {
-                            const tripItem = tripItems.find(
-                              (ti: any) =>
-                                ti.trip_item_id === item.trip_item_id,
-                            );
-                            return {
-                              quantity: item.quantity,
-                              specialNotes: item.special_notes,
-                              createdAt: item.created_at,
-                              updatedAt: item.updated_at,
-                              price: tripItem ? Number(tripItem.price) : null,
-                              available_kg: tripItem
-                                ? tripItem.avalailble_kg
-                                  ? Number(tripItem.avalailble_kg)
-                                  : null
-                                : null,
-                              tripItem: item.trip_item
-                                ? {
-                                    id: item.trip_item.id,
-                                    name: item.trip_item.name,
-                                    description: item.trip_item.description,
-                                    image_id: item.trip_item.image_id,
-                                    createdAt: item.trip_item.created_at,
-                                    updatedAt: item.trip_item.updated_at,
-                                    translations: item.trip_item.translations
-                                      ? item.trip_item.translations.map(
-                                          (t: any) => ({
-                                            id: t.id,
-                                            language: t.language,
-                                            name: t.name,
-                                            description: t.description,
-                                          }),
-                                        )
-                                      : [],
+                    : null;
+                  let currency: string | null = message.request.currency;
+
+                  if (
+                    cost &&
+                    currency &&
+                    currency.toUpperCase() !== userCurrency
+                  ) {
+                    try {
+                      const conversion = this.currencyService.convertCurrency(
+                        cost,
+                        currency.toUpperCase(),
+                        userCurrency,
+                      );
+                      cost = conversion.convertedAmount;
+                      currency = userCurrency;
+                    } catch (error) {
+                      console.error(
+                        `Failed to convert request cost for request ${message.request.id}:`,
+                        error,
+                      );
+                      // Keep original cost and currency if conversion fails
+                    }
+                  } else if (currency) {
+                    currency = currency.toUpperCase();
+                  }
+
+                  return {
+                    id: message.request.id,
+                    status: message.request.status,
+                    message: message.request.message,
+                    cost,
+                    currency,
+                    createdAt: message.request.created_at,
+                    updatedAt: message.request.updated_at,
+                    availableKgs: message.request.request_items
+                      ? message.request.request_items.reduce(
+                          (total, item) => total + item.quantity,
+                          0,
+                        )
+                      : 0,
+                    requestItems: message.request.request_items
+                      ? (() => {
+                          const tripItems =
+                            (message.request as any).trip?.trip_items || [];
+                          return message.request.request_items.map(
+                            (item: any) => {
+                              const tripItem = tripItems.find(
+                                (ti: any) =>
+                                  ti.trip_item_id === item.trip_item_id,
+                              );
+
+                              // Convert price to user's currency (for admin, using XAF as default)
+                              let price = null;
+                              if (tripItem) {
+                                const tripCurrency = (
+                                  message.request.trip?.currency || 'XAF'
+                                ).toUpperCase();
+
+                                // Try to find price in user's currency from prices array
+                                if (
+                                  tripItem.prices &&
+                                  Array.isArray(tripItem.prices)
+                                ) {
+                                  const userCurrencyPrice =
+                                    tripItem.prices.find(
+                                      (p: any) =>
+                                        p.currency?.toUpperCase() ===
+                                        userCurrency,
+                                    );
+                                  if (userCurrencyPrice) {
+                                    price = Number(userCurrencyPrice.price);
+                                  } else {
+                                    // Convert from trip currency to user currency
+                                    const basePrice = Number(tripItem.price);
+                                    if (
+                                      basePrice &&
+                                      tripCurrency !== userCurrency
+                                    ) {
+                                      try {
+                                        const conversion =
+                                          this.currencyService.convertCurrency(
+                                            basePrice,
+                                            tripCurrency,
+                                            userCurrency,
+                                          );
+                                        price = conversion.convertedAmount;
+                                      } catch (error) {
+                                        console.error(
+                                          `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                          error,
+                                        );
+                                        price = basePrice; // Fallback to original price
+                                      }
+                                    } else {
+                                      price = basePrice;
+                                    }
                                   }
-                                : undefined,
-                            };
-                          },
-                        );
-                      })()
-                    : [],
-                  user: message.request.user
-                    ? {
-                        id: message.request.user.id,
-                        email: message.request.user.email,
-                        name: message.request.user.name,
-                        firstName: message.request.user.firstName,
-                        lastName: message.request.user.lastName,
-                        picture: message.request.user.picture,
-                      }
-                    : undefined,
-                }
+                                } else {
+                                  // No prices array, convert from trip currency
+                                  const basePrice = Number(tripItem.price);
+                                  if (
+                                    basePrice &&
+                                    tripCurrency !== userCurrency
+                                  ) {
+                                    try {
+                                      const conversion =
+                                        this.currencyService.convertCurrency(
+                                          basePrice,
+                                          tripCurrency,
+                                          userCurrency,
+                                        );
+                                      price = conversion.convertedAmount;
+                                    } catch (error) {
+                                      console.error(
+                                        `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                        error,
+                                      );
+                                      price = basePrice; // Fallback to original price
+                                    }
+                                  } else {
+                                    price = basePrice;
+                                  }
+                                }
+                              }
+
+                              return {
+                                quantity: item.quantity,
+                                specialNotes: item.special_notes,
+                                createdAt: item.created_at,
+                                updatedAt: item.updated_at,
+                                price,
+                                available_kg: tripItem
+                                  ? tripItem.avalailble_kg
+                                    ? Number(tripItem.avalailble_kg)
+                                    : null
+                                  : null,
+                                trip_item: item.trip_item
+                                  ? {
+                                      id: item.trip_item.id,
+                                      name: item.trip_item.name,
+                                      description: item.trip_item.description,
+                                      image_id: item.trip_item.image_id,
+                                      createdAt: item.trip_item.created_at,
+                                      updatedAt: item.trip_item.updated_at,
+                                      translations: item.trip_item.translations
+                                        ? item.trip_item.translations.map(
+                                            (t: any) => ({
+                                              id: t.id,
+                                              language: t.language,
+                                              name: t.name,
+                                              description: t.description,
+                                            }),
+                                          )
+                                        : [],
+                                    }
+                                  : undefined,
+                              };
+                            },
+                          );
+                        })()
+                      : [],
+                    user: message.request.user
+                      ? {
+                          id: message.request.user.id,
+                          email: message.request.user.email,
+                          name: message.request.user.name,
+                          firstName: message.request.user.firstName,
+                          lastName: message.request.user.lastName,
+                          picture: message.request.user.picture,
+                        }
+                      : undefined,
+                  };
+                })()
               : undefined,
             reviewData,
           };
@@ -1869,6 +2176,8 @@ export class ChatService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                   picture: true,
                   role: true,
                   last_seen: true,
@@ -1878,6 +2187,17 @@ export class ChatService {
           },
         },
       });
+
+      // Get online status for all members
+      const onlineStatusMap = new Map<string, boolean>();
+      if (chat) {
+        await Promise.all(
+          chat.members.map(async (member) => {
+            const isOnline = await this.redis.isUserOnline(member.user.id);
+            onlineStatusMap.set(member.user.id, isOnline);
+          }),
+        );
+      }
 
       const chat_info = chat
         ? {
@@ -1889,6 +2209,8 @@ export class ChatService {
               id: member.user.id,
               email: member.user.email,
               name: member.user.name,
+              firstName: member.user.firstName,
+              lastName: member.user.lastName,
               picture: member.user.picture,
               role: member.user.role,
               last_seen: member.user.last_seen,
@@ -1897,6 +2219,7 @@ export class ChatService {
               )
                 ? averageResponseTimes.get(member.user.id)! / 1000
                 : null,
+              isOnline: onlineStatusMap.get(member.user.id) || false,
             })),
           }
         : null;
@@ -1949,9 +2272,12 @@ export class ChatService {
     } = data;
 
     // Check if user is a member of the chat
-    const isMember = await this.isUserMemberOfChat(senderId, chatId);
-    if (!isMember) {
-      throw new ForbiddenException('Not a member of this chat');
+    // Skip membership check for WARNING type messages (admin can send warnings to any chat)
+    if (type !== PrismaMessageType.WARNING) {
+      const isMember = await this.isUserMemberOfChat(senderId, chatId);
+      if (!isMember) {
+        throw new ForbiddenException('Not a member of this chat');
+      }
     }
 
     try {
@@ -2173,6 +2499,18 @@ export class ChatService {
         ((message as any).data as Record<string, any>) || null;
       const imageUrls = messageDataFromDb?.imageUrls || null;
 
+      // Get sender's currency for price conversion
+      let senderCurrency = 'XAF';
+      try {
+        const sender = await this.prisma.user.findUnique({
+          where: { id: senderId },
+          select: { currency: true },
+        });
+        senderCurrency = (sender?.currency || 'XAF').toUpperCase();
+      } catch (error) {
+        console.error('Error fetching sender currency:', error);
+      }
+
       const result = {
         id: message.id,
         chatId: message.chat_id,
@@ -2243,65 +2581,167 @@ export class ChatService {
             }
           : undefined,
         requestData: message.request
-          ? {
-              id: message.request.id,
-              status: message.request.status,
-              message: message.request.message,
-              cost: message.request.cost ? Number(message.request.cost) : null,
-              currency: message.request.currency,
-              createdAt: message.request.created_at,
-              updatedAt: message.request.updated_at,
-              availableKgs: message.request.request_items
-                ? message.request.request_items.reduce(
-                    (total, item) => total + item.quantity,
-                    0,
-                  )
-                : 0,
-              requestItems: message.request.request_items
-                ? (() => {
-                    const tripItems =
-                      (message.request as any).trip?.trip_items || [];
-                    return message.request.request_items.map((item: any) => {
-                      const tripItem = tripItems.find(
-                        (ti: any) => ti.trip_item_id === item.trip_item_id,
-                      );
-                      return {
-                        quantity: item.quantity,
-                        specialNotes: item.special_notes,
-                        createdAt: item.created_at,
-                        updatedAt: item.updated_at,
-                        price: tripItem ? Number(tripItem.price) : null,
-                        available_kg: tripItem
-                          ? tripItem.avalailble_kg
-                            ? Number(tripItem.avalailble_kg)
-                            : null
-                          : null,
-                        tripItem: item.trip_item
-                          ? {
-                              id: item.trip_item.id,
-                              name: item.trip_item.name,
-                              description: item.trip_item.description,
-                              image_id: item.trip_item.image_id,
-                              createdAt: item.trip_item.created_at,
-                              updatedAt: item.trip_item.updated_at,
-                              translations: item.trip_item.translations || [],
+          ? (() => {
+              // Convert cost to sender's currency
+              let cost = message.request.cost
+                ? Number(message.request.cost)
+                : null;
+              let currency: string | null = message.request.currency;
+
+              if (
+                cost &&
+                currency &&
+                currency.toUpperCase() !== senderCurrency
+              ) {
+                try {
+                  const conversion = this.currencyService.convertCurrency(
+                    cost,
+                    currency.toUpperCase(),
+                    senderCurrency,
+                  );
+                  cost = conversion.convertedAmount;
+                  currency = senderCurrency;
+                } catch (error) {
+                  console.error(
+                    `Failed to convert request cost for request ${message.request.id}:`,
+                    error,
+                  );
+                  // Keep original cost and currency if conversion fails
+                }
+              } else if (currency) {
+                currency = currency.toUpperCase();
+              }
+
+              return {
+                id: message.request.id,
+                status: message.request.status,
+                message: message.request.message,
+                cost,
+                currency,
+                createdAt: message.request.created_at,
+                updatedAt: message.request.updated_at,
+                availableKgs: message.request.request_items
+                  ? message.request.request_items.reduce(
+                      (total, item) => total + item.quantity,
+                      0,
+                    )
+                  : 0,
+                requestItems: message.request.request_items
+                  ? (() => {
+                      const tripItems =
+                        (message.request as any).trip?.trip_items || [];
+                      return message.request.request_items.map((item: any) => {
+                        const tripItem = tripItems.find(
+                          (ti: any) => ti.trip_item_id === item.trip_item_id,
+                        );
+
+                        // Convert price to sender's currency
+                        let price = null;
+                        if (tripItem) {
+                          const tripCurrency = (
+                            message.request.trip?.currency || 'XAF'
+                          ).toUpperCase();
+
+                          // Try to find price in sender's currency from prices array
+                          if (
+                            tripItem.prices &&
+                            Array.isArray(tripItem.prices)
+                          ) {
+                            const senderCurrencyPrice = tripItem.prices.find(
+                              (p: any) =>
+                                p.currency?.toUpperCase() === senderCurrency,
+                            );
+                            if (senderCurrencyPrice) {
+                              price = Number(senderCurrencyPrice.price);
+                            } else {
+                              // Convert from trip currency to sender currency
+                              const basePrice = Number(tripItem.price);
+                              if (
+                                basePrice &&
+                                tripCurrency !== senderCurrency
+                              ) {
+                                try {
+                                  const conversion =
+                                    this.currencyService.convertCurrency(
+                                      basePrice,
+                                      tripCurrency,
+                                      senderCurrency,
+                                    );
+                                  price = conversion.convertedAmount;
+                                } catch (error) {
+                                  console.error(
+                                    `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                    error,
+                                  );
+                                  price = basePrice; // Fallback to original price
+                                }
+                              } else {
+                                price = basePrice;
+                              }
                             }
-                          : undefined,
-                      };
-                    });
-                  })()
-                : [],
-              user: message.request.user
-                ? {
-                    id: message.request.user.id,
-                    email: message.request.user.email,
-                    name: message.request.user.name,
-                    firstName: message.request.user.firstName,
-                    lastName: message.request.user.lastName,
-                    picture: message.request.user.picture,
-                  }
-                : undefined,
-            }
+                          } else {
+                            // No prices array, convert from trip currency
+                            const basePrice = Number(tripItem.price);
+                            if (basePrice && tripCurrency !== senderCurrency) {
+                              try {
+                                const conversion =
+                                  this.currencyService.convertCurrency(
+                                    basePrice,
+                                    tripCurrency,
+                                    senderCurrency,
+                                  );
+                                price = conversion.convertedAmount;
+                              } catch (error) {
+                                console.error(
+                                  `Failed to convert price for trip item ${tripItem.trip_item_id}:`,
+                                  error,
+                                );
+                                price = basePrice; // Fallback to original price
+                              }
+                            } else {
+                              price = basePrice;
+                            }
+                          }
+                        }
+
+                        return {
+                          quantity: item.quantity,
+                          specialNotes: item.special_notes,
+                          createdAt: item.created_at,
+                          updatedAt: item.updated_at,
+                          price,
+                          available_kg: tripItem
+                            ? tripItem.avalailble_kg
+                              ? Number(tripItem.avalailble_kg)
+                              : null
+                            : null,
+                          trip_item: item.trip_item
+                            ? {
+                                id: item.trip_item.id,
+                                name: item.trip_item.name,
+                                description: item.trip_item.description,
+                                image_id: item.trip_item.image_id,
+                                createdAt: item.trip_item.created_at,
+                                updatedAt: item.trip_item.updated_at,
+                                translations: item.trip_item.translations || [],
+                              }
+                            : undefined,
+                        };
+                      });
+                    })()
+                  : [],
+                user: message.request.user
+                  ? {
+                      id: message.request.user.id,
+                      email: message.request.user.email,
+                      name: message.request.user.name,
+                      firstName: message.request.user.firstName,
+                      lastName: message.request.user.lastName,
+                      picture: message.request.user.picture,
+                    }
+                  : undefined,
+              };
+            })()
           : undefined,
         reviewData,
       };
@@ -2959,6 +3399,8 @@ export class ChatService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
                   role: true,
                   picture: true,
                 },
@@ -3170,6 +3612,7 @@ export class ChatService {
       const chatSummary: ChatSummaryDto = {
         id: supportChat.id,
         name: supportChat.name,
+        is_flagged: supportChat.is_flagged,
         lastMessage: lastMsg
           ? {
               id: lastMsg.id,
@@ -3194,6 +3637,8 @@ export class ChatService {
           id: member.user.id,
           email: member.user.email,
           name: member.user.name,
+          firstName: member.user.firstName,
+          lastName: member.user.lastName,
           role: member.user.role,
           picture: member.user.picture,
         })),
@@ -3276,5 +3721,404 @@ export class ChatService {
       );
       throw new InternalServerErrorException(message);
     }
+  }
+
+  /**
+   * Get or create support chat between a specific user and an admin (Admin only)
+   * Admin can create or get support chat with any user
+   */
+  async getSupportChatForAdmin(
+    userId: string,
+    adminId: string,
+    lang?: string,
+  ): Promise<GetChatsResponseDto> {
+    try {
+      // Verify the target user exists
+      const targetUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, is_deleted: true },
+      });
+
+      if (!targetUser || targetUser.is_deleted) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Find existing support chat between this user and the admin
+      let supportChat = await this.prisma.chat.findFirst({
+        where: {
+          type: 'SUPPORT',
+          members: {
+            some: {
+              user_id: userId,
+            },
+          },
+          AND: {
+            members: {
+              some: {
+                user_id: adminId,
+              },
+            },
+          },
+        },
+        include: {
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  firstName: true,
+                  lastName: true,
+                  role: true,
+                  picture: true,
+                },
+              },
+            },
+          },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  firstName: true,
+                  lastName: true,
+                  picture: true,
+                },
+              },
+            },
+          },
+          trip: {
+            select: {
+              id: true,
+              pickup: true,
+              departure: true,
+              destination: true,
+              departure_date: true,
+              departure_time: true,
+              currency: true,
+              airline_id: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          request: {
+            select: {
+              id: true,
+              status: true,
+              cost: true,
+              currency: true,
+              created_at: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  firstName: true,
+                  lastName: true,
+                  picture: true,
+                },
+              },
+              request_items: {
+                select: {
+                  quantity: true,
+                },
+              },
+            },
+          },
+          _count: {
+            select: {
+              messages: {
+                where: {
+                  isRead: false,
+                  sender_id: { not: adminId },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // If no support chat exists, create one between the user and the admin
+      if (!supportChat) {
+        // Create support chat
+        supportChat = await this.prisma.chat.create({
+          data: {
+            type: 'SUPPORT',
+            name: 'Support',
+            members: {
+              create: [{ user_id: userId }, { user_id: adminId }],
+            },
+          },
+          include: {
+            members: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    role: true,
+                    picture: true,
+                  },
+                },
+              },
+            },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              include: {
+                sender: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    picture: true,
+                  },
+                },
+              },
+            },
+            trip: {
+              select: {
+                id: true,
+                pickup: true,
+                departure: true,
+                destination: true,
+                departure_date: true,
+                departure_time: true,
+                currency: true,
+                airline_id: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+            request: {
+              select: {
+                id: true,
+                status: true,
+                cost: true,
+                currency: true,
+                created_at: true,
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    picture: true,
+                  },
+                },
+                request_items: {
+                  select: {
+                    quantity: true,
+                  },
+                },
+              },
+            },
+            _count: {
+              select: {
+                messages: {
+                  where: {
+                    isRead: false,
+                    sender_id: { not: adminId },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        // Invalidate cache for user chats
+      }
+
+      // Transform to ChatSummaryDto format (same as getChats)
+      const lastMsg = supportChat.messages[0];
+      let messageData: Record<string, any> | null = null;
+      if (lastMsg?.data) {
+        try {
+          messageData =
+            typeof lastMsg.data === 'object' &&
+            lastMsg.data !== null &&
+            !Array.isArray(lastMsg.data)
+              ? (lastMsg.data as Record<string, any>)
+              : null;
+        } catch (e) {
+          messageData = null;
+        }
+      }
+
+      const chatSummary: ChatSummaryDto = {
+        id: supportChat.id,
+        name: supportChat.name,
+        is_flagged: supportChat.is_flagged,
+        lastMessage: lastMsg
+          ? {
+              id: lastMsg.id,
+              content: lastMsg.content || null,
+              type: lastMsg.type,
+              imageUrls: messageData?.imageUrls || null,
+              data: messageData,
+              createdAt: lastMsg.createdAt,
+              sender: lastMsg.sender
+                ? {
+                    id: lastMsg.sender.id,
+                    email: lastMsg.sender.email || '',
+                    name: lastMsg.sender.name || '',
+                    picture: lastMsg.sender.picture || null,
+                  }
+                : null,
+            }
+          : null,
+        lastMessageAt: lastMsg?.createdAt || null,
+        unreadCount: supportChat._count.messages,
+        members: supportChat.members.map((member) => ({
+          id: member.user.id,
+          email: member.user.email,
+          name: member.user.name,
+          firstName: member.user.firstName,
+          lastName: member.user.lastName,
+          role: member.user.role,
+          picture: member.user.picture,
+        })),
+        createdAt: supportChat.createdAt,
+        trip: supportChat.trip
+          ? {
+              id: supportChat.trip.id,
+              pickup: supportChat.trip.pickup,
+              departure: supportChat.trip.departure,
+              destination: supportChat.trip.destination,
+              departure_date: supportChat.trip.departure_date,
+              departure_time: supportChat.trip.departure_time,
+              currency: supportChat.trip.currency,
+              airline_id: supportChat.trip.airline_id,
+              user: supportChat.trip.user
+                ? {
+                    id: supportChat.trip.user.id,
+                    email: supportChat.trip.user.email,
+                  }
+                : undefined,
+            }
+          : undefined,
+        request: supportChat.request
+          ? {
+              id: supportChat.request.id,
+              status: supportChat.request.status,
+              cost: supportChat.request.cost
+                ? Number(supportChat.request.cost)
+                : null,
+              currency: supportChat.request.currency,
+              created_at: supportChat.request.created_at,
+              availableKgs: supportChat.request.request_items
+                ? supportChat.request.request_items.reduce(
+                    (total, item) => total + item.quantity,
+                    0,
+                  )
+                : 0,
+              user: supportChat.request.user
+                ? {
+                    id: supportChat.request.user.id,
+                    email: supportChat.request.user.email,
+                    name: supportChat.request.user.name,
+                    picture: supportChat.request.user.picture,
+                  }
+                : undefined,
+            }
+          : undefined,
+      };
+
+      const message = await this.i18n.translate(
+        'translation.chat.support.success',
+        {
+          lang,
+          defaultValue: 'Support chat retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        chats: [chatSummary],
+        pagination: {
+          page: 1,
+          limit: 1,
+          total: 1,
+          totalPages: 1,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.chat.support.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve support chat',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Send a warning message to a chat (Admin only)
+   * This method is called by admin to send warning messages
+   * Uses ChatGateway.sendMessageProgrammatically to send the warning (similar to system messages)
+   */
+  async sendWarningToChat(
+    chatId: string,
+    adminId: string,
+    message: string,
+    lang?: string,
+  ): Promise<{
+    id: string;
+    chatId: string;
+    content: string;
+    type: string;
+    createdAt: Date;
+  }> {
+    // Verify chat exists
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { id: true },
+    });
+
+    if (!chat) {
+      throw new NotFoundException('Chat not found');
+    }
+
+    // Send warning message using chatGateway (similar to system messages)
+    const warningMessage = await this.chatGateway.sendMessageProgrammatically({
+      chatId,
+      senderId: adminId,
+      content: message,
+      type: PrismaMessageType.WARNING,
+    });
+
+    return {
+      id: warningMessage.id,
+      chatId: warningMessage.chatId,
+      content: warningMessage.content,
+      type: warningMessage.type,
+      createdAt: warningMessage.createdAt,
+    };
   }
 }

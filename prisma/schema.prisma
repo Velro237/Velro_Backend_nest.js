@@ -123,6 +123,7 @@ model User {
   push_notification  Boolean @default(true)
   email_notification Boolean @default(true)
   sms_notification   Boolean @default(true)
+  flag_count         Int     @default(0)
 
   is_deleted Boolean @default(false)
 
@@ -182,6 +183,8 @@ model Chat {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  is_flagged Boolean @default(false)
+
   type ChatType @default(TRIP)
 
   members  ChatMember[]
@@ -209,11 +212,12 @@ model ChatMember {
 model Message {
   id String @id @default(uuid())
 
-  chat_id   String
-  sender_id String
-  chat      Chat   @relation(fields: [chat_id], references: [id], onDelete: Cascade)
-  sender    User   @relation(fields: [sender_id], references: [id], onDelete: Cascade)
-  data      Json?
+  chat_id    String
+  sender_id  String
+  chat       Chat    @relation(fields: [chat_id], references: [id], onDelete: Cascade)
+  sender     User    @relation(fields: [sender_id], references: [id], onDelete: Cascade)
+  data       Json?
+  is_flagged Boolean @default(false)
 
   content    String? // Text message
   image_url  String? // Optional for media messages
@@ -241,6 +245,7 @@ enum MessageType {
   PAYMENT
   SYSTEM
   REVIEW
+  WARNING
 }
 
 model Trip {
@@ -514,6 +519,8 @@ enum ReportPriority {
 enum ReportStatus {
   PENDING
   REPLIED
+  INVESTIGATION
+  RESOLVED
 }
 
 model Report {

@@ -674,7 +674,7 @@ export function ApiAdminGetAllReports() {
     ApiOperation({
       summary: 'Get all reports (Admin only)',
       description:
-        'Retrieve all reports in the system with advanced filtering options. Only users with ADMIN role can access this endpoint. Supports filtering by type, priority, status, trip ID, user ID (reporter or reported), replied by admin, and date range.',
+        'Retrieve all reports in the system with advanced filtering options. Only users with ADMIN role can access this endpoint. Supports filtering by type, priority, status, trip ID, user ID (reporter or reported), replied by admin, date range, and search key (report ID, reporter firstname/lastname, reported firstname/lastname).',
     }),
     ApiQuery({
       name: 'page',
@@ -745,6 +745,14 @@ export function ApiAdminGetAllReports() {
       required: false,
       type: String,
       example: '2024-12-31T23:59:59.999Z',
+    }),
+    ApiQuery({
+      name: 'searchKey',
+      description:
+        'Search key to filter by report ID, reporter firstname/lastname, or reported firstname/lastname',
+      required: false,
+      type: String,
+      example: 'John Doe',
     }),
     ApiResponse({
       status: 200,

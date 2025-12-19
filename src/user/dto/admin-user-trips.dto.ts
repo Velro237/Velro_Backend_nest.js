@@ -68,6 +68,35 @@ export class AdminGetTripsQueryDto {
   searchKey?: string;
 
   @ApiProperty({
+    description: 'Filter by exact trip ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    required: false,
+  })
+  @IsOptional()
+  @IsUUID()
+  tripId?: string;
+
+  @ApiProperty({
+    description:
+      'Filter by departure city or country (searches in departure JSON field)',
+    example: 'Paris',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  departure?: string;
+
+  @ApiProperty({
+    description:
+      'Filter by destination city or country (searches in destination JSON field)',
+    example: 'New York',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  destination?: string;
+
+  @ApiProperty({
     description: 'Filter trips created from this date (ISO 8601 format)',
     example: '2024-01-01T00:00:00.000Z',
     required: false,
@@ -191,6 +220,26 @@ export class AdminTripDto {
     example: 25.0,
   })
   booked_kg!: number;
+
+  @ApiProperty({
+    description: 'User who created the trip',
+    nullable: true,
+  })
+  user!: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    kyc: {
+      id: string;
+      status: string;
+      provider: string;
+      rejectionReason: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+      verifiedAt: Date | null;
+      expiresAt: Date | null;
+    } | null;
+  } | null;
 }
 
 export class AdminGetTripsResponseDto {

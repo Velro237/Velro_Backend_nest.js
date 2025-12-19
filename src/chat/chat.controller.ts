@@ -64,13 +64,15 @@ export class ChatController {
       lang,
     );
 
-    // Notify users about the new chat
-    await this.chatGateway.notifyChatCreated(
-      result.chat.id,
-      [user.id, createChatDto.otherUserId],
-      result.chat.name || 'New Chat',
-      result.lastMessage,
-    );
+    // Notify users about the new chat only if it has a message (not empty)
+    if (result.lastMessage) {
+      await this.chatGateway.notifyChatCreated(
+        result.chat.id,
+        [user.id, createChatDto.otherUserId],
+        result.chat.name || 'New Chat',
+        result.lastMessage,
+      );
+    }
 
     return result;
   }
