@@ -265,6 +265,7 @@ model Trip {
   maximum_weight_in_kg Decimal?  @db.Decimal(5, 2)
   notes                String?
   fully_booked         Boolean   @default(false)
+  is_deleted           Boolean   @default(false)
 
   meetup_flexible Boolean    @default(false)
   status          TripStatus @default(SCHEDULED)
@@ -396,6 +397,7 @@ model TripRequest {
   payment_intent_id String?        @unique
   payment_status    PaymentStatus? @default(PENDING)
   paid_at           DateTime?
+  is_deleted        Boolean        @default(false)
 
   // Delivery confirmation
   sender_confirmed_delivery   Boolean   @default(false)
@@ -509,6 +511,7 @@ enum ReportType {
   VEHICLE_CONDITION_ISSUE
   INAPPROPRIATE_BEHAVIOR
   OTHER
+  TRAVEL_ISSUES
 }
 
 enum ReportPriority {

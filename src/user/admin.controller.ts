@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Delete,
   Body,
   Query,
@@ -23,6 +24,10 @@ import {
   AdminChangeReportStatusDto,
   AdminChangeReportStatusResponseDto,
 } from './dto/admin-change-report-status.dto';
+import {
+  AdminMoveHoldBalanceDto,
+  AdminMoveHoldBalanceResponseDto,
+} from './dto/admin-move-hold-balance.dto';
 import { ReplyReportDto, ReplyReportResponseDto } from './dto/reply-report.dto';
 import {
   AdminGetDeleteRequestsQueryDto,
@@ -79,6 +84,11 @@ import {
   UpdateTripRequestDto,
   UpdateTripRequestResponseDto,
 } from '../request/dto/update-trip-request.dto';
+import {
+  AdminEditRequestDto,
+  AdminEditRequestResponseDto,
+} from '../request/dto/admin-edit-request.dto';
+import { AdminDeleteRequestResponseDto } from '../request/dto/admin-delete-request.dto';
 import { RequestService } from '../request/request.service';
 import { AdminChatsStatsResponseDto } from './dto/admin-chats-stats.dto';
 import { AdminTripsStatsResponseDto } from './dto/admin-trips-stats.dto';
@@ -87,6 +97,9 @@ import {
   AdminFlagContentResponseDto,
 } from './dto/admin-flag-content.dto';
 import { ChatService } from '../chat/chat.service';
+import { TripService } from '../trip/trip.service';
+import { AdminGetTripByIdResponseDto } from '../trip/dto/admin-get-trip-by-id.dto';
+import { AdminDeleteTripResponseDto } from '../trip/dto/admin-delete-trip.dto';
 import { ChatGateway } from '../chat/chat.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -113,6 +126,7 @@ export class AdminController {
     private readonly walletService: WalletService,
     private readonly requestService: RequestService,
     private readonly chatService: ChatService,
+    private readonly tripService: TripService,
   ) {}
 
   @Get('reports/stats')
@@ -530,6 +544,60 @@ export class AdminController {
     return this.walletService.changeWalletState(userId, dto);
   }
 
+  @Post('users/:userId/wallet/move-hold-balance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Move money from hold balance to available balance (Admin only)',
+    description:
+      "Moves a specified amount from the user's hold balance to their available balance. Creates a CREDIT transaction with source ADJUSTMENT. Checks if sufficient funds are available in hold balance before processing.",
+  })
+  @ApiParam({
+    name: 'userId',
+    description: 'User ID whose wallet balance to adjust',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({
+    type: AdminMoveHoldBalanceDto,
+    description: 'Amount and optional currency to move from hold to available',
+    examples: {
+      moveBalance: {
+        summary: 'Move balance',
+        value: {
+          userId: '123e4567-e89b-12d3-a456-426614174000',
+          amount: 100.5,
+          currency: 'EUR',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Balance moved successfully',
+    type: AdminMoveHoldBalanceResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Insufficient hold balance or invalid amount',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Wallet not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async moveHoldBalanceToAvailable(
+    @Body() dto: AdminMoveHoldBalanceDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminMoveHoldBalanceResponseDto> {
+    return this.userService.moveHoldBalanceToAvailable(dto, lang);
+  }
+
   @Get('trips/stats')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -585,6 +653,78 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminGetTripsResponseDto> {
     return this.userService.getAdminTrips(query, lang);
+  }
+
+  @Get('trips/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get trip by ID with comprehensive details (Admin only)',
+    description:
+      'Retrieve complete trip information including all trip data, earnings (on hold and withdrawable in EUR), list of users who requested the trip, and detailed request information with costs and items.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Trip retrieved successfully',
+    type: AdminGetTripByIdResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getTripById(
+    @Param('id', ParseUUIDPipe) tripId: string,
+    @I18nLang() lang: string,
+  ): Promise<AdminGetTripByIdResponseDto> {
+    return this.tripService.getAdminTripById(tripId, lang);
+  }
+
+  @Delete('trips/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete a trip (Admin only)',
+    description:
+      'Soft delete a trip by setting is_deleted to true. Users will not be able to see deleted trips when fetching. Admin access required.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Trip deleted successfully',
+    type: AdminDeleteTripResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async deleteTrip(
+    @Param('id', ParseUUIDPipe) tripId: string,
+    @I18nLang() lang: string,
+  ): Promise<AdminDeleteTripResponseDto> {
+    return this.tripService.adminDeleteTrip(tripId, lang);
   }
 
   @Patch('users/:userId/suspend')
@@ -735,6 +875,91 @@ export class AdminController {
       updateTripRequestDto,
       lang,
     );
+  }
+
+  @Put('requests/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Edit a trip request (Admin only)',
+    description:
+      'Edit a trip request with extended fields including status, message, cost, currency, payment_status, and payment_intent_id. Admin access required.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip request ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({
+    type: AdminEditRequestDto,
+    description: 'Trip request edit data',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request edited successfully',
+    type: AdminEditRequestResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid input data',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip request not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async editRequest(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @Body() adminEditRequestDto: AdminEditRequestDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminEditRequestResponseDto> {
+    return this.requestService.adminEditRequest(
+      requestId,
+      adminEditRequestDto,
+      lang,
+    );
+  }
+
+  @Delete('requests/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete a trip request (Admin only)',
+    description:
+      'Soft delete a trip request by setting is_deleted to true. Users will not be able to see deleted requests when fetching. Admin access required.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip request ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request deleted successfully',
+    type: AdminDeleteRequestResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip request not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async deleteRequest(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @I18nLang() lang: string,
+  ): Promise<AdminDeleteRequestResponseDto> {
+    return this.requestService.adminDeleteRequest(requestId, lang);
   }
 
   @Get('chats')

@@ -11,6 +11,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { RequestModule } from '../request/request.module';
 import { RedisModule } from '../redis/redis.module';
 import { ChatModule } from '../chat/chat.module';
+import { TripModule } from '../trip/trip.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ChatModule } from '../chat/chat.module';
     RequestModule,
     RedisModule,
     ChatModule,
+    TripModule,
   ],
   controllers: [UserController, AdminController],
   providers: [UserService],
