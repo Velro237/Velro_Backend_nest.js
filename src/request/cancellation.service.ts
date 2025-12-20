@@ -39,9 +39,12 @@ export class CancellationService {
     const changeStatus = options?.changeStatus;
     this.logger.log(`Processing cancellation for request ${requestId}`);
 
-    // Get request with all related data
-    const request = await this.prisma.tripRequest.findUnique({
-      where: { id: requestId },
+    // Get request with all related data (exclude deleted)
+    const request = await this.prisma.tripRequest.findFirst({
+      where: {
+        id: requestId,
+        is_deleted: false, // Exclude deleted requests
+      },
       include: {
         trip: {
           include: {

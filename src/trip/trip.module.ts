@@ -25,5 +25,6 @@ import { ImageModule } from '../shared/image.module';
   ],
   controllers: [TripController],
   providers: [TripService],
+  exports: [TripService],
 })
 export class TripModule {}

@@ -35,6 +35,11 @@ import {
   UpdateTripRequestDto,
   UpdateTripRequestResponseDto,
 } from './dto/update-trip-request.dto';
+import {
+  AdminEditRequestDto,
+  AdminEditRequestResponseDto,
+} from './dto/admin-edit-request.dto';
+import { AdminDeleteRequestResponseDto } from './dto/admin-delete-request.dto';
 import { GetRequestByIdResponseDto } from './dto/get-request-by-id.dto';
 import { ConfirmDeliveryResponseDto } from './dto/confirm-delivery.dto';
 import {
@@ -172,6 +177,7 @@ export class RequestService {
       where: {
         trip_id: trip_id,
         user_id: userId,
+        is_deleted: false, // Exclude deleted requests when checking for duplicates
         status: {
           notIn: [
             RequestStatus.CANCELLED,
@@ -995,7 +1001,9 @@ export class RequestService {
       const skip = (page - 1) * limit;
 
       // Build where clause
-      const whereClause: any = {};
+      const whereClause: any = {
+        is_deleted: false, // Exclude deleted requests
+      };
       if (trip_id) whereClause.trip_id = trip_id;
       if (user_id) whereClause.user_id = user_id;
       if (status) whereClause.status = status;
@@ -1130,8 +1138,11 @@ export class RequestService {
     lang?: string,
   ): Promise<GetRequestByIdResponseDto> {
     try {
-      const request = await this.prisma.tripRequest.findUnique({
-        where: { id: requestId },
+      const request = await this.prisma.tripRequest.findFirst({
+        where: {
+          id: requestId,
+          is_deleted: false, // Exclude deleted requests
+        },
         include: {
           user: {
             select: {
@@ -1417,6 +1428,160 @@ export class RequestService {
     }
   }
 
+  /**
+   * Admin edit request - allows editing more fields than regular update
+   */
+  async adminEditRequest(
+    requestId: string,
+    adminEditRequestDto: AdminEditRequestDto,
+    lang?: string,
+  ): Promise<AdminEditRequestResponseDto> {
+    // Check if request exists
+    const existingRequest = await this.prisma.tripRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!existingRequest) {
+      const message = await this.i18n.translate(
+        'translation.trip.request.notFound',
+        {
+          lang,
+        },
+      );
+      throw new NotFoundException(message);
+    }
+
+    try {
+      // Prepare update data (only include fields that are provided)
+      const updateData: any = {};
+      if (adminEditRequestDto.status !== undefined) {
+        updateData.status = adminEditRequestDto.status;
+      }
+      if (adminEditRequestDto.message !== undefined) {
+        updateData.message = adminEditRequestDto.message;
+      }
+      if (adminEditRequestDto.cost !== undefined) {
+        updateData.cost = adminEditRequestDto.cost;
+      }
+      if (adminEditRequestDto.currency !== undefined) {
+        updateData.currency = adminEditRequestDto.currency;
+      }
+      if (adminEditRequestDto.payment_status !== undefined) {
+        updateData.payment_status = adminEditRequestDto.payment_status;
+      }
+      if (adminEditRequestDto.payment_intent_id !== undefined) {
+        updateData.payment_intent_id = adminEditRequestDto.payment_intent_id;
+      }
+
+      const request = await this.prisma.tripRequest.update({
+        where: { id: requestId },
+        data: updateData,
+        select: {
+          id: true,
+          trip_id: true,
+          user_id: true,
+          status: true,
+          message: true,
+          cost: true,
+          currency: true,
+          payment_status: true,
+          payment_intent_id: true,
+          updated_at: true,
+        },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.trip.request.updateSuccess',
+        {
+          lang,
+        },
+      );
+
+      return {
+        message,
+        request: {
+          id: request.id,
+          trip_id: request.trip_id,
+          user_id: request.user_id,
+          status: request.status,
+          message: request.message || undefined,
+          cost: request.cost ? Number(request.cost) : undefined,
+          currency: request.currency || undefined,
+          payment_status: request.payment_status || undefined,
+          payment_intent_id: request.payment_intent_id || undefined,
+          updated_at: request.updated_at,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.trip.request.updateFailed',
+        {
+          lang,
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Admin delete request - soft delete by setting is_deleted to true
+   */
+  async adminDeleteRequest(
+    requestId: string,
+    lang?: string,
+  ): Promise<AdminDeleteRequestResponseDto> {
+    // Check if request exists
+    const existingRequest = await this.prisma.tripRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!existingRequest) {
+      const message = await this.i18n.translate(
+        'translation.trip.request.notFound',
+        {
+          lang,
+        },
+      );
+      throw new NotFoundException(message);
+    }
+
+    try {
+      // Soft delete by setting is_deleted to true
+      await this.prisma.tripRequest.update({
+        where: { id: requestId },
+        data: { is_deleted: true },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.admin.request.deleteSuccess',
+        {
+          lang,
+          defaultValue: 'Request deleted successfully',
+        },
+      );
+
+      return {
+        message,
+        requestId,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.admin.request.deleteFailed',
+        {
+          lang,
+          defaultValue: 'Failed to delete request',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
   async changeRequestStatus(
     requestId: string,
     status: any,
@@ -1441,8 +1606,12 @@ export class RequestService {
     }
     try {
       // Find the request by ID - explicitly include chat_id to ensure it's retrieved
-      const request = await this.prisma.tripRequest.findUnique({
-        where: { id: requestId },
+      // Exclude deleted requests
+      const request = await this.prisma.tripRequest.findFirst({
+        where: {
+          id: requestId,
+          is_deleted: false,
+        },
         select: {
           id: true,
           status: true,
@@ -2443,20 +2612,18 @@ export class RequestService {
       const { direction, status, page = 1, limit = 10 } = query;
       const skip = (page - 1) * limit;
 
-      let whereClause: any = {};
+      let whereClause: any = {
+        is_deleted: false, // Exclude deleted requests
+      };
 
       if (direction === 'INCOMING') {
         // Requests on trips created by the user
-        whereClause = {
-          trip: {
-            user_id: userId,
-          },
+        whereClause.trip = {
+          user_id: userId,
         };
       } else if (direction === 'OUTGOING') {
         // Requests made by the user to other people's trips
-        whereClause = {
-          user_id: userId,
-        };
+        whereClause.user_id = userId;
       }
 
       // Add status filter if provided and not 'ALL'
@@ -2718,9 +2885,12 @@ export class RequestService {
     const { requestId, rating, comment } = rateRequestDto;
 
     try {
-      // Get the request with trip and user information
-      const request = await this.prisma.tripRequest.findUnique({
-        where: { id: requestId },
+      // Get the request with trip and user information (exclude deleted)
+      const request = await this.prisma.tripRequest.findFirst({
+        where: {
+          id: requestId,
+          is_deleted: false, // Exclude deleted requests
+        },
         include: {
           trip: {
             include: {

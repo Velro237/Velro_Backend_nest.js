@@ -154,6 +154,10 @@ import {
   AdminFlagContentResponseDto,
 } from './dto/admin-flag-content.dto';
 import { RedisService } from '../redis/redis.service';
+import {
+  AdminMoveHoldBalanceDto,
+  AdminMoveHoldBalanceResponseDto,
+} from './dto/admin-move-hold-balance.dto';
 
 @Injectable()
 export class UserService {
@@ -1745,6 +1749,7 @@ export class UserService {
         },
       };
     } catch (error) {
+      console.log(error);
       const message = await this.i18n.translate(
         'translation.report.getAllFailed',
         { lang },
@@ -3561,6 +3566,7 @@ export class UserService {
       ] = await Promise.all([
         this.prisma.trip.count({
           where: {
+            is_deleted: false, // Exclude deleted trips
             user: {
               is_deleted: false,
             },
@@ -3571,6 +3577,7 @@ export class UserService {
             createdAt: {
               gte: currentMonthStart,
             },
+            is_deleted: false, // Exclude deleted trips
             user: {
               is_deleted: false,
             },
@@ -3582,6 +3589,7 @@ export class UserService {
               gte: lastMonthStart,
               lte: lastMonthEnd,
             },
+            is_deleted: false, // Exclude deleted trips
             user: {
               is_deleted: false,
             },
@@ -3590,6 +3598,7 @@ export class UserService {
         this.prisma.trip.count({
           where: {
             status: TripStatus.INPROGRESS,
+            is_deleted: false, // Exclude deleted trips
             user: {
               is_deleted: false,
             },
@@ -3601,6 +3610,7 @@ export class UserService {
               gte: next7DaysStart,
               lte: next7DaysEnd,
             },
+            is_deleted: false, // Exclude deleted trips
             user: {
               is_deleted: false,
             },
@@ -3609,6 +3619,7 @@ export class UserService {
         this.prisma.trip.count({
           where: {
             status: TripStatus.COMPLETED,
+            is_deleted: false, // Exclude deleted trips
             user: {
               is_deleted: false,
             },
@@ -3697,10 +3708,11 @@ export class UserService {
 
       // Build where clause
       const whereClause: any = {
-        // Exclude trips from deleted users
+        // Exclude trips from deleted users and deleted trips
         user: {
           is_deleted: false,
         },
+        is_deleted: false, // Exclude deleted trips
       };
 
       // Filter by userId if provided
@@ -4366,6 +4378,187 @@ export class UserService {
         {
           lang,
           defaultValue: 'Failed to flag content',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Move money from user's wallet hold balance to available balance (Admin only)
+   */
+  async moveHoldBalanceToAvailable(
+    dto: AdminMoveHoldBalanceDto,
+    lang?: string,
+  ): Promise<AdminMoveHoldBalanceResponseDto> {
+    try {
+      const { userId, amount, currency } = dto;
+
+      // Get user's wallet
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId },
+      });
+
+      if (!wallet) {
+        const message = await this.i18n.translate(
+          'translation.wallet.notFound',
+          {
+            lang,
+            defaultValue: 'Wallet not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Determine currency to use
+      const targetCurrency = (currency || wallet.currency).toUpperCase();
+
+      // Get currency columns
+      const getCurrencyColumns = (
+        curr: string,
+      ): {
+        available: string;
+        hold: string;
+      } => {
+        switch (curr) {
+          case 'EUR':
+            return {
+              available: 'available_balance_eur',
+              hold: 'hold_balance_eur',
+            };
+          case 'USD':
+            return {
+              available: 'available_balance_usd',
+              hold: 'hold_balance_usd',
+            };
+          case 'CAD':
+            return {
+              available: 'available_balance_cad',
+              hold: 'hold_balance_cad',
+            };
+          case 'XAF':
+            // XAF is display only, convert to EUR for processing
+            return {
+              available: 'available_balance_eur',
+              hold: 'hold_balance_eur',
+            };
+          default:
+            // Default to EUR for unknown currencies
+            return {
+              available: 'available_balance_eur',
+              hold: 'hold_balance_eur',
+            };
+        }
+      };
+
+      const currencyColumns = getCurrencyColumns(targetCurrency);
+
+      // Check if hold balance has sufficient funds
+      const holdBalance = Number(wallet[currencyColumns.hold] || 0);
+
+      if (holdBalance < amount) {
+        const message = await this.i18n.translate(
+          'translation.wallet.insufficientHoldBalance',
+          {
+            lang,
+            defaultValue: `Insufficient hold balance. Available: ${holdBalance} ${targetCurrency}`,
+            args: {
+              available: holdBalance,
+              currency: targetCurrency,
+            },
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Get current available balance for balance_after calculation
+      const currentAvailableBalance = Number(
+        wallet[currencyColumns.available] || 0,
+      );
+
+      // Move from hold to available using transaction
+      const result = await this.prisma.$transaction(async (prisma) => {
+        // Update wallet balances
+        const updatedWallet = await prisma.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            [currencyColumns.hold]: {
+              decrement: amount,
+            },
+            [currencyColumns.available]: {
+              increment: amount,
+            },
+          },
+        });
+
+        // Create CREDIT transaction with source ADJUSTMENT
+        const transaction = await prisma.transaction.create({
+          data: {
+            userId,
+            wallet_id: wallet.id,
+            type: 'CREDIT',
+            source: 'ADJUSTMENT',
+            amount_requested: amount,
+            fee_applied: 0,
+            amount_paid: amount,
+            currency: targetCurrency,
+            status: 'COMPLETED',
+            provider: 'STRIPE',
+            description: `Admin adjustment: Moved ${amount} ${targetCurrency} from hold to available balance`,
+            balance_after: currentAvailableBalance + amount,
+            metadata: {
+              adminAdjustment: true,
+              movedFromHold: true,
+              originalCurrency: wallet.currency,
+            },
+          },
+        });
+
+        return { updatedWallet, transaction };
+      });
+
+      const message = await this.i18n.translate(
+        'translation.admin.moveHoldBalanceSuccess',
+        {
+          lang,
+          defaultValue: 'Balance moved successfully',
+        },
+      );
+
+      return {
+        message,
+        transaction: {
+          id: result.transaction.id,
+          type: result.transaction.type,
+          source: result.transaction.source,
+          amountRequested: Number(result.transaction.amount_requested),
+          amountPaid: Number(result.transaction.amount_paid),
+          currency: result.transaction.currency,
+          status: result.transaction.status,
+          balanceAfter: Number(result.transaction.balance_after),
+          createdAt: result.transaction.createdAt,
+        },
+        wallet: {
+          availableBalance: Number(
+            result.updatedWallet[currencyColumns.available],
+          ),
+          holdBalance: Number(result.updatedWallet[currencyColumns.hold]),
+          currency: targetCurrency,
+        },
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      console.error('Error moving hold balance to available:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.moveHoldBalanceFailed',
+        {
+          lang,
+          defaultValue: 'Failed to move balance',
         },
       );
       throw new InternalServerErrorException(message);

@@ -35,6 +35,12 @@ import {
 } from './dto/get-trip-items.dto';
 import { GetTripByIdResponseDto } from './dto/get-trip-by-id.dto';
 import {
+  AdminGetTripByIdResponseDto,
+  AdminTripRequestDto,
+  AdminTripRequestItemDto,
+  AdminTripUserDto,
+} from './dto/admin-get-trip-by-id.dto';
+import {
   CreateAirlineDto,
   CreateAirlineResponseDto,
 } from './dto/create-airline.dto';
@@ -1425,6 +1431,7 @@ export class TripService {
       // Build where clause
       const whereClause: any = {
         user_id: userId,
+        is_deleted: false, // Exclude deleted trips
       };
 
       // Only filter by status if provided and not "ALL"
@@ -1602,9 +1609,13 @@ export class TripService {
       });
       const userCurrency = (user?.currency || 'XAF') as Currency;
 
-      // Fetch the trip with all relations
-      const trip: any = await this.prisma.trip.findUnique({
-        where: { id: tripId },
+      // Fetch the trip with all relations (exclude deleted trips)
+      const trip: any = await this.prisma.trip.findFirst({
+        where: {
+          id: tripId,
+          user_id: userId, // Ensure user owns the trip
+          is_deleted: false, // Exclude deleted trips
+        },
         select: {
           id: true,
           user_id: true,
@@ -2938,12 +2949,13 @@ export class TripService {
       } = query;
       const skip = (page - 1) * limit;
 
-      // Base where clause - exclude DRAFT, COMPLETED, CANCELLED trips and fully booked trips
+      // Base where clause - exclude DRAFT, COMPLETED, CANCELLED trips, fully booked trips, and deleted trips
       const baseWhereClause: any = {
         status: {
           notIn: [TripStatus.DRAFT, TripStatus.COMPLETED, TripStatus.CANCELLED],
         },
         fully_booked: false, // Exclude fully booked trips
+        is_deleted: false, // Exclude deleted trips
       };
 
       // Add departure date filter based on filter parameter
@@ -3628,8 +3640,11 @@ export class TripService {
     lang?: string,
   ): Promise<GetTripByIdResponseDto> {
     try {
-      const trip = await this.prisma.trip.findUnique({
-        where: { id: tripId },
+      const trip = await this.prisma.trip.findFirst({
+        where: {
+          id: tripId,
+          is_deleted: false, // Exclude deleted trips
+        },
         select: {
           id: true,
           user_id: true,
@@ -4356,6 +4371,401 @@ export class TripService {
     } catch (error) {
       // Log error but don't fail the trip creation
       console.error('Failed to send new trip notifications:', error);
+    }
+  }
+
+  /**
+   * Get trip by ID for admin with comprehensive details including earnings and requests
+   */
+  async getAdminTripById(
+    tripId: string,
+    lang?: string,
+  ): Promise<AdminGetTripByIdResponseDto> {
+    try {
+      // Fetch trip with all related data
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              picture: true,
+              role: true,
+            },
+          },
+          mode_of_transport: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
+          airline: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
+          trip_items: {
+            select: {
+              trip_item_id: true,
+              price: true,
+              avalailble_kg: true,
+              prices: {
+                select: {
+                  currency: true,
+                  price: true,
+                },
+              },
+              trip_item: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  image: {
+                    select: {
+                      id: true,
+                      url: true,
+                      alt_text: true,
+                    },
+                  },
+                  translations: {
+                    select: {
+                      id: true,
+                      language: true,
+                      name: true,
+                      description: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          requests: {
+            where: {
+              is_deleted: false, // Exclude deleted requests
+            },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  kycRecords: {
+                    select: {
+                      id: true,
+                      status: true,
+                      provider: true,
+                      rejectionReason: true,
+                      createdAt: true,
+                      updatedAt: true,
+                      verifiedAt: true,
+                    },
+                    take: 1,
+                    orderBy: { updatedAt: 'desc' },
+                  },
+                },
+              },
+              request_items: {
+                include: {
+                  trip_item: {
+                    select: {
+                      id: true,
+                      name: true,
+                      description: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          transactions: {
+            where: {
+              source: 'TRIP_EARNING',
+              type: 'CREDIT',
+            },
+            select: {
+              id: true,
+              amount_paid: true,
+              currency: true,
+              status: true,
+            },
+          },
+        },
+      });
+
+      if (!trip) {
+        const message = await this.i18n.translate(
+          'translation.trip.getById.notFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Calculate earnings in EUR
+      let totalOnHoldEarningsEUR = 0;
+      let totalWithdrawableEarningsEUR = 0;
+
+      for (const transaction of trip.transactions) {
+        const amount = Number(transaction.amount_paid);
+        const currency = transaction.currency as any;
+
+        // Convert to EUR
+        let amountEUR = amount;
+        if (currency !== 'EUR') {
+          try {
+            const conversion = this.currencyService.convertCurrency(
+              amount,
+              currency,
+              'EUR',
+            );
+            amountEUR = conversion.convertedAmount;
+          } catch (error) {
+            console.error(
+              `Failed to convert transaction ${transaction.id} to EUR:`,
+              error,
+            );
+            continue;
+          }
+        }
+
+        // Categorize by status
+        if (
+          transaction.status === 'ONHOLD' ||
+          transaction.status === 'PENDING'
+        ) {
+          totalOnHoldEarningsEUR += amountEUR;
+        } else if (
+          transaction.status === 'COMPLETED' ||
+          transaction.status === 'SUCCESS' ||
+          transaction.status === 'RECEIVED'
+        ) {
+          totalWithdrawableEarningsEUR += amountEUR;
+        }
+      }
+
+      const totalTripEarningsEUR =
+        totalOnHoldEarningsEUR + totalWithdrawableEarningsEUR;
+
+      // Get unique users who requested the trip
+      const uniqueUserMap = new Map<string, AdminTripUserDto>();
+      trip.requests.forEach((request) => {
+        if (!uniqueUserMap.has(request.user_id)) {
+          uniqueUserMap.set(request.user_id, {
+            id: request.user.id,
+            firstName: request.user.firstName,
+            lastName: request.user.lastName,
+            email: request.user.email,
+          });
+        }
+      });
+
+      const usersWhoRequested: AdminTripUserDto[] = Array.from(
+        uniqueUserMap.values(),
+      );
+
+      // Transform requests with cost in EUR and items
+      const requestDtos: AdminTripRequestDto[] = await Promise.all(
+        trip.requests.map(async (request) => {
+          // Convert cost to EUR
+          let costEUR: number | null = null;
+          if (request.cost && request.currency) {
+            const cost = Number(request.cost);
+            const currency = request.currency as any;
+            if (currency !== 'EUR') {
+              try {
+                const conversion = this.currencyService.convertCurrency(
+                  cost,
+                  currency,
+                  'EUR',
+                );
+                costEUR = Math.round(conversion.convertedAmount * 100) / 100;
+              } catch (error) {
+                console.error(
+                  `Failed to convert request ${request.id} cost to EUR:`,
+                  error,
+                );
+                costEUR = cost; // Fallback to original amount
+              }
+            } else {
+              costEUR = cost;
+            }
+          }
+
+          // Calculate total kg (sum of quantities from request_items)
+          const totalKg = request.request_items.reduce(
+            (sum, item) => sum + item.quantity,
+            0,
+          );
+
+          // Transform request items
+          const items: AdminTripRequestItemDto[] = request.request_items.map(
+            (item) => ({
+              trip_item_id: item.trip_item_id,
+              name: item.trip_item?.name || 'Unknown',
+              quantity: item.quantity,
+              total_kg: item.quantity, // quantity is in kg
+            }),
+          );
+
+          // Get latest KYC record
+          const kyc =
+            request.user.kycRecords && request.user.kycRecords.length > 0
+              ? {
+                  id: request.user.kycRecords[0].id,
+                  status: request.user.kycRecords[0].status,
+                  provider: request.user.kycRecords[0].provider,
+                  rejectionReason: request.user.kycRecords[0].rejectionReason,
+                  createdAt: request.user.kycRecords[0].createdAt,
+                  updatedAt: request.user.kycRecords[0].updatedAt,
+                  verifiedAt: request.user.kycRecords[0].verifiedAt,
+                }
+              : null;
+
+          return {
+            id: request.id,
+            user: {
+              id: request.user.id,
+              firstName: request.user.firstName,
+              lastName: request.user.lastName,
+              kyc,
+            },
+            items,
+            total_kg: totalKg > 0 ? totalKg : null,
+            cost_eur: costEUR,
+            status: request.status,
+          };
+        }),
+      );
+
+      const message = await this.i18n.translate(
+        'translation.admin.trip.getById.success',
+        {
+          lang,
+          defaultValue: 'Trip retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        trip: {
+          id: trip.id,
+          user_id: trip.user_id,
+          pickup: trip.pickup,
+          destination: trip.destination,
+          departure: trip.departure,
+          delivery: trip.delivery,
+          departure_date: trip.departure_date,
+          departure_time: trip.departure_time,
+          arrival_date: trip.arrival_date,
+          arrival_time: trip.arrival_time,
+          currency: trip.currency,
+          mode_of_transport_id: trip.mode_of_transport_id,
+          airline_id: trip.airline_id,
+          maximum_weight_in_kg: trip.maximum_weight_in_kg
+            ? Number(trip.maximum_weight_in_kg)
+            : null,
+          notes: trip.notes,
+          meetup_flexible: trip.meetup_flexible,
+          status: trip.status,
+          fully_booked: trip.fully_booked,
+          createdAt: trip.createdAt,
+          updatedAt: trip.updatedAt,
+          user: trip.user,
+          mode_of_transport: trip.mode_of_transport,
+          airline: trip.airline,
+          trip_items: trip.trip_items.map((item) => ({
+            trip_item_id: item.trip_item_id,
+            price: Number(item.price),
+            available_kg: item.avalailble_kg
+              ? Number(item.avalailble_kg)
+              : null,
+            prices: item.prices.map((p) => ({
+              currency: p.currency,
+              price: Number(p.price),
+            })),
+            trip_item: item.trip_item,
+          })),
+        },
+        total_on_hold_trip_earning_eur:
+          Math.round(totalOnHoldEarningsEUR * 100) / 100,
+        total_withdrawable_trip_earnings_eur:
+          Math.round(totalWithdrawableEarningsEUR * 100) / 100,
+        total_trip_earning_eur: Math.round(totalTripEarningsEUR * 100) / 100,
+        users_who_requested: usersWhoRequested,
+        requests: requestDtos,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      console.error('Error getting admin trip by ID:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.trip.getById.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve trip',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Admin delete trip - soft delete by setting is_deleted to true
+   */
+  async adminDeleteTrip(
+    tripId: string,
+    lang?: string,
+  ): Promise<{ message: string; tripId: string }> {
+    try {
+      // Check if trip exists
+      const existingTrip = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+      });
+
+      if (!existingTrip) {
+        const message = await this.i18n.translate(
+          'translation.trip.getById.notFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Soft delete by setting is_deleted to true
+      await this.prisma.trip.update({
+        where: { id: tripId },
+        data: { is_deleted: true },
+      });
+
+      const message = await this.i18n.translate(
+        'translation.admin.trip.deleteSuccess',
+        {
+          lang,
+          defaultValue: 'Trip deleted successfully',
+        },
+      );
+
+      return {
+        message,
+        tripId,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const message = await this.i18n.translate(
+        'translation.admin.trip.deleteFailed',
+        {
+          lang,
+          defaultValue: 'Failed to delete trip',
+        },
+      );
+      throw new InternalServerErrorException(message);
     }
   }
 }
