@@ -511,7 +511,7 @@ enum ReportType {
   VEHICLE_CONDITION_ISSUE
   INAPPROPRIATE_BEHAVIOR
   OTHER
-  TRAVEL_ISSUES
+  
 }
 
 enum ReportPriority {
