@@ -36,7 +36,7 @@ export class GetTripsQueryDto {
 
   @ApiProperty({
     description:
-      'Search to filter trips by departure city. Searches in departure location city field. Trips matching departure_city will be prioritized at the top of results. Search is case-insensitive.',
+      'Search to filter trips by departure city. Searches in departure location city, region, region_fr, and address fields. Trips matching departure_city will be prioritized at the top of results. Search is case-insensitive.',
     example: 'San Francisco',
     required: false,
   })
@@ -46,7 +46,7 @@ export class GetTripsQueryDto {
 
   @ApiProperty({
     description:
-      'Search to filter trips by departure country. Searches in departure location country or country_code fields. Search is case-insensitive.',
+      'Search to filter trips by departure country. Searches in departure location country, country_fr, and country_code fields. Search is case-insensitive.',
     example: 'United States',
     required: false,
   })
@@ -56,7 +56,7 @@ export class GetTripsQueryDto {
 
   @ApiProperty({
     description:
-      'Search to filter trips by destination city. Searches in destination location city field. Trips matching destination_city will be prioritized at the top of results. Search is case-insensitive.',
+      'Search to filter trips by destination city. Searches in destination location city, region, region_fr, country, country_fr, and address fields. Trips matching destination_city will be prioritized at the top of results. Search is case-insensitive.',
     example: 'Paris',
     required: false,
   })
@@ -66,7 +66,7 @@ export class GetTripsQueryDto {
 
   @ApiProperty({
     description:
-      'Search to filter trips by destination country. Searches in destination location country or country_code fields. Search is case-insensitive.',
+      'Search to filter trips by destination country. Searches in destination location country, country_fr, and country_code fields. Search is case-insensitive.',
     example: 'France',
     required: false,
   })
@@ -168,7 +168,8 @@ export class GetTripsQueryDto {
   trip_items_ids?: string[];
 
   @ApiPropertyOptional({
-    description: 'Minimum number of seats needed (filters ride trips with at least this many seats available)',
+    description:
+      'Minimum number of seats needed (filters ride trips with at least this many seats available)',
     example: 1,
     minimum: 1,
   })

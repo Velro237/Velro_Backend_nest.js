@@ -12,6 +12,7 @@ import { RequestModule } from '../request/request.module';
 import { RedisModule } from '../redis/redis.module';
 import { ChatModule } from '../chat/chat.module';
 import { TripModule } from '../trip/trip.module';
+import { PaymentModule } from '../payment/payment.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TripModule } from '../trip/trip.module';
     RedisModule,
     ChatModule,
     TripModule,
+    PaymentModule,
   ],
   controllers: [UserController, AdminController],
   providers: [UserService],

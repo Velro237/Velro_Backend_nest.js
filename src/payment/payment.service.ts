@@ -27,10 +27,16 @@ import {
   GetWalletRequestDto,
   GetWalletResponseDto,
 } from './dto/get-wallet-request.dto';
-import { PaymentStatus, NotificationType } from 'generated/prisma';
+import {
+  PaymentStatus,
+  NotificationType,
+  TransactionProvider,
+  TransactionStatus,
+} from 'generated/prisma';
 import { RequestService } from '../request/request.service';
 import { CurrencyService } from '../currency/currency.service';
 import { NotificationService } from '../notification/notification.service';
+import { AdminPaymentMethodRankingResponseDto } from './dto/admin-payment-method-ranking.dto';
 
 @Injectable()
 export class PaymentService {
@@ -1490,6 +1496,79 @@ export class PaymentService {
       case 'EUR':
       default:
         return Number(wallet.available_balance_eur || 0);
+    }
+  }
+
+  /**
+   * Get payment method ranking grouped by TransactionProvider
+   */
+  async getAdminPaymentMethodRanking(
+    lang?: string,
+  ): Promise<AdminPaymentMethodRankingResponseDto> {
+    try {
+      // Get transactions grouped by provider with status SEND, RECEIVED, COMPLETED, SUCCESS
+      // Use findMany and group manually to avoid Prisma groupBy TypeScript issues
+      const allTransactions = await this.prisma.transaction.findMany({
+        where: {
+          status: {
+            in: [
+              TransactionStatus.SEND,
+              TransactionStatus.RECEIVED,
+              TransactionStatus.COMPLETED,
+              TransactionStatus.SUCCESS,
+            ],
+          },
+        },
+        select: {
+          provider: true,
+        },
+      });
+
+      // Group manually and count
+      const providerCountMap = new Map<TransactionProvider, number>();
+      allTransactions.forEach((transaction) => {
+        const currentCount = providerCountMap.get(transaction.provider) || 0;
+        providerCountMap.set(transaction.provider, currentCount + 1);
+      });
+
+      // Convert to array format matching groupBy result structure
+      const transactionsByProvider = Array.from(providerCountMap.entries()).map(
+        ([provider, count]) => ({
+          provider,
+          _count: { id: count },
+        }),
+      );
+
+      // Convert to response format and sort by count (descending)
+      const paymentMethods = transactionsByProvider
+        .map((item) => ({
+          provider: item.provider as string,
+          count: item._count.id,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      const message = await this.i18n.translate(
+        'translation.admin.paymentMethodRankingSuccess',
+        {
+          lang,
+          defaultValue: 'Payment method ranking retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        paymentMethods,
+      };
+    } catch (error) {
+      console.error('Error getting payment method ranking:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.paymentMethodRankingFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve payment method ranking',
+        },
+      );
+      throw new InternalServerErrorException(message);
     }
   }
 }
