@@ -89,6 +89,7 @@ import {
   AdminEditRequestResponseDto,
 } from '../request/dto/admin-edit-request.dto';
 import { AdminDeleteRequestResponseDto } from '../request/dto/admin-delete-request.dto';
+import { AdminGetRequestByIdResponseDto } from '../request/dto/admin-get-request-by-id.dto';
 import { RequestService } from '../request/request.service';
 import { AdminChatsStatsResponseDto } from './dto/admin-chats-stats.dto';
 import { AdminTripsStatsResponseDto } from './dto/admin-trips-stats.dto';
@@ -998,6 +999,42 @@ export class AdminController {
   })
   async remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.remove(id);
+  }
+
+  @Get('requests/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get trip request details with transactions (Admin only)',
+    description:
+      'Retrieve complete trip request information including all request details with currency converted to EUR, and all related transactions with amounts converted to EUR. Admin access required.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip request ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request details retrieved successfully',
+    type: AdminGetRequestByIdResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip request not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getRequestById(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @I18nLang() lang: string,
+  ): Promise<AdminGetRequestByIdResponseDto> {
+    return this.requestService.getAdminRequestById(requestId, lang);
   }
 
   @Patch('requests/:id')
