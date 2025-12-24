@@ -82,41 +82,8 @@ export class ChatService {
       throw new NotFoundException(message);
     }
 
-    // Check if a chat already exists for this trip with both users as members
-    if (tripId) {
-      const existingChat = await this.prisma.chat.findFirst({
-        where: {
-          trip_id: tripId,
-          members: {
-            some: {
-              user_id: userId,
-            },
-          },
-        },
-        include: {
-          members: {
-            select: {
-              user_id: true,
-            },
-          },
-        },
-      });
-
-      // If chat exists and both users are members, prevent creation
-      if (existingChat) {
-        const memberUserIds = existingChat.members.map((m) => m.user_id);
-        const bothUsersAreMembersOfChat =
-          memberUserIds.includes(userId) && memberUserIds.includes(otherUserId);
-
-        if (bothUsersAreMembersOfChat) {
-          const message = await this.i18n.translate(
-            'translation.chat.create.duplicateTripChat',
-            { lang },
-          );
-          throw new ConflictException(message);
-        }
-      }
-    }
+    // Allow users to create multiple chats on the same trip
+    // Removed validation that prevented creating multiple chats for the same trip
 
     try {
       const { chat, lastMessage } = await this.prisma.$transaction(
@@ -1089,7 +1056,7 @@ export class ChatService {
                                     ? Number(tripItem.avalailble_kg)
                                     : null
                                   : null,
-                                trip_item: item.trip_item
+                                tripItem: item.trip_item
                                   ? {
                                       id: item.trip_item.id,
                                       name: item.trip_item.name,
@@ -2074,7 +2041,7 @@ export class ChatService {
                                     ? Number(tripItem.avalailble_kg)
                                     : null
                                   : null,
-                                trip_item: item.trip_item
+                                tripItem: item.trip_item
                                   ? {
                                       id: item.trip_item.id,
                                       name: item.trip_item.name,

@@ -49,6 +49,24 @@ export class LocationDto {
   region?: string;
 
   @ApiProperty({
+    description: 'Country name in French',
+    example: 'États-Unis',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  country_fr?: string;
+
+  @ApiProperty({
+    description: 'Region or state in French',
+    example: 'Californie',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  region_fr?: string;
+
+  @ApiProperty({
     description: 'Full address',
     example: '123 Main St, San Francisco, CA 94105',
     required: false,
@@ -99,6 +117,8 @@ export type LocationType = {
   country?: string;
   country_code?: string;
   region?: string;
+  country_fr?: string;
+  region_fr?: string;
   address?: string;
   lng?: number;
   lat?: number;
@@ -210,22 +230,15 @@ export class CreateTripDto {
       country: { type: 'string', example: 'United States' },
       country_code: { type: 'string', example: 'US' },
       region: { type: 'string', example: 'California' },
+      country_fr: { type: 'string', example: 'États-Unis' },
+      region_fr: { type: 'string', example: 'Californie' },
       address: {
         type: 'string',
         example: '123 Main St, San Francisco, CA 94105',
       },
       lng: { type: 'number', example: -122.4194 },
       lat: { type: 'number', example: 37.7749 },
-      landmark: {
-        type: 'string',
-        example: 'Near Golden Gate Bridge',
-        description: 'Landmark or notable location',
-      },
-      preferred_meetup: {
-        type: 'string',
-        example: 'Main entrance of the airport terminal',
-        description: 'Preferred meetup location or instructions',
-      },
+      landmark: { type: 'string', example: 'Near Golden Gate Bridge' },
     },
   })
   @IsObject()
@@ -240,6 +253,8 @@ export class CreateTripDto {
       country: { type: 'string', example: 'France' },
       country_code: { type: 'string', example: 'FR' },
       region: { type: 'string', example: 'Île-de-France' },
+      country_fr: { type: 'string', example: 'France' },
+      region_fr: { type: 'string', example: 'Île-de-France' },
       address: { type: 'string', example: '456 Champs-Élysées, Paris, France' },
       lng: { type: 'number', example: 2.3522 },
       lat: { type: 'number', example: 48.8566 },
@@ -257,6 +272,8 @@ export class CreateTripDto {
       country: { type: 'string', example: 'United States' },
       country_code: { type: 'string', example: 'US' },
       region: { type: 'string', example: 'California' },
+      country_fr: { type: 'string', example: 'États-Unis' },
+      region_fr: { type: 'string', example: 'Californie' },
       address: {
         type: 'string',
         example: '123 Main St, San Francisco, CA 94105',

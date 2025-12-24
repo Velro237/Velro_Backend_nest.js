@@ -89,6 +89,7 @@ import {
   AdminEditRequestResponseDto,
 } from '../request/dto/admin-edit-request.dto';
 import { AdminDeleteRequestResponseDto } from '../request/dto/admin-delete-request.dto';
+import { AdminGetRequestByIdResponseDto } from '../request/dto/admin-get-request-by-id.dto';
 import { RequestService } from '../request/request.service';
 import { AdminChatsStatsResponseDto } from './dto/admin-chats-stats.dto';
 import { AdminTripsStatsResponseDto } from './dto/admin-trips-stats.dto';
@@ -102,6 +103,10 @@ import { AdminGetTripByIdResponseDto } from '../trip/dto/admin-get-trip-by-id.dt
 import { AdminDeleteTripResponseDto } from '../trip/dto/admin-delete-trip.dto';
 import { ChatGateway } from '../chat/chat.gateway';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaymentService } from '../payment/payment.service';
+import { AdminPaymentMethodRankingResponseDto } from '../payment/dto/admin-payment-method-ranking.dto';
+import { AdminPackageCategoryResponseDto } from '../trip/dto/admin-package-category.dto';
+import { AdminRequestStatusDistributionResponseDto } from './dto/admin-request-status-distribution.dto';
 import {
   GetChatsQueryDto,
   GetChatsResponseDto,
@@ -114,6 +119,15 @@ import {
   AdminSendWarningDto,
   AdminSendWarningResponseDto,
 } from './dto/admin-send-warning.dto';
+import { AdminAnalyticsStatsResponseDto } from './dto/admin-analytics-stats.dto';
+import {
+  AdminRoutesPerVolumeQueryDto,
+  AdminRoutesPerVolumeResponseDto,
+} from './dto/admin-routes-per-volume.dto';
+import {
+  AdminUsersRankingQueryDto,
+  AdminUsersRankingResponseDto,
+} from './dto/admin-users-ranking.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth('JWT-auth')
@@ -127,6 +141,7 @@ export class AdminController {
     private readonly requestService: RequestService,
     private readonly chatService: ChatService,
     private readonly tripService: TripService,
+    private readonly paymentService: PaymentService,
   ) {}
 
   @Get('reports/stats')
@@ -328,6 +343,164 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminRequestStatsResponseDto> {
     return this.userService.getAdminRequestStats(lang);
+  }
+
+  @Get('analytics/stats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get analytics statistics (Admin only)',
+    description:
+      'Retrieve comprehensive analytics statistics including total revenue, wallet funds (available and hold), users, verified users, active requests, active trips, platform fees, and monthly percentage increases for all metrics. All amounts are in EUR.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Analytics statistics retrieved successfully',
+    type: AdminAnalyticsStatsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getAnalyticsStats(
+    @I18nLang() lang: string,
+  ): Promise<AdminAnalyticsStatsResponseDto> {
+    return this.userService.getAdminAnalyticsStats(lang);
+  }
+
+  @Get('analytics/routes_per_volume')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get routes per volume (Admin only)',
+    description:
+      'Retrieve trips grouped by departure country and destination country, ordered by highest count. Returns the count of trips for each route with pagination.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Routes per volume retrieved successfully',
+    type: AdminRoutesPerVolumeResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getRoutesPerVolume(
+    @Query() query: AdminRoutesPerVolumeQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminRoutesPerVolumeResponseDto> {
+    return this.tripService.getAdminRoutesPerVolume(query, lang);
+  }
+
+  @Get('analytics/users_ranking')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get users ranking by trip revenue (Admin only)',
+    description:
+      'Retrieve users ranked by trip revenue. Returns user firstname, lastname, completed trips count, success rate (percentage of requests with DELIVERED or REVIEWED status), total revenue in EUR, and average rating. Results are sorted by total revenue in descending order.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Users ranking retrieved successfully',
+    type: AdminUsersRankingResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getUsersRanking(
+    @Query() query: AdminUsersRankingQueryDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminUsersRankingResponseDto> {
+    return this.userService.getAdminUsersRanking(query, lang);
+  }
+
+  @Get('analytics/payment_method_ranking')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get payment method ranking (Admin only)',
+    description:
+      'Retrieve transaction counts grouped by TransactionProvider (MTN, ORANGE, STRIPE) for transactions with status SEND, RECEIVED, COMPLETED, or SUCCESS. Results are ordered by highest count.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Payment method ranking retrieved successfully',
+    type: AdminPaymentMethodRankingResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getPaymentMethodRanking(
+    @I18nLang() lang: string,
+  ): Promise<AdminPaymentMethodRankingResponseDto> {
+    return this.paymentService.getAdminPaymentMethodRanking(lang);
+  }
+
+  @Get('analytics/package_category')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get package category statistics (Admin only)',
+    description:
+      'Retrieve the number of trips created with each trip item (package category). Results are ordered by highest trip count.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Package category statistics retrieved successfully',
+    type: AdminPackageCategoryResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getPackageCategory(
+    @I18nLang() lang: string,
+  ): Promise<AdminPackageCategoryResponseDto> {
+    return this.tripService.getAdminPackageCategory(lang);
+  }
+
+  @Get('analytics/request_status_distribution')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get request status distribution (Admin only)',
+    description:
+      'Retrieve the count of requests grouped by each status. Returns all request statuses with their respective counts.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request status distribution retrieved successfully',
+    type: AdminRequestStatusDistributionResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getRequestStatusDistribution(
+    @I18nLang() lang: string,
+  ): Promise<AdminRequestStatusDistributionResponseDto> {
+    return this.userService.getAdminRequestStatusDistribution(lang);
   }
 
   @Get('chats/stats')
@@ -826,6 +999,42 @@ export class AdminController {
   })
   async remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.remove(id);
+  }
+
+  @Get('requests/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get trip request details with transactions (Admin only)',
+    description:
+      'Retrieve complete trip request information including all request details with currency converted to EUR, and all related transactions with amounts converted to EUR. Admin access required.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Trip request ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Request details retrieved successfully',
+    type: AdminGetRequestByIdResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Trip request not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getRequestById(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @I18nLang() lang: string,
+  ): Promise<AdminGetRequestByIdResponseDto> {
+    return this.requestService.getAdminRequestById(requestId, lang);
   }
 
   @Patch('requests/:id')

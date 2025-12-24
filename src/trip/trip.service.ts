@@ -41,6 +41,11 @@ import {
   AdminTripUserDto,
 } from './dto/admin-get-trip-by-id.dto';
 import {
+  AdminRoutesPerVolumeQueryDto,
+  AdminRoutesPerVolumeResponseDto,
+} from '../user/dto/admin-routes-per-volume.dto';
+import { AdminPackageCategoryResponseDto } from './dto/admin-package-category.dto';
+import {
   CreateAirlineDto,
   CreateAirlineResponseDto,
 } from './dto/create-airline.dto';
@@ -3039,10 +3044,17 @@ export class TripService {
                 mode: 'insensitive',
               },
             });
-            // Also search in region and address for flexibility
+            // Also search in region, region_fr, and address for flexibility
             searchFilters.push({
               departure: {
                 path: ['region'],
+                string_contains: departure_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              departure: {
+                path: ['region_fr'],
                 string_contains: departure_city.trim(),
                 mode: 'insensitive',
               },
@@ -3067,6 +3079,13 @@ export class TripService {
             });
             searchFilters.push({
               departure: {
+                path: ['country_fr'],
+                string_contains: departure_country.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              departure: {
                 path: ['country_code'],
                 string_contains: departure_country.trim(),
                 mode: 'insensitive',
@@ -3083,10 +3102,17 @@ export class TripService {
                 mode: 'insensitive',
               },
             });
-            // Also search in region and address for flexibility
+            // Also search in region, region_fr, and address for flexibility
             searchFilters.push({
               destination: {
                 path: ['region'],
+                string_contains: destination_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              destination: {
+                path: ['region_fr'],
                 string_contains: destination_city.trim(),
                 mode: 'insensitive',
               },
@@ -3098,10 +3124,17 @@ export class TripService {
                 mode: 'insensitive',
               },
             });
-            // Also search in country for better matching
+            // Also search in country and country_fr for better matching
             searchFilters.push({
               destination: {
                 path: ['country'],
+                string_contains: destination_city.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              destination: {
+                path: ['country_fr'],
                 string_contains: destination_city.trim(),
                 mode: 'insensitive',
               },
@@ -3113,6 +3146,13 @@ export class TripService {
             searchFilters.push({
               destination: {
                 path: ['country'],
+                string_contains: destination_country.trim(),
+                mode: 'insensitive',
+              },
+            });
+            searchFilters.push({
+              destination: {
+                path: ['country_fr'],
                 string_contains: destination_country.trim(),
                 mode: 'insensitive',
               },
@@ -3355,6 +3395,9 @@ export class TripService {
               (tripDeparture.region || '')
                 .toLowerCase()
                 .includes(departureCityLower) ||
+              (tripDeparture.region_fr || '')
+                .toLowerCase()
+                .includes(departureCityLower) ||
               (tripDeparture.address || '')
                 .toLowerCase()
                 .includes(departureCityLower));
@@ -3370,10 +3413,16 @@ export class TripService {
               (tripDestination.region || '')
                 .toLowerCase()
                 .includes(destinationCityLower) ||
+              (tripDestination.region_fr || '')
+                .toLowerCase()
+                .includes(destinationCityLower) ||
               (tripDestination.address || '')
                 .toLowerCase()
                 .includes(destinationCityLower) ||
               (tripDestination.country || '')
+                .toLowerCase()
+                .includes(destinationCityLower) ||
+              (tripDestination.country_fr || '')
                 .toLowerCase()
                 .includes(destinationCityLower));
 
@@ -3385,6 +3434,9 @@ export class TripService {
             ((tripDeparture.country || '')
               .toLowerCase()
               .includes(departureCountryLower) ||
+              (tripDeparture.country_fr || '')
+                .toLowerCase()
+                .includes(departureCountryLower) ||
               (tripDeparture.country_code || '')
                 .toLowerCase()
                 .includes(departureCountryLower));
@@ -3397,6 +3449,9 @@ export class TripService {
             ((tripDestination.country || '')
               .toLowerCase()
               .includes(destinationCountryLower) ||
+              (tripDestination.country_fr || '')
+                .toLowerCase()
+                .includes(destinationCountryLower) ||
               (tripDestination.country_code || '')
                 .toLowerCase()
                 .includes(destinationCountryLower));
@@ -4304,17 +4359,30 @@ export class TripService {
         return;
       }
 
-      // Extract departure and destination locations for notification
-      const departureLocation =
-        (tripData.departure as any)?.city ||
-        (tripData.departure as any)?.country ||
-        (tripData.departure as any)?.address ||
-        'Unknown';
-      const destinationLocation =
-        (tripData.destination as any)?.city ||
-        (tripData.destination as any)?.country ||
-        (tripData.destination as any)?.address ||
-        'Unknown';
+      // Helper function to extract location name based on user language
+      const getLocationName = (location: any, isFrench: boolean): string => {
+        if (isFrench) {
+          // For French users, prefer country_fr or region_fr
+          return (
+            location?.city ||
+            location?.region_fr ||
+            location?.country_fr ||
+            location?.region ||
+            location?.country ||
+            location?.address ||
+            'Unknown'
+          );
+        } else {
+          // For other users, use standard fields
+          return (
+            location?.city ||
+            location?.region ||
+            location?.country ||
+            location?.address ||
+            'Unknown'
+          );
+        }
+      };
 
       // Send push notification to each user in their language
       for (const user of users) {
@@ -4325,6 +4393,17 @@ export class TripService {
           const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';
           // Ensure it's a valid language ('en' or 'fr'), default to 'en'
           const normalizedUserLang = userLang === 'fr' ? 'fr' : 'en';
+          const isFrench = normalizedUserLang === 'fr';
+
+          // Extract departure and destination locations based on user's language
+          const departureLocation = getLocationName(
+            tripData.departure as any,
+            isFrench,
+          );
+          const destinationLocation = getLocationName(
+            tripData.destination as any,
+            isFrench,
+          );
 
           // Translate notification title and body to user's language
           const notificationTitle = await this.i18n.translate(
@@ -4763,6 +4842,185 @@ export class TripService {
         {
           lang,
           defaultValue: 'Failed to delete trip',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get routes per volume grouped by departure and destination countries
+   */
+  async getAdminRoutesPerVolume(
+    query: AdminRoutesPerVolumeQueryDto,
+    lang?: string,
+  ): Promise<AdminRoutesPerVolumeResponseDto> {
+    try {
+      const page = query.page || 1;
+      const limit = query.limit || 10;
+      const skip = (page - 1) * limit;
+
+      // Fetch all trips with departure and destination (excluding deleted trips and deleted users)
+      const allTrips = await this.prisma.trip.findMany({
+        where: {
+          is_deleted: false,
+          user: {
+            is_deleted: false,
+          },
+        },
+        select: {
+          departure: true,
+          destination: true,
+        },
+      });
+
+      // Group trips by departure_country and destination_country
+      const routeMap = new Map<string, number>();
+
+      for (const trip of allTrips) {
+        const departure = trip.departure as any;
+        const destination = trip.destination as any;
+
+        // Extract country from departure (prefer country, then country_code)
+        const departureCountry =
+          departure?.country || departure?.country_code || 'Unknown';
+
+        // Extract country from destination (prefer country, then country_code)
+        const destinationCountry =
+          destination?.country || destination?.country_code || 'Unknown';
+
+        // Create a route key (departure -> destination)
+        const routeKey = `${departureCountry} -> ${destinationCountry}`;
+
+        // Increment count for this route
+        const currentCount = routeMap.get(routeKey) || 0;
+        routeMap.set(routeKey, currentCount + 1);
+      }
+
+      // Convert map to array and sort by count (descending)
+      const routes = Array.from(routeMap.entries())
+        .map(([routeKey, count]) => {
+          const [departureCountry, destinationCountry] = routeKey.split(' -> ');
+          return {
+            departure_country: departureCountry,
+            destination_country: destinationCountry,
+            count,
+          };
+        })
+        .sort((a, b) => b.count - a.count);
+
+      // Get total count for pagination
+      const total = routes.length;
+      const totalPages = Math.ceil(total / limit);
+
+      // Apply pagination
+      const paginatedRoutes = routes.slice(skip, skip + limit);
+
+      const message = await this.i18n.translate(
+        'translation.admin.routesPerVolumeSuccess',
+        {
+          lang,
+          defaultValue: 'Routes per volume retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        routes: paginatedRoutes,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting routes per volume:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.routesPerVolumeFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve routes per volume',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get package category statistics (number of trips per trip item)
+   */
+  async getAdminPackageCategory(
+    lang?: string,
+  ): Promise<AdminPackageCategoryResponseDto> {
+    try {
+      // Group TripItemsList by trip_item_id and count distinct trips
+      // Exclude deleted trips and trips from deleted users
+      const tripsByTripItem = await this.prisma.tripItemsList.groupBy({
+        by: ['trip_item_id'],
+        where: {
+          trip: {
+            is_deleted: false,
+            user: {
+              is_deleted: false,
+            },
+          },
+        },
+        _count: {
+          trip_id: true,
+        },
+      });
+
+      // Get trip item IDs
+      const tripItemIds = tripsByTripItem.map((item) => item.trip_item_id);
+
+      // Fetch trip item details
+      const tripItems = await this.prisma.tripItem.findMany({
+        where: {
+          id: {
+            in: tripItemIds,
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+      });
+
+      // Create a map of trip item id to name
+      const tripItemMap = new Map<string, string>();
+      tripItems.forEach((item) => {
+        tripItemMap.set(item.id, item.name);
+      });
+
+      // Build the response array
+      const packageCategories = tripsByTripItem
+        .map((item) => ({
+          trip_item_id: item.trip_item_id,
+          trip_item_name: tripItemMap.get(item.trip_item_id) || 'Unknown',
+          trips_count: item._count.trip_id,
+        }))
+        .sort((a, b) => b.trips_count - a.trips_count);
+
+      const message = await this.i18n.translate(
+        'translation.admin.packageCategorySuccess',
+        {
+          lang,
+          defaultValue: 'Package category statistics retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        packageCategories,
+      };
+    } catch (error) {
+      console.error('Error getting package category statistics:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.packageCategoryFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve package category statistics',
         },
       );
       throw new InternalServerErrorException(message);

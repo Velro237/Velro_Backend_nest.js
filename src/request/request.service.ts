@@ -51,6 +51,7 @@ import {
   AdminRequestStatisticsQueryDto,
   AdminRequestStatisticsResponseDto,
 } from './dto/admin-request-statistics.dto';
+import { AdminGetRequestByIdResponseDto } from './dto/admin-get-request-by-id.dto';
 import { CancellationService } from './cancellation.service';
 import { CurrencyService } from '../currency/currency.service';
 
@@ -3230,6 +3231,274 @@ export class RequestService {
         {
           lang,
           defaultValue: 'Failed to retrieve request statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get request details for admin with currency in EUR and all transactions
+   */
+  async getAdminRequestById(
+    requestId: string,
+    lang?: string,
+  ): Promise<AdminGetRequestByIdResponseDto> {
+    try {
+      const request = await this.prisma.tripRequest.findFirst({
+        where: {
+          id: requestId,
+          is_deleted: false,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              firstName: true,
+              lastName: true,
+              picture: true,
+            },
+          },
+          trip: {
+            select: {
+              id: true,
+              user_id: true,
+              pickup: true,
+              departure: true,
+              destination: true,
+              departure_date: true,
+              status: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  firstName: true,
+                  lastName: true,
+                  picture: true,
+                },
+              },
+            },
+          },
+          request_items: {
+            include: {
+              trip_item: {
+                include: {
+                  image: {
+                    select: {
+                      id: true,
+                      url: true,
+                      alt_text: true,
+                    },
+                  },
+                  translations: {
+                    select: {
+                      id: true,
+                      language: true,
+                      name: true,
+                      description: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          transactions: {
+            orderBy: {
+              createdAt: 'desc',
+            },
+            take: 5, // Return only the last 5 transactions
+          },
+        },
+      });
+
+      if (!request) {
+        const message = await this.i18n.translate(
+          'translation.trip.request.notFound',
+          {
+            lang,
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Convert cost to EUR
+      let costEur: number | null = null;
+      if (request.cost && request.currency) {
+        try {
+          const conversion = this.currencyService.convertCurrency(
+            Number(request.cost),
+            request.currency.toUpperCase() as Currency,
+            Currency.EUR,
+          );
+          costEur = Number(conversion.convertedAmount.toFixed(2));
+        } catch (error) {
+          console.error('Failed to convert cost to EUR:', error);
+          // Keep costEur as null if conversion fails
+        }
+      }
+
+      // Convert all transaction amounts to EUR
+      const transactionsEur = await Promise.all(
+        request.transactions.map(async (transaction) => {
+          let amountRequestedEur = Number(transaction.amount_requested);
+          let amountPaidEur = Number(transaction.amount_paid);
+          let feeAppliedEur = Number(transaction.fee_applied);
+          let balanceAfterEur = transaction.balance_after
+            ? Number(transaction.balance_after)
+            : null;
+
+          if (transaction.currency && transaction.currency.toUpperCase() !== 'EUR') {
+            try {
+              const conversion = this.currencyService.convertCurrency(
+                1,
+                transaction.currency.toUpperCase() as Currency,
+                Currency.EUR,
+              );
+              const rate = conversion.convertedAmount;
+              amountRequestedEur = Number(
+                (Number(transaction.amount_requested) * rate).toFixed(2),
+              );
+              amountPaidEur = Number(
+                (Number(transaction.amount_paid) * rate).toFixed(2),
+              );
+              feeAppliedEur = Number(
+                (Number(transaction.fee_applied) * rate).toFixed(2),
+              );
+              if (balanceAfterEur !== null) {
+                balanceAfterEur = Number((balanceAfterEur * rate).toFixed(2));
+              }
+            } catch (error) {
+              console.error(
+                `Failed to convert transaction ${transaction.id} to EUR:`,
+                error,
+              );
+              // Keep original values if conversion fails
+            }
+          }
+
+          return {
+            id: transaction.id,
+            userId: transaction.userId,
+            trip_id: transaction.trip_id,
+            request_id: transaction.request_id,
+            amount_requested: amountRequestedEur,
+            fee_applied: feeAppliedEur,
+            amount_paid: amountPaidEur,
+            wallet_id: transaction.wallet_id,
+            currency: 'EUR',
+            status_message: transaction.status_message,
+            description: transaction.description,
+            metadata: transaction.metadata,
+            reference: transaction.reference,
+            balance_after: balanceAfterEur,
+            createdAt: transaction.createdAt,
+            processedAt: transaction.processedAt,
+            updatedAt: transaction.updatedAt,
+            type: transaction.type,
+            source: transaction.source,
+            status: transaction.status,
+            provider: transaction.provider,
+            provider_id: transaction.provider_id,
+            stripe_transfer_id: transaction.stripe_transfer_id,
+            stripe_account_id: transaction.stripe_account_id,
+            phone_number: transaction.phone_number,
+          };
+        }),
+      );
+
+      const message = await this.i18n.translate(
+        'translation.request.admin.getById.success',
+        {
+          lang,
+          defaultValue: 'Request details retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        request: {
+          id: request.id,
+          trip_id: request.trip_id,
+          user_id: request.user_id,
+          status: request.status,
+          message: request.message,
+          cost: request.cost ? Number(request.cost) : null,
+          cost_eur: costEur,
+          currency: 'EUR',
+          payment_status: request.payment_status,
+          payment_intent_id: request.payment_intent_id,
+          paid_at: request.paid_at,
+          created_at: request.created_at,
+          updated_at: request.updated_at,
+          sender_confirmed_delivery: request.sender_confirmed_delivery,
+          traveler_confirmed_delivery: request.traveler_confirmed_delivery,
+          delivered_at: request.delivered_at,
+          cancelled_at: request.cancelled_at,
+          cancellation_type: request.cancellation_type,
+          cancellation_reason: request.cancellation_reason,
+          chat_id: request.chat_id,
+          is_deleted: request.is_deleted,
+          user: {
+            id: request.user.id,
+            email: request.user.email,
+            name: request.user.name,
+            firstName: request.user.firstName ?? null,
+            lastName: request.user.lastName ?? null,
+            picture: request.user.picture,
+          },
+          trip: {
+            id: request.trip.id,
+            user_id: request.trip.user_id,
+            pickup: request.trip.pickup,
+            departure: request.trip.departure,
+            destination: request.trip.destination,
+            departure_date: request.trip.departure_date,
+            status: request.trip.status,
+            user: {
+              id: request.trip.user.id,
+              email: request.trip.user.email,
+              name: request.trip.user.name,
+              firstName: request.trip.user.firstName ?? null,
+              lastName: request.trip.user.lastName ?? null,
+              picture: request.trip.user.picture,
+            },
+          },
+          request_items: request.request_items.map((item) => ({
+            trip_item_id: item.trip_item_id,
+            quantity: item.quantity,
+            special_notes: item.special_notes,
+            trip_item: item.trip_item
+              ? {
+                  id: item.trip_item.id,
+                  name: item.trip_item.name,
+                  description: item.trip_item.description,
+                  image: item.trip_item.image
+                    ? {
+                        id: item.trip_item.image.id,
+                        url: item.trip_item.image.url,
+                        alt_text: item.trip_item.image.alt_text,
+                      }
+                    : null,
+                  translations: item.trip_item.translations || [],
+                }
+              : null,
+          })),
+          transactions: transactionsEur,
+        } as AdminGetRequestByIdResponseDto['request'],
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      console.error('Error getting admin request details:', error);
+      const message = await this.i18n.translate(
+        'translation.request.admin.getById.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve request details',
         },
       );
       throw new InternalServerErrorException(message);

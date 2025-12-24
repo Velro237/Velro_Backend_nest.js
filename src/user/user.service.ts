@@ -113,6 +113,7 @@ import {
   RequestStatus,
   TripStatus,
   ReportStatus,
+  TransactionSource,
 } from 'generated/prisma';
 import { I18nService } from 'nestjs-i18n';
 import { ImageService } from '../shared/services/image.service';
@@ -149,6 +150,12 @@ import {
 } from './dto/admin-get-requests.dto';
 import { AdminChatsStatsResponseDto } from './dto/admin-chats-stats.dto';
 import { AdminTripsStatsResponseDto } from './dto/admin-trips-stats.dto';
+import { AdminAnalyticsStatsResponseDto } from './dto/admin-analytics-stats.dto';
+import {
+  AdminUsersRankingQueryDto,
+  AdminUsersRankingResponseDto,
+} from './dto/admin-users-ranking.dto';
+import { AdminRequestStatusDistributionResponseDto } from './dto/admin-request-status-distribution.dto';
 import {
   AdminFlagContentDto,
   AdminFlagContentResponseDto,
@@ -4559,6 +4566,921 @@ export class UserService {
         {
           lang,
           defaultValue: 'Failed to move balance',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get analytics statistics for admin dashboard
+   */
+  async getAdminAnalyticsStats(
+    lang?: string,
+  ): Promise<AdminAnalyticsStatsResponseDto> {
+    try {
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+
+      // Calculate percentage increase helper
+      const calculatePercentageIncrease = (
+        current: number,
+        previous: number,
+      ): number => {
+        if (previous === 0) {
+          return current > 0 ? 100 : 0;
+        }
+        return Math.round(((current - previous) / previous) * 100 * 100) / 100;
+      };
+
+      // Get total revenue (sum of request costs, excluding certain statuses)
+      const revenueRequests = await this.prisma.tripRequest.findMany({
+        where: {
+          status: {
+            notIn: [
+              RequestStatus.PENDING,
+              RequestStatus.ACCEPTED,
+              RequestStatus.DECLINED,
+              RequestStatus.CANCELLED,
+              RequestStatus.EXPIRED,
+            ],
+          },
+          cost: {
+            not: null,
+          },
+        },
+        select: {
+          cost: true,
+          currency: true,
+        },
+      });
+
+      let totalRevenueEUR = 0;
+      for (const request of revenueRequests) {
+        if (request.cost && request.currency) {
+          const cost = Number(request.cost);
+          const currency = String(request.currency);
+          const conversion = this.currencyService.convertCurrency(
+            cost,
+            currency,
+            'EUR',
+          );
+          totalRevenueEUR += conversion.convertedAmount;
+        }
+      }
+      totalRevenueEUR = Math.round(totalRevenueEUR * 100) / 100;
+
+      // Get total revenue this month
+      const revenueRequestsThisMonth = await this.prisma.tripRequest.findMany({
+        where: {
+          status: {
+            notIn: [
+              RequestStatus.PENDING,
+              RequestStatus.ACCEPTED,
+              RequestStatus.DECLINED,
+              RequestStatus.CANCELLED,
+              RequestStatus.EXPIRED,
+            ],
+          },
+          cost: {
+            not: null,
+          },
+          created_at: {
+            gte: currentMonthStart,
+          },
+        },
+        select: {
+          cost: true,
+          currency: true,
+        },
+      });
+
+      let totalRevenueThisMonthEUR = 0;
+      for (const request of revenueRequestsThisMonth) {
+        if (request.cost && request.currency) {
+          const cost = Number(request.cost);
+          const currency = String(request.currency);
+          const conversion = this.currencyService.convertCurrency(
+            cost,
+            currency,
+            'EUR',
+          );
+          totalRevenueThisMonthEUR += conversion.convertedAmount;
+        }
+      }
+      totalRevenueThisMonthEUR =
+        Math.round(totalRevenueThisMonthEUR * 100) / 100;
+
+      // Get total revenue last month
+      const revenueRequestsLastMonth = await this.prisma.tripRequest.findMany({
+        where: {
+          status: {
+            notIn: [
+              RequestStatus.PENDING,
+              RequestStatus.ACCEPTED,
+              RequestStatus.DECLINED,
+              RequestStatus.CANCELLED,
+              RequestStatus.EXPIRED,
+            ],
+          },
+          cost: {
+            not: null,
+          },
+          created_at: {
+            gte: lastMonthStart,
+            lte: lastMonthEnd,
+          },
+        },
+        select: {
+          cost: true,
+          currency: true,
+        },
+      });
+
+      let totalRevenueLastMonthEUR = 0;
+      for (const request of revenueRequestsLastMonth) {
+        if (request.cost && request.currency) {
+          const cost = Number(request.cost);
+          const currency = String(request.currency);
+          const conversion = this.currencyService.convertCurrency(
+            cost,
+            currency,
+            'EUR',
+          );
+          totalRevenueLastMonthEUR += conversion.convertedAmount;
+        }
+      }
+      totalRevenueLastMonthEUR =
+        Math.round(totalRevenueLastMonthEUR * 100) / 100;
+
+      // Get all wallets and sum balances
+      const allWallets = await this.prisma.wallet.findMany({
+        select: {
+          available_balance_xaf: true,
+          available_balance_usd: true,
+          available_balance_eur: true,
+          available_balance_cad: true,
+          hold_balance_xaf: true,
+          hold_balance_usd: true,
+          hold_balance_eur: true,
+          hold_balance_cad: true,
+        },
+      });
+
+      let totalAvailableEUR = 0;
+      let totalHoldEUR = 0;
+
+      for (const wallet of allWallets) {
+        // Convert available balances to EUR
+        const xafAvail = Number(wallet.available_balance_xaf) || 0;
+        const usdAvail = Number(wallet.available_balance_usd) || 0;
+        const eurAvail = Number(wallet.available_balance_eur) || 0;
+        const cadAvail = Number(wallet.available_balance_cad) || 0;
+
+        if (xafAvail > 0) {
+          const conv = this.currencyService.convertCurrency(
+            xafAvail,
+            'XAF',
+            'EUR',
+          );
+          totalAvailableEUR += conv.convertedAmount;
+        }
+        if (usdAvail > 0) {
+          const conv = this.currencyService.convertCurrency(
+            usdAvail,
+            'USD',
+            'EUR',
+          );
+          totalAvailableEUR += conv.convertedAmount;
+        }
+        totalAvailableEUR += eurAvail;
+        if (cadAvail > 0) {
+          const conv = this.currencyService.convertCurrency(
+            cadAvail,
+            'CAD',
+            'EUR',
+          );
+          totalAvailableEUR += conv.convertedAmount;
+        }
+
+        // Convert hold balances to EUR
+        const xafHold = Number(wallet.hold_balance_xaf) || 0;
+        const usdHold = Number(wallet.hold_balance_usd) || 0;
+        const eurHold = Number(wallet.hold_balance_eur) || 0;
+        const cadHold = Number(wallet.hold_balance_cad) || 0;
+
+        if (xafHold > 0) {
+          const conv = this.currencyService.convertCurrency(
+            xafHold,
+            'XAF',
+            'EUR',
+          );
+          totalHoldEUR += conv.convertedAmount;
+        }
+        if (usdHold > 0) {
+          const conv = this.currencyService.convertCurrency(
+            usdHold,
+            'USD',
+            'EUR',
+          );
+          totalHoldEUR += conv.convertedAmount;
+        }
+        totalHoldEUR += eurHold;
+        if (cadHold > 0) {
+          const conv = this.currencyService.convertCurrency(
+            cadHold,
+            'CAD',
+            'EUR',
+          );
+          totalHoldEUR += conv.convertedAmount;
+        }
+      }
+
+      totalAvailableEUR = Math.round(totalAvailableEUR * 100) / 100;
+      totalHoldEUR = Math.round(totalHoldEUR * 100) / 100;
+
+      // For wallet balances, we only have current totals
+      // Monthly increases are set to 0 since we don't track historical balance snapshots
+      const totalAvailableThisMonthEUR = totalAvailableEUR;
+      const totalAvailableLastMonthEUR = totalAvailableEUR; // Use current as proxy
+      const totalHoldThisMonthEUR = totalHoldEUR;
+      const totalHoldLastMonthEUR = totalHoldEUR; // Use current as proxy
+
+      // Get user counts
+      const [
+        totalUsers,
+        totalUsersThisMonth,
+        totalUsersLastMonth,
+        totalVerifiedUsers,
+        totalVerifiedUsersThisMonth,
+        totalVerifiedUsersLastMonth,
+      ] = await Promise.all([
+        this.prisma.user.count({
+          where: {
+            is_deleted: false,
+          },
+        }),
+        this.prisma.user.count({
+          where: {
+            is_deleted: false,
+            createdAt: {
+              gte: currentMonthStart,
+            },
+          },
+        }),
+        this.prisma.user.count({
+          where: {
+            is_deleted: false,
+            createdAt: {
+              gte: lastMonthStart,
+              lte: lastMonthEnd,
+            },
+          },
+        }),
+        this.prisma.user.count({
+          where: {
+            is_deleted: false,
+            kycRecords: {
+              some: {
+                status: KYCStatus.APPROVED,
+              },
+            },
+          },
+        }),
+        this.prisma.user.count({
+          where: {
+            is_deleted: false,
+            kycRecords: {
+              some: {
+                status: KYCStatus.APPROVED,
+                createdAt: {
+                  gte: currentMonthStart,
+                },
+              },
+            },
+          },
+        }),
+        this.prisma.user.count({
+          where: {
+            is_deleted: false,
+            kycRecords: {
+              some: {
+                status: KYCStatus.APPROVED,
+                createdAt: {
+                  gte: lastMonthStart,
+                  lte: lastMonthEnd,
+                },
+              },
+            },
+          },
+        }),
+      ]);
+
+      // Get active requests (excluding DECLINED, EXPIRED, REFUNDED, REVIEWED)
+      const [
+        totalActiveRequests,
+        totalActiveRequestsThisMonth,
+        totalActiveRequestsLastMonth,
+      ] = await Promise.all([
+        this.prisma.tripRequest.count({
+          where: {
+            status: {
+              notIn: [
+                RequestStatus.DECLINED,
+                RequestStatus.EXPIRED,
+                RequestStatus.REFUNDED,
+                RequestStatus.REVIEWED,
+              ],
+            },
+            is_deleted: false,
+          },
+        }),
+        this.prisma.tripRequest.count({
+          where: {
+            status: {
+              notIn: [
+                RequestStatus.DECLINED,
+                RequestStatus.EXPIRED,
+                RequestStatus.REFUNDED,
+                RequestStatus.REVIEWED,
+              ],
+            },
+            is_deleted: false,
+            created_at: {
+              gte: currentMonthStart,
+            },
+          },
+        }),
+        this.prisma.tripRequest.count({
+          where: {
+            status: {
+              notIn: [
+                RequestStatus.DECLINED,
+                RequestStatus.EXPIRED,
+                RequestStatus.REFUNDED,
+                RequestStatus.REVIEWED,
+              ],
+            },
+            is_deleted: false,
+            created_at: {
+              gte: lastMonthStart,
+              lte: lastMonthEnd,
+            },
+          },
+        }),
+      ]);
+
+      // Get active trips (SCHEDULED, RESCHEDULED, INPROGRESS)
+      const [
+        totalActiveTrips,
+        totalActiveTripsThisMonth,
+        totalActiveTripsLastMonth,
+      ] = await Promise.all([
+        this.prisma.trip.count({
+          where: {
+            status: {
+              in: [
+                TripStatus.SCHEDULED,
+                TripStatus.RESCHEDULED,
+                TripStatus.INPROGRESS,
+              ],
+            },
+            is_deleted: false,
+            user: {
+              is_deleted: false,
+            },
+          },
+        }),
+        this.prisma.trip.count({
+          where: {
+            status: {
+              in: [
+                TripStatus.SCHEDULED,
+                TripStatus.RESCHEDULED,
+                TripStatus.INPROGRESS,
+              ],
+            },
+            is_deleted: false,
+            user: {
+              is_deleted: false,
+            },
+            createdAt: {
+              gte: currentMonthStart,
+            },
+          },
+        }),
+        this.prisma.trip.count({
+          where: {
+            status: {
+              in: [
+                TripStatus.SCHEDULED,
+                TripStatus.RESCHEDULED,
+                TripStatus.INPROGRESS,
+              ],
+            },
+            is_deleted: false,
+            user: {
+              is_deleted: false,
+            },
+            createdAt: {
+              gte: lastMonthStart,
+              lte: lastMonthEnd,
+            },
+          },
+        }),
+      ]);
+
+      // Get platform fees from transactions
+      // We need to get transactions with VELRO_FEE or COMMISSION source
+      // that are related to requests with valid statuses
+      const feeTransactions = await this.prisma.transaction.findMany({
+        where: {
+          source: {
+            in: [TransactionSource.VELRO_FEE, TransactionSource.COMMISSION],
+          },
+          request: {
+            status: {
+              notIn: [
+                RequestStatus.PENDING,
+                RequestStatus.ACCEPTED,
+                RequestStatus.DECLINED,
+                RequestStatus.CANCELLED,
+                RequestStatus.EXPIRED,
+              ],
+            },
+          },
+        },
+        select: {
+          amount_paid: true,
+          currency: true,
+        },
+      });
+
+      let totalPlatformFeeEUR = 0;
+      for (const transaction of feeTransactions) {
+        if (transaction.amount_paid && transaction.currency) {
+          const amount = Number(transaction.amount_paid);
+          const currency = String(transaction.currency);
+          const conversion = this.currencyService.convertCurrency(
+            amount,
+            currency,
+            'EUR',
+          );
+          totalPlatformFeeEUR += conversion.convertedAmount;
+        }
+      }
+      totalPlatformFeeEUR = Math.round(totalPlatformFeeEUR * 100) / 100;
+
+      // Get platform fees this month
+      const feeTransactionsThisMonth = await this.prisma.transaction.findMany({
+        where: {
+          source: {
+            in: [TransactionSource.VELRO_FEE, TransactionSource.COMMISSION],
+          },
+          request: {
+            status: {
+              notIn: [
+                RequestStatus.PENDING,
+                RequestStatus.ACCEPTED,
+                RequestStatus.DECLINED,
+                RequestStatus.CANCELLED,
+                RequestStatus.EXPIRED,
+              ],
+            },
+            created_at: {
+              gte: currentMonthStart,
+            },
+          },
+          createdAt: {
+            gte: currentMonthStart,
+          },
+        },
+        select: {
+          amount_paid: true,
+          currency: true,
+        },
+      });
+
+      let totalPlatformFeeThisMonthEUR = 0;
+      for (const transaction of feeTransactionsThisMonth) {
+        if (transaction.amount_paid && transaction.currency) {
+          const amount = Number(transaction.amount_paid);
+          const currency = String(transaction.currency);
+          const conversion = this.currencyService.convertCurrency(
+            amount,
+            currency,
+            'EUR',
+          );
+          totalPlatformFeeThisMonthEUR += conversion.convertedAmount;
+        }
+      }
+      totalPlatformFeeThisMonthEUR =
+        Math.round(totalPlatformFeeThisMonthEUR * 100) / 100;
+
+      // Get platform fees last month
+      const feeTransactionsLastMonth = await this.prisma.transaction.findMany({
+        where: {
+          source: {
+            in: [TransactionSource.VELRO_FEE, TransactionSource.COMMISSION],
+          },
+          request: {
+            status: {
+              notIn: [
+                RequestStatus.PENDING,
+                RequestStatus.ACCEPTED,
+                RequestStatus.DECLINED,
+                RequestStatus.CANCELLED,
+                RequestStatus.EXPIRED,
+              ],
+            },
+            created_at: {
+              gte: lastMonthStart,
+              lte: lastMonthEnd,
+            },
+          },
+          createdAt: {
+            gte: lastMonthStart,
+            lte: lastMonthEnd,
+          },
+        },
+        select: {
+          amount_paid: true,
+          currency: true,
+        },
+      });
+
+      let totalPlatformFeeLastMonthEUR = 0;
+      for (const transaction of feeTransactionsLastMonth) {
+        if (transaction.amount_paid && transaction.currency) {
+          const amount = Number(transaction.amount_paid);
+          const currency = String(transaction.currency);
+          const conversion = this.currencyService.convertCurrency(
+            amount,
+            currency,
+            'EUR',
+          );
+          totalPlatformFeeLastMonthEUR += conversion.convertedAmount;
+        }
+      }
+      totalPlatformFeeLastMonthEUR =
+        Math.round(totalPlatformFeeLastMonthEUR * 100) / 100;
+
+      // Calculate percentage increases
+      const increasePercentages = {
+        totalRevenueEUR: calculatePercentageIncrease(
+          totalRevenueThisMonthEUR,
+          totalRevenueLastMonthEUR,
+        ),
+        totalAvailableWalletFundsEUR: calculatePercentageIncrease(
+          totalAvailableThisMonthEUR,
+          totalAvailableLastMonthEUR,
+        ),
+        totalHoldWalletFundsEUR: calculatePercentageIncrease(
+          totalHoldThisMonthEUR,
+          totalHoldLastMonthEUR,
+        ),
+        totalUsers: calculatePercentageIncrease(
+          totalUsersThisMonth,
+          totalUsersLastMonth,
+        ),
+        totalVerifiedUsers: calculatePercentageIncrease(
+          totalVerifiedUsersThisMonth,
+          totalVerifiedUsersLastMonth,
+        ),
+        totalActiveRequests: calculatePercentageIncrease(
+          totalActiveRequestsThisMonth,
+          totalActiveRequestsLastMonth,
+        ),
+        totalActiveTrips: calculatePercentageIncrease(
+          totalActiveTripsThisMonth,
+          totalActiveTripsLastMonth,
+        ),
+        totalPlatformFeeEUR: calculatePercentageIncrease(
+          totalPlatformFeeThisMonthEUR,
+          totalPlatformFeeLastMonthEUR,
+        ),
+      };
+
+      const message = await this.i18n.translate(
+        'translation.admin.analyticsStatsSuccess',
+        {
+          lang,
+          defaultValue: 'Analytics statistics retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        stats: {
+          totalRevenueEUR,
+          totalAvailableWalletFundsEUR: totalAvailableEUR,
+          totalHoldWalletFundsEUR: totalHoldEUR,
+          totalUsers,
+          totalVerifiedUsers,
+          totalActiveRequests,
+          totalActiveTrips,
+          totalPlatformFeeEUR,
+          increasePercentages,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting admin analytics statistics:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.analyticsStatsFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve analytics statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get users ranking by trip revenue
+   */
+  async getAdminUsersRanking(
+    query: AdminUsersRankingQueryDto,
+    lang?: string,
+  ): Promise<AdminUsersRankingResponseDto> {
+    try {
+      const page = query.page || 1;
+      const limit = query.limit || 10;
+      const skip = (page - 1) * limit;
+
+      // Get all users (excluding deleted)
+      const allUsers = await this.prisma.user.findMany({
+        where: {
+          is_deleted: false,
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+        },
+      });
+
+      const userIds = allUsers.map((u) => u.id);
+
+      if (userIds.length === 0) {
+        const message = await this.i18n.translate(
+          'translation.admin.usersRankingSuccess',
+          {
+            lang,
+            defaultValue: 'Users ranking retrieved successfully',
+          },
+        );
+        return {
+          message,
+          users: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+          },
+        };
+      }
+
+      // Get all trips for these users (excluding deleted trips)
+      const allTrips = await this.prisma.trip.findMany({
+        where: {
+          user_id: { in: userIds },
+          is_deleted: false,
+        },
+        select: {
+          id: true,
+          user_id: true,
+          status: true,
+        },
+      });
+
+      const tripIds = allTrips.map((t) => t.id);
+
+      // Get all requests on these trips (excluding deleted requests)
+      const allRequests =
+        tripIds.length > 0
+          ? await this.prisma.tripRequest.findMany({
+              where: {
+                trip_id: { in: tripIds },
+                is_deleted: false,
+              },
+              select: {
+                id: true,
+                trip_id: true,
+                status: true,
+                cost: true,
+                currency: true,
+              },
+            })
+          : [];
+
+      // Get completed trips count per user
+      const completedTripsCounts = await this.prisma.trip.groupBy({
+        by: ['user_id'],
+        where: {
+          user_id: { in: userIds },
+          status: TripStatus.COMPLETED,
+          is_deleted: false,
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      const completedTripsMap = new Map<string, number>();
+      completedTripsCounts.forEach((item) => {
+        completedTripsMap.set(item.user_id, item._count.id);
+      });
+
+      // Get average ratings per user
+      const ratingsData = await this.prisma.rating.groupBy({
+        by: ['receiver_id'],
+        where: {
+          receiver_id: { in: userIds },
+        },
+        _avg: {
+          rating: true,
+        },
+      });
+
+      const ratingsMap = new Map<string, number | null>();
+      ratingsData.forEach((item) => {
+        ratingsMap.set(item.receiver_id, item._avg.rating || null);
+      });
+
+      // Create a map of trip_id to user_id
+      const tripToUserMap = new Map<string, string>();
+      allTrips.forEach((trip) => {
+        tripToUserMap.set(trip.id, trip.user_id);
+      });
+
+      // Group requests by user (via trip)
+      const userRequestsMap = new Map<string, typeof allRequests>();
+      allRequests.forEach((request) => {
+        const userId = tripToUserMap.get(request.trip_id);
+        if (userId) {
+          if (!userRequestsMap.has(userId)) {
+            userRequestsMap.set(userId, []);
+          }
+          userRequestsMap.get(userId)!.push(request);
+        }
+      });
+
+      // Calculate metrics for each user
+      const userRankings = allUsers.map((user) => {
+        const userRequests = userRequestsMap.get(user.id) || [];
+        const totalRequests = userRequests.length;
+        const successfulRequests = userRequests.filter(
+          (req) =>
+            req.status === RequestStatus.DELIVERED ||
+            req.status === RequestStatus.REVIEWED,
+        ).length;
+
+        // Calculate success rate
+        const successRate =
+          totalRequests > 0
+            ? Math.round((successfulRequests / totalRequests) * 100 * 100) / 100
+            : 0;
+
+        // Calculate total revenue in EUR (excluding PENDING, ACCEPTED, DECLINED, CANCELLED, REFUNDED)
+        let totalRevenueEUR = 0;
+        const validStatusRequests = userRequests.filter(
+          (req) =>
+            req.status !== RequestStatus.PENDING &&
+            req.status !== RequestStatus.ACCEPTED &&
+            req.status !== RequestStatus.DECLINED &&
+            req.status !== RequestStatus.CANCELLED &&
+            req.status !== RequestStatus.REFUNDED &&
+            req.cost !== null &&
+            req.currency !== null,
+        );
+
+        for (const request of validStatusRequests) {
+          const cost = Number(request.cost);
+          const currency = String(request.currency);
+          const conversion = this.currencyService.convertCurrency(
+            cost,
+            currency,
+            'EUR',
+          );
+          totalRevenueEUR += conversion.convertedAmount;
+        }
+        totalRevenueEUR = Math.round(totalRevenueEUR * 100) / 100;
+
+        // Get completed trips count
+        const completedTripsCount = completedTripsMap.get(user.id) || 0;
+
+        // Get average rating
+        const rating = ratingsMap.get(user.id) || null;
+
+        return {
+          id: user.id,
+          firstName: user.firstName || '',
+          lastName: user.lastName || '',
+          completedTripsCount,
+          successRate,
+          totalRevenueEUR,
+          rating,
+        };
+      });
+
+      // Sort by total revenue (descending)
+      userRankings.sort((a, b) => b.totalRevenueEUR - a.totalRevenueEUR);
+
+      // Get total count for pagination
+      const total = userRankings.length;
+      const totalPages = Math.ceil(total / limit);
+
+      // Apply pagination
+      const paginatedUsers = userRankings.slice(skip, skip + limit);
+
+      const message = await this.i18n.translate(
+        'translation.admin.usersRankingSuccess',
+        {
+          lang,
+          defaultValue: 'Users ranking retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        users: paginatedUsers,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting users ranking:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.usersRankingFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve users ranking',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get request status distribution (count of requests per status)
+   */
+  async getAdminRequestStatusDistribution(
+    lang?: string,
+  ): Promise<AdminRequestStatusDistributionResponseDto> {
+    try {
+      // Group requests by status and count
+      const requestsByStatus = await this.prisma.tripRequest.groupBy({
+        by: ['status'],
+        _count: {
+          id: true,
+        },
+      });
+
+      // Convert to response format
+      const statusDistribution = requestsByStatus
+        .map((item) => ({
+          status: item.status,
+          count: item._count.id,
+        }))
+        .sort((a, b) => {
+          // Sort by status name alphabetically for consistency
+          return a.status.localeCompare(b.status);
+        });
+
+      const message = await this.i18n.translate(
+        'translation.admin.requestStatusDistributionSuccess',
+        {
+          lang,
+          defaultValue: 'Request status distribution retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        statusDistribution,
+      };
+    } catch (error) {
+      console.error('Error getting request status distribution:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.requestStatusDistributionFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve request status distribution',
         },
       );
       throw new InternalServerErrorException(message);
