@@ -3309,6 +3309,7 @@ export class RequestService {
             orderBy: {
               createdAt: 'desc',
             },
+            take: 5, // Return only the last 5 transactions
           },
         },
       });
