@@ -294,66 +294,91 @@ export class PaymentService {
           throw new BadRequestException('This order has already been paid');
         }
 
-        // Return existing intent if still pending
-        // For existing intents, we need to create customer and ephemeral key too
-        let customer;
-        try {
-          // Try to find existing customer by email
-          const existingCustomers = await this.stripeService
-            .getStripeInstance()
-            .customers.list({
-              email: order.user.email,
-              limit: 1,
-            });
+        // Check if existing intent is a bank transfer (customer_balance) - incompatible with card payment
+        // When user switches from Bank Transfer to Card, we need to cancel and create new PaymentIntent
+        if (existingIntent.payment_method_types?.includes('customer_balance')) {
+          this.logger.log(
+            `Existing PaymentIntent ${order.payment_intent_id} is bank transfer type, canceling to create card payment`,
+          );
 
-          if (existingCustomers.data.length > 0) {
-            customer = existingCustomers.data[0];
-            this.logger.log(`Using existing customer: ${customer.id}`);
-          } else {
-            // Create new customer
-            customer = await this.stripeService.createCustomer({
-              email: order.user.email,
-              name: order.user.name || undefined,
-              metadata: {
-                userId: senderId,
-                userRole: order.user.role,
-              },
-            });
+          // Cancel the bank transfer PaymentIntent (it's in requires_action state waiting for bank transfer)
+          try {
+            await this.stripeService.cancelPaymentIntent(order.payment_intent_id);
+            this.logger.log(`Canceled bank transfer PaymentIntent: ${order.payment_intent_id}`);
+          } catch (cancelError) {
+            this.logger.warn(`Could not cancel old PaymentIntent: ${cancelError.message}`);
+            // Continue anyway - we'll create a new one
           }
-        } catch (error) {
-          this.logger.error(
-            'Failed to create/get customer for existing intent:',
-            error,
-          );
-          throw new BadRequestException(
-            'Failed to create customer for payment',
-          );
-        }
 
-        // Create ephemeral key for the customer
-        let ephemeralKey;
-        try {
-          ephemeralKey = await this.stripeService.createEphemeralKey(
-            customer.id,
-          );
-        } catch (error) {
-          this.logger.error(
-            'Failed to create ephemeral key for existing intent:',
-            error,
-          );
-          throw new BadRequestException(
-            'Failed to create ephemeral key for payment',
-          );
-        }
+          // Clear the payment_intent_id so we create a new card-compatible one below
+          await this.prisma.tripRequest.update({
+            where: { id: dto.orderId },
+            data: { payment_intent_id: null },
+          });
 
-        return {
-          clientSecret: existingIntent.id,
-          paymentIntentId: existingIntent.client_secret,
-          amount: existingIntent.amount / 100,
-          currency: existingIntent.currency.toUpperCase(),
-          ephemeralKeySecret: ephemeralKey.secret,
-          customerId: customer.id,
-        };
+          // Fall through to create new PaymentIntent for card payment
+        } else {
+          // Return existing card-compatible intent if still pending
+          // For existing intents, we need to create customer and ephemeral key too
+          let customer;
+          try {
+            // Try to find existing customer by email
+            const existingCustomers = await this.stripeService
+              .getStripeInstance()
+              .customers.list({
+                email: order.user.email,
+                limit: 1,
+              });
+
+            if (existingCustomers.data.length > 0) {
+              customer = existingCustomers.data[0];
+              this.logger.log(`Using existing customer: ${customer.id}`);
+            } else {
+              // Create new customer
+              customer = await this.stripeService.createCustomer({
+                email: order.user.email,
+                name: order.user.name || undefined,
+                metadata: {
+                  userId: senderId,
+                  userRole: order.user.role,
+                },
+              });
+            }
+          } catch (error) {
+            this.logger.error(
+              'Failed to create/get customer for existing intent:',
+              error,
+            );
+            throw new BadRequestException(
+              'Failed to create customer for payment',
+            );
+          }
+
+          // Create ephemeral key for the customer
+          let ephemeralKey;
+          try {
+            ephemeralKey = await this.stripeService.createEphemeralKey(
+              customer.id,
+            );
+          } catch (error) {
+            this.logger.error(
+              'Failed to create ephemeral key for existing intent:',
+              error,
+            );
+            throw new BadRequestException(
+              'Failed to create ephemeral key for payment',
+            );
+          }
+
+          return {
+            clientSecret: existingIntent.id,
+            paymentIntentId: existingIntent.client_secret,
+            amount: existingIntent.amount / 100,
+            currency: existingIntent.currency.toUpperCase(),
+            ephemeralKeySecret: ephemeralKey.secret,
+            customerId: customer.id,
+          };
+        }
       }
 
       // SECURITY: Calculate amount from order (backend is source of truth)
