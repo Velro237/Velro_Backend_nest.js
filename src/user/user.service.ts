@@ -3263,13 +3263,43 @@ export class UserService {
       // Search filter
       if (searchKey) {
         const searchPattern = `%${searchKey}%`;
+        const searchTerms = searchKey.trim().split(/\s+/).filter(term => term.length > 0);
+        
         whereClause.OR = [
+          { id: { contains: searchKey, mode: 'insensitive' } },
           { firstName: { contains: searchKey, mode: 'insensitive' } },
           { lastName: { contains: searchKey, mode: 'insensitive' } },
           { username: { contains: searchKey, mode: 'insensitive' } },
           { email: { contains: searchKey, mode: 'insensitive' } },
           { companyName: { contains: searchKey, mode: 'insensitive' } },
         ];
+
+        // If search key contains multiple words, also search for firstName + lastName combination
+        if (searchTerms.length >= 2) {
+          // Try matching first word(s) with firstName and last word(s) with lastName
+          const firstNameSearch = searchTerms.slice(0, -1).join(' ');
+          const lastNameSearch = searchTerms[searchTerms.length - 1];
+          
+          whereClause.OR.push({
+            AND: [
+              { firstName: { contains: firstNameSearch, mode: 'insensitive' } },
+              { lastName: { contains: lastNameSearch, mode: 'insensitive' } },
+            ],
+          });
+
+          // Also try first word with firstName and remaining words with lastName
+          if (searchTerms.length > 2) {
+            const firstNameSearch2 = searchTerms[0];
+            const lastNameSearch2 = searchTerms.slice(1).join(' ');
+            
+            whereClause.OR.push({
+              AND: [
+                { firstName: { contains: firstNameSearch2, mode: 'insensitive' } },
+                { lastName: { contains: lastNameSearch2, mode: 'insensitive' } },
+              ],
+            });
+          }
+        }
       }
 
       // Status filter

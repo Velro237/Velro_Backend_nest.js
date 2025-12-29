@@ -2682,7 +2682,7 @@ export class ChatService {
                               ? Number(tripItem.avalailble_kg)
                               : null
                             : null,
-                          trip_item: item.trip_item
+                          tripItem: item.trip_item
                             ? {
                                 id: item.trip_item.id,
                                 name: item.trip_item.name,
@@ -3049,7 +3049,7 @@ export class ChatService {
                     tripItem?.avalailble_kg !== null
                       ? Number(tripItem.avalailble_kg)
                       : null,
-                  trip_item: item.trip_item
+                  tripItem: item.trip_item
                     ? {
                         id: item.trip_item.id,
                         name: item.trip_item.name,

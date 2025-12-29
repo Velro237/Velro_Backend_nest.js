@@ -40,7 +40,7 @@ export class AdminGetAllUsersQueryDto {
 
   @ApiProperty({
     description:
-      'Search key to filter users by firstName, lastName, username, email, or companyName',
+      'Search key to filter users by userId, firstName, lastName, username, email, or companyName',
     example: 'john',
     required: false,
   })
