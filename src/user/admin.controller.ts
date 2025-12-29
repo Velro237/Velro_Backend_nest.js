@@ -135,6 +135,10 @@ import {
 import {
   AdminShippingOriginsResponseDto,
 } from './dto/admin-shipping-origins.dto';
+import {
+  AdminRefundRequestDto,
+  AdminRefundResponseDto,
+} from '../payment/dto/admin-refund-request.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth('JWT-auth')
@@ -1264,6 +1268,50 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminDeleteRequestResponseDto> {
     return this.requestService.adminDeleteRequest(requestId, lang);
+  }
+
+  @Post('requests/refund')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Refund a request (Admin only)',
+    description:
+      'Refund a request to either sender or traveller. Can refund full amount (100%) or partial (50%). Creates a transaction and credits the wallet. Admin access required.',
+  })
+  @ApiBody({
+    type: AdminRefundRequestDto,
+    description: 'Refund request data',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Refund processed successfully',
+    type: AdminRefundResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid input data or request has no cost',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Request not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async refundRequest(
+    @Body() refundDto: AdminRefundRequestDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminRefundResponseDto> {
+    return this.paymentService.refundRequest(
+      refundDto.request_id,
+      refundDto.destination,
+      refundDto.portion,
+      lang,
+    );
   }
 
   @Get('chats')
