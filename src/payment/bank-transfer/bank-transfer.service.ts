@@ -62,37 +62,57 @@ export class BankTransferService {
           order.payment_intent_id,
         );
 
+        // Check if existing intent is a card payment (not bank transfer) - incompatible with bank transfer
+        // When user switches from Card to Bank Transfer, we need to cancel and create new PaymentIntent
         if (!existingIntent.payment_method_types.includes('customer_balance')) {
-          throw new BadRequestException(
-            'Existing payment for this order is not a bank transfer payment',
+          this.logger.log(
+            `Existing PaymentIntent ${order.payment_intent_id} is card type, canceling to create bank transfer payment`,
           );
-        }
 
-        const customerId = existingIntent.customer as string;
-        if (!customerId) {
-          throw new BadRequestException(
-            'Existing bank transfer payment does not have a customer associated',
+          // Cancel the card PaymentIntent
+          try {
+            await this.stripeService.cancelPaymentIntent(order.payment_intent_id);
+            this.logger.log(`Canceled card PaymentIntent: ${order.payment_intent_id}`);
+          } catch (cancelError) {
+            this.logger.warn(`Could not cancel old PaymentIntent: ${cancelError.message}`);
+            // Continue anyway - we'll create a new one
+          }
+
+          // Clear the payment_intent_id so we create a new bank transfer one below
+          await this.prisma.tripRequest.update({
+            where: { id: orderId },
+            data: { payment_intent_id: null },
+          });
+
+          // Fall through to create new bank transfer PaymentIntent
+        } else {
+          // Return existing bank transfer intent
+          const customerId = existingIntent.customer as string;
+          if (!customerId) {
+            throw new BadRequestException(
+              'Existing bank transfer payment does not have a customer associated',
+            );
+          }
+
+          const fundingInstructions = await this.retrieveFundingInstructions(
+            customerId,
+            existingIntent.currency.toUpperCase(),
           );
+
+          const ephemeralKey = await this.stripeService.createEphemeralKey(
+            customerId,
+          );
+
+          return {
+            clientSecret: existingIntent.client_secret,
+            paymentIntentId: existingIntent.id,
+            amount: existingIntent.amount / 100,
+            currency: existingIntent.currency.toUpperCase(),
+            customerId,
+            ephemeralKeySecret: ephemeralKey.secret,
+            fundingInstructions,
+          };
         }
-
-        const fundingInstructions = await this.retrieveFundingInstructions(
-          customerId,
-          existingIntent.currency.toUpperCase(),
-        );
-
-        const ephemeralKey = await this.stripeService.createEphemeralKey(
-          customerId,
-        );
-
-        return {
-          clientSecret: existingIntent.client_secret,
-          paymentIntentId: existingIntent.id,
-          amount: existingIntent.amount / 100,
-          currency: existingIntent.currency.toUpperCase(),
-          customerId,
-          ephemeralKeySecret: ephemeralKey.secret,
-          fundingInstructions,
-        };
       }
 
       const {
