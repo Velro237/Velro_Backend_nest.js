@@ -20,6 +20,7 @@ model PendingUser {
   lastName           String?
   email              String
   username           String?
+  country            String?
   phone              String?
   city               String?
   companyName        String?
@@ -84,6 +85,7 @@ model User {
   firstName     String?
   lastName      String?
   phone         String?
+  country            String?
   address       String?
   city          String?
   state         String?

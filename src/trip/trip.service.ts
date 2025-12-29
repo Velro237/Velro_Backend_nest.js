@@ -385,14 +385,27 @@ export class TripService {
     }
 
     // Check if user is authorized to update this trip
-    if (existingTrip.user_id !== userId) {
-      const message = await this.i18n.translate(
-        'translation.trip.update.unauthorized',
-        {
-          lang,
-        },
-      );
-      throw new ForbiddenException(message);
+    // Allow if user is the trip owner OR if user is an admin
+    const isTripOwner = existingTrip.user_id === userId;
+    
+    if (!isTripOwner) {
+      // Check if user is an admin
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+
+      const isAdmin = user?.role === UserRole.ADMIN;
+
+      if (!isAdmin) {
+        const message = await this.i18n.translate(
+          'translation.trip.update.unauthorized',
+          {
+            lang,
+          },
+        );
+        throw new ForbiddenException(message);
+      }
     }
 
     try {
@@ -4470,8 +4483,25 @@ export class TripService {
               id: true,
               email: true,
               name: true,
+              firstName: true,
+              lastName: true,
               picture: true,
               role: true,
+              kycRecords: {
+                select: {
+                  id: true,
+                  status: true,
+                  provider: true,
+                  rejectionReason: true,
+                  createdAt: true,
+                  updatedAt: true,
+                  verifiedAt: true,
+                },
+                take: 1,
+                orderBy: {
+                  updatedAt: 'desc',
+                },
+              },
             },
           },
           mode_of_transport: {
@@ -4630,6 +4660,15 @@ export class TripService {
       const totalTripEarningsEUR =
         totalOnHoldEarningsEUR + totalWithdrawableEarningsEUR;
 
+      // Calculate percentages based on total_withdrawable_trip_earnings_eur
+      let totalOnHoldPercentage = 0;
+      let totalTripPercentage = 0;
+      
+      if (totalWithdrawableEarningsEUR > 0) {
+        totalOnHoldPercentage = (totalOnHoldEarningsEUR / totalWithdrawableEarningsEUR) * 100;
+        totalTripPercentage = (totalTripEarningsEUR / totalWithdrawableEarningsEUR) * 100;
+      }
+
       // Get unique users who requested the trip
       const uniqueUserMap = new Map<string, AdminTripUserDto>();
       trip.requests.forEach((request) => {
@@ -4729,6 +4768,20 @@ export class TripService {
         },
       );
 
+      // Get latest KYC record for trip owner
+      const tripOwnerKyc =
+        trip.user.kycRecords && trip.user.kycRecords.length > 0
+          ? {
+              id: trip.user.kycRecords[0].id,
+              status: trip.user.kycRecords[0].status,
+              provider: trip.user.kycRecords[0].provider,
+              rejectionReason: trip.user.kycRecords[0].rejectionReason,
+              createdAt: trip.user.kycRecords[0].createdAt,
+              updatedAt: trip.user.kycRecords[0].updatedAt,
+              verifiedAt: trip.user.kycRecords[0].verifiedAt,
+            }
+          : null;
+
       return {
         message,
         trip: {
@@ -4754,7 +4807,12 @@ export class TripService {
           fully_booked: trip.fully_booked,
           createdAt: trip.createdAt,
           updatedAt: trip.updatedAt,
-          user: trip.user,
+          user: trip.user
+            ? {
+                ...trip.user,
+                kyc: tripOwnerKyc,
+              }
+            : undefined,
           mode_of_transport: trip.mode_of_transport,
           airline: trip.airline,
           trip_items: trip.trip_items.map((item) => ({
@@ -4772,9 +4830,13 @@ export class TripService {
         },
         total_on_hold_trip_earning_eur:
           Math.round(totalOnHoldEarningsEUR * 100) / 100,
+        total_on_hold_trip_earning_eur_percentage:
+          Math.round(totalOnHoldPercentage * 100) / 100,
         total_withdrawable_trip_earnings_eur:
           Math.round(totalWithdrawableEarningsEUR * 100) / 100,
         total_trip_earning_eur: Math.round(totalTripEarningsEUR * 100) / 100,
+        total_trip_earning_eur_percentage:
+          Math.round(totalTripPercentage * 100) / 100,
         users_who_requested: usersWhoRequested,
         requests: requestDtos,
       };
@@ -5021,6 +5083,106 @@ export class TripService {
         {
           lang,
           defaultValue: 'Failed to retrieve package category statistics',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get shipping origins - count of users per departure country on trips
+   */
+  async getAdminShippingOrigins(
+    lang: string = 'en',
+  ): Promise<{
+    message: string;
+    data: Array<{
+      country: string;
+      country_code: string | null;
+      user_count: number;
+      trip_count: number;
+    }>;
+  }> {
+    try {
+      // Fetch all trips with departure info and user_id (excluding deleted trips and deleted users)
+      const trips = await this.prisma.trip.findMany({
+        where: {
+          is_deleted: false,
+          user: {
+            is_deleted: false,
+          },
+          departure: { not: null },
+        },
+        select: {
+          departure: true,
+          user_id: true,
+        },
+      });
+
+      // Map to track unique users per country
+      const userMap = new Map<string, Set<string>>();
+      // Map to track trip count per country
+      const tripCountMap = new Map<string, number>();
+      // Map to store country_code per country
+      const countryCodeMap = new Map<string, string | null>();
+
+      for (const trip of trips) {
+        const departure = trip.departure as any;
+
+        // Extract country from departure (prefer country, then country_code)
+        const country = departure?.country || departure?.country_code || null;
+        const countryCode = departure?.country_code || null;
+
+        if (!country) continue;
+
+        // Normalize country name (lowercase for consistency)
+        const normalizedCountry = country.toLowerCase();
+
+        // Track unique users per country
+        if (!userMap.has(normalizedCountry)) {
+          userMap.set(normalizedCountry, new Set());
+        }
+        userMap.get(normalizedCountry)!.add(trip.user_id);
+
+        // Track trip count per country
+        const currentTripCount = tripCountMap.get(normalizedCountry) || 0;
+        tripCountMap.set(normalizedCountry, currentTripCount + 1);
+
+        // Store country code (use first one found, or keep existing)
+        if (countryCode && !countryCodeMap.has(normalizedCountry)) {
+          countryCodeMap.set(normalizedCountry, countryCode);
+        }
+      }
+
+      // Convert to array and sort by user_count (descending)
+      const data = Array.from(userMap.entries())
+        .map(([country, userIds]) => ({
+          country,
+          country_code: countryCodeMap.get(country) || null,
+          user_count: userIds.size,
+          trip_count: tripCountMap.get(country) || 0,
+        }))
+        .sort((a, b) => b.user_count - a.user_count);
+
+      const message = await this.i18n.translate(
+        'translation.admin.shippingOrigins.success',
+        {
+          lang,
+          defaultValue: 'Shipping origins retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        data,
+      };
+    } catch (error) {
+      console.error('Error getting shipping origins:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.shippingOrigins.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve shipping origins',
         },
       );
       throw new InternalServerErrorException(message);

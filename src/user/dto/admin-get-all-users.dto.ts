@@ -95,6 +95,13 @@ export class AdminUserDto {
   lastName?: string | null;
 
   @ApiProperty({
+    description: 'User country',
+    example: 'cameroon',
+    required: false,
+  })
+  country?: string | null;
+
+  @ApiProperty({
     description: 'Whether user is a freight forwarder (business user)',
     example: false,
   })

@@ -148,8 +148,19 @@ export class AdminGetTripByIdResponseDto {
       id: string;
       email: string;
       name: string;
+      firstName: string | null;
+      lastName: string | null;
       picture: string | null;
       role: string;
+      kyc: {
+        id: string;
+        status: string;
+        provider: string;
+        rejectionReason: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        verifiedAt: Date | null;
+      } | null;
     };
     mode_of_transport?: {
       id: string;
@@ -182,6 +193,20 @@ export class AdminGetTripByIdResponseDto {
     example: 1701.25,
   })
   total_trip_earning_eur: number;
+
+  @ApiProperty({
+    description:
+      'Percentage of total on hold trip earnings relative to total withdrawable earnings',
+    example: 29.41,
+  })
+  total_on_hold_trip_earning_eur_percentage: number;
+
+  @ApiProperty({
+    description:
+      'Percentage of total trip earnings relative to total withdrawable earnings',
+    example: 141.77,
+  })
+  total_trip_earning_eur_percentage: number;
 
   @ApiProperty({
     description: 'List of unique users who requested the trip',

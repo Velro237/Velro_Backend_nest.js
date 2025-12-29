@@ -22,6 +22,7 @@ const userSelect = {
   phone: true,
   address: true,
   city: true,
+  country: true,
   state: true,
   zip: true,
   picture: true,
@@ -119,6 +120,7 @@ import { I18nService } from 'nestjs-i18n';
 import { ImageService } from '../shared/services/image.service';
 import { NotificationService } from '../notification/notification.service';
 import { CurrencyService } from '../currency/currency.service';
+import { CountriesApiService } from '../currency/countries-api.service';
 import { AdminUsersStatsResponseDto } from './dto/admin-users-stats.dto';
 import {
   AdminGetAllUsersQueryDto,
@@ -168,6 +170,9 @@ import {
 
 @Injectable()
 export class UserService {
+  // Cache for phone code to country code mapping (supports all world countries)
+  private phoneCodeToCountryCache: Map<string, string[]> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
@@ -176,6 +181,7 @@ export class UserService {
     private readonly currencyService: CurrencyService,
     private readonly walletService: WalletService,
     private readonly redisService: RedisService,
+    private readonly countriesApiService: CountriesApiService,
   ) {}
 
   async getMe(userId: string, lang: string = 'en'): Promise<GetMeResponseDto> {
@@ -1765,6 +1771,355 @@ export class UserService {
     }
   }
 
+  /**
+   * Get report by ID with comprehensive details (Admin only)
+   */
+  async getAdminReportById(
+    reportId: string,
+    lang?: string,
+  ): Promise<{
+    message: string;
+    report: {
+      id: string;
+      user_id: string;
+      reported_id: string;
+      reply_to_id: string | null;
+      trip_id: string;
+      request_id: string | null;
+      type: any;
+      text: string | null;
+      priority: any;
+      status: any;
+      data: any | null;
+      images: any | null;
+      replied_by: string | null;
+      created_at: Date;
+      updated_at: Date;
+      reporter_user: any;
+      reported_user: any;
+      trip: any;
+      request: any | null;
+      replier: any | null;
+    };
+  }> {
+    try {
+      const report = await this.prisma.report.findUnique({
+        where: { id: reportId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              kycRecords: {
+                select: {
+                  id: true,
+                  status: true,
+                  provider: true,
+                  rejectionReason: true,
+                  createdAt: true,
+                  updatedAt: true,
+                  verifiedAt: true,
+                },
+                take: 1,
+                orderBy: {
+                  updatedAt: 'desc',
+                },
+              },
+            },
+          },
+          reported: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              kycRecords: {
+                select: {
+                  id: true,
+                  status: true,
+                  provider: true,
+                  rejectionReason: true,
+                  createdAt: true,
+                  updatedAt: true,
+                  verifiedAt: true,
+                },
+                take: 1,
+                orderBy: {
+                  updatedAt: 'desc',
+                },
+              },
+            },
+          },
+          trip: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                  kycRecords: {
+                    select: {
+                      id: true,
+                      status: true,
+                      provider: true,
+                      rejectionReason: true,
+                      createdAt: true,
+                      updatedAt: true,
+                      verifiedAt: true,
+                    },
+                    take: 1,
+                    orderBy: {
+                      updatedAt: 'desc',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          request: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                  kycRecords: {
+                    select: {
+                      id: true,
+                      status: true,
+                      provider: true,
+                      rejectionReason: true,
+                      createdAt: true,
+                      updatedAt: true,
+                      verifiedAt: true,
+                    },
+                    take: 1,
+                    orderBy: {
+                      updatedAt: 'desc',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          replier: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      if (!report) {
+        const message = await this.i18n.translate(
+          'translation.report.notFound',
+          {
+            lang,
+            defaultValue: 'Report not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Transform reporter user
+      const reporterUser = {
+        id: report.user.id,
+        email: report.user.email,
+        firstName: report.user.firstName,
+        lastName: report.user.lastName,
+        kyc:
+          report.user.kycRecords && report.user.kycRecords.length > 0
+            ? {
+                id: report.user.kycRecords[0].id,
+                status: report.user.kycRecords[0].status,
+                provider: report.user.kycRecords[0].provider,
+                rejectionReason: report.user.kycRecords[0].rejectionReason,
+                createdAt: report.user.kycRecords[0].createdAt,
+                updatedAt: report.user.kycRecords[0].updatedAt,
+                verifiedAt: report.user.kycRecords[0].verifiedAt,
+              }
+            : null,
+      };
+
+      // Transform reported user
+      const reportedUser = {
+        id: report.reported.id,
+        email: report.reported.email,
+        firstName: report.reported.firstName,
+        lastName: report.reported.lastName,
+        kyc:
+          report.reported.kycRecords && report.reported.kycRecords.length > 0
+            ? {
+                id: report.reported.kycRecords[0].id,
+                status: report.reported.kycRecords[0].status,
+                provider: report.reported.kycRecords[0].provider,
+                rejectionReason: report.reported.kycRecords[0].rejectionReason,
+                createdAt: report.reported.kycRecords[0].createdAt,
+                updatedAt: report.reported.kycRecords[0].updatedAt,
+                verifiedAt: report.reported.kycRecords[0].verifiedAt,
+              }
+            : null,
+      };
+
+      // Transform trip with user
+      const tripUser = {
+        id: report.trip.user.id,
+        email: report.trip.user.email,
+        firstName: report.trip.user.firstName,
+        lastName: report.trip.user.lastName,
+        kyc:
+          report.trip.user.kycRecords && report.trip.user.kycRecords.length > 0
+            ? {
+                id: report.trip.user.kycRecords[0].id,
+                status: report.trip.user.kycRecords[0].status,
+                provider: report.trip.user.kycRecords[0].provider,
+                rejectionReason:
+                  report.trip.user.kycRecords[0].rejectionReason,
+                createdAt: report.trip.user.kycRecords[0].createdAt,
+                updatedAt: report.trip.user.kycRecords[0].updatedAt,
+                verifiedAt: report.trip.user.kycRecords[0].verifiedAt,
+              }
+            : null,
+      };
+
+      const tripData = {
+        id: report.trip.id,
+        user_id: report.trip.user_id,
+        pickup: report.trip.pickup,
+        destination: report.trip.destination,
+        departure: report.trip.departure,
+        delivery: report.trip.delivery,
+        departure_date: report.trip.departure_date,
+        departure_time: report.trip.departure_time,
+        arrival_date: report.trip.arrival_date,
+        arrival_time: report.trip.arrival_time,
+        currency: report.trip.currency,
+        maximum_weight_in_kg: report.trip.maximum_weight_in_kg
+          ? Number(report.trip.maximum_weight_in_kg)
+          : null,
+        notes: report.trip.notes,
+        meetup_flexible: report.trip.meetup_flexible,
+        status: report.trip.status,
+        fully_booked: report.trip.fully_booked,
+        createdAt: report.trip.createdAt,
+        updatedAt: report.trip.updatedAt,
+        user: tripUser,
+      };
+
+      // Transform request with user (if exists)
+      let requestData = null;
+      if (report.request) {
+        const requestUser = {
+          id: report.request.user.id,
+          email: report.request.user.email,
+          firstName: report.request.user.firstName,
+          lastName: report.request.user.lastName,
+          kyc:
+            report.request.user.kycRecords &&
+            report.request.user.kycRecords.length > 0
+              ? {
+                  id: report.request.user.kycRecords[0].id,
+                  status: report.request.user.kycRecords[0].status,
+                  provider: report.request.user.kycRecords[0].provider,
+                  rejectionReason:
+                    report.request.user.kycRecords[0].rejectionReason,
+                  createdAt: report.request.user.kycRecords[0].createdAt,
+                  updatedAt: report.request.user.kycRecords[0].updatedAt,
+                  verifiedAt: report.request.user.kycRecords[0].verifiedAt,
+                }
+              : null,
+        };
+
+        requestData = {
+          id: report.request.id,
+          trip_id: report.request.trip_id,
+          user_id: report.request.user_id,
+          status: report.request.status,
+          message: report.request.message,
+          cost: report.request.cost ? Number(report.request.cost) : null,
+          currency: report.request.currency,
+          payment_status: report.request.payment_status,
+          payment_intent_id: report.request.payment_intent_id,
+          paid_at: report.request.paid_at,
+          created_at: report.request.created_at,
+          updated_at: report.request.updated_at,
+          sender_confirmed_delivery: report.request.sender_confirmed_delivery,
+          traveler_confirmed_delivery:
+            report.request.traveler_confirmed_delivery,
+          delivered_at: report.request.delivered_at,
+          cancelled_at: report.request.cancelled_at,
+          cancellation_type: report.request.cancellation_type,
+          cancellation_reason: report.request.cancellation_reason,
+          user: requestUser,
+        };
+      }
+
+      // Transform replier (if exists)
+      const replierData = report.replier
+        ? {
+            id: report.replier.id,
+            email: report.replier.email,
+            firstName: report.replier.firstName,
+            lastName: report.replier.lastName,
+          }
+        : null;
+
+      const message = await this.i18n.translate(
+        'translation.report.getByIdSuccess',
+        {
+          lang,
+          defaultValue: 'Report retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        report: {
+          id: report.id,
+          user_id: report.user_id,
+          reported_id: report.reported_id,
+          reply_to_id: report.reply_to_id,
+          trip_id: report.trip_id,
+          request_id: report.request_id,
+          type: report.type,
+          text: report.text,
+          priority: report.priority,
+          status: report.status,
+          data: report.data,
+          images: report.images,
+          replied_by: report.replied_by,
+          created_at: report.created_at,
+          updated_at: report.updated_at,
+          reporter_user: reporterUser,
+          reported_user: reportedUser,
+          trip: tripData,
+          request: requestData,
+          replier: replierData,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      console.error('Error getting admin report by ID:', error);
+      const message = await this.i18n.translate(
+        'translation.report.getByIdFailed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve report',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
   async createRating(
     createRatingDto: CreateRatingDto,
     giverId: string,
@@ -2968,6 +3323,7 @@ export class UserService {
             username: true,
             firstName: true,
             lastName: true,
+            country: true,
             isFreightForwarder: true,
             createdAt: true,
             is_deleted: true,
@@ -3164,6 +3520,7 @@ export class UserService {
           username: user.username,
           firstName: user.firstName,
           lastName: user.lastName,
+          country: user.country,
           isFreightForwarder: user.isFreightForwarder,
           createdAt: user.createdAt,
           total_request: requestCountMap.get(user.id) ?? 0,
@@ -4573,6 +4930,185 @@ export class UserService {
   }
 
   /**
+   * Move money from user's wallet available balance to hold balance (Admin only)
+   */
+  async moveAvailableBalanceToHold(
+    dto: AdminMoveHoldBalanceDto,
+    lang?: string,
+  ): Promise<AdminMoveHoldBalanceResponseDto> {
+    try {
+      const { userId, amount, currency } = dto;
+
+      // Get user's wallet
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId },
+      });
+
+      if (!wallet) {
+        const message = await this.i18n.translate(
+          'translation.wallet.notFound',
+          {
+            lang,
+            defaultValue: 'Wallet not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      // Determine currency to use
+      const targetCurrency = (currency || wallet.currency).toUpperCase();
+
+      // Get currency columns
+      const getCurrencyColumns = (
+        curr: string,
+      ): {
+        available: string;
+        hold: string;
+      } => {
+        switch (curr) {
+          case 'EUR':
+            return {
+              available: 'available_balance_eur',
+              hold: 'hold_balance_eur',
+            };
+          case 'USD':
+            return {
+              available: 'available_balance_usd',
+              hold: 'hold_balance_usd',
+            };
+          case 'CAD':
+            return {
+              available: 'available_balance_cad',
+              hold: 'hold_balance_cad',
+            };
+          case 'XAF':
+            // XAF is display only, convert to EUR for processing
+            return {
+              available: 'available_balance_eur',
+              hold: 'hold_balance_eur',
+            };
+          default:
+            // Default to EUR for unknown currencies
+            return {
+              available: 'available_balance_eur',
+              hold: 'hold_balance_eur',
+            };
+        }
+      };
+
+      const currencyColumns = getCurrencyColumns(targetCurrency);
+
+      // Check if available balance has sufficient funds
+      const availableBalance = Number(wallet[currencyColumns.available] || 0);
+
+      if (availableBalance < amount) {
+        const message = await this.i18n.translate(
+          'translation.wallet.insufficientAvailableBalance',
+          {
+            lang,
+            defaultValue: `Insufficient available balance. Available: ${availableBalance} ${targetCurrency}`,
+            args: {
+              available: availableBalance,
+              currency: targetCurrency,
+            },
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Get current hold balance for balance_after calculation
+      const currentHoldBalance = Number(wallet[currencyColumns.hold] || 0);
+
+      // Move from available to hold using transaction
+      const result = await this.prisma.$transaction(async (prisma) => {
+        // Update wallet balances
+        const updatedWallet = await prisma.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            [currencyColumns.available]: {
+              decrement: amount,
+            },
+            [currencyColumns.hold]: {
+              increment: amount,
+            },
+          },
+        });
+
+        // Create DEBIT transaction with source ADJUSTMENT
+        const transaction = await prisma.transaction.create({
+          data: {
+            userId,
+            wallet_id: wallet.id,
+            type: 'DEBIT',
+            source: 'ADJUSTMENT',
+            amount_requested: amount,
+            fee_applied: 0,
+            amount_paid: amount,
+            currency: targetCurrency,
+            status: 'COMPLETED',
+            provider: 'STRIPE',
+            description: `Admin adjustment: Moved ${amount} ${targetCurrency} from available to hold balance`,
+            balance_after: currentHoldBalance + amount,
+            metadata: {
+              adminAdjustment: true,
+              movedToHold: true,
+              originalCurrency: wallet.currency,
+            },
+          },
+        });
+
+        return { updatedWallet, transaction };
+      });
+
+      const message = await this.i18n.translate(
+        'translation.admin.moveAvailableBalanceToHoldSuccess',
+        {
+          lang,
+          defaultValue: 'Balance moved successfully',
+        },
+      );
+
+      return {
+        message,
+        transaction: {
+          id: result.transaction.id,
+          type: result.transaction.type,
+          source: result.transaction.source,
+          amountRequested: Number(result.transaction.amount_requested),
+          amountPaid: Number(result.transaction.amount_paid),
+          currency: result.transaction.currency,
+          status: result.transaction.status,
+          balanceAfter: Number(result.transaction.balance_after),
+          createdAt: result.transaction.createdAt,
+        },
+        wallet: {
+          availableBalance: Number(
+            result.updatedWallet[currencyColumns.available],
+          ),
+          holdBalance: Number(result.updatedWallet[currencyColumns.hold]),
+          currency: targetCurrency,
+        },
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      console.error('Error moving available balance to hold:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.moveAvailableBalanceToHoldFailed',
+        {
+          lang,
+          defaultValue: 'Failed to move balance',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
    * Get analytics statistics for admin dashboard
    */
   async getAdminAnalyticsStats(
@@ -5481,6 +6017,307 @@ export class UserService {
         {
           lang,
           defaultValue: 'Failed to retrieve request status distribution',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Build phone code to country code mapping from all countries
+   * Caches the result for performance
+   */
+  private async buildPhoneCodeMapping(): Promise<Map<string, string[]>> {
+    // Return cached mapping if available
+    if (this.phoneCodeToCountryCache) {
+      return this.phoneCodeToCountryCache;
+    }
+
+    try {
+      // Get all countries from API
+      const allCountries = await this.countriesApiService.getAllCountries();
+
+      // Build phone code to country code mapping
+      // Handle multiple countries with same phone code (e.g., +1 for US and CA)
+      const phoneCodeMap = new Map<string, string[]>();
+
+      for (const country of allCountries) {
+        if (country.phoneCode) {
+          // Remove + sign and normalize
+          const phoneCode = country.phoneCode.replace(/^\+/, '');
+          if (phoneCode && country.code) {
+            if (!phoneCodeMap.has(phoneCode)) {
+              phoneCodeMap.set(phoneCode, []);
+            }
+            phoneCodeMap.get(phoneCode)!.push(country.code);
+          }
+        }
+      }
+
+      // Cache the mapping
+      this.phoneCodeToCountryCache = phoneCodeMap;
+      return phoneCodeMap;
+    } catch (error) {
+      console.error('Failed to build phone code mapping:', error);
+      // Return empty map on error
+      return new Map<string, string[]>();
+    }
+  }
+
+  /**
+   * Extract country code from phone number using Countries API
+   * Supports all world countries by dynamically fetching phone code mappings
+   */
+  private async extractCountryCodeFromPhone(phoneNumber: string): Promise<string | null> {
+    try {
+      if (!phoneNumber) return null;
+
+      // Remove all non-digit characters
+      const cleanPhone = phoneNumber.replace(/\D/g, '');
+
+      if (cleanPhone.length === 0) return null;
+
+      // Special handling for +1 (US/Canada) - check area code first
+      if (cleanPhone.startsWith('1') && cleanPhone.length >= 11) {
+        const canadianAreaCodes = [
+          '416', '647', '905', '289', '365', '437', '519', '226',
+          '613', '343', '705', '249', '807', '902', '782', '506',
+          '709', '867', '204', '431', '306', '639', '587', '825',
+          '780', '403', '236', '250', '604', '778', '438', '514',
+          '450', '579', '418', '581', '819', '873', '367',
+        ];
+        const areaCode = cleanPhone.substring(1, 4);
+        if (canadianAreaCodes.includes(areaCode)) {
+          return 'CA'; // Canada
+        }
+        return 'US'; // Default to US for +1
+      }
+
+      // Get phone code mapping (cached)
+      const phoneCodeMap = await this.buildPhoneCodeMapping();
+
+      // Try to match phone code (longest codes first to avoid false matches)
+      const sortedPhoneCodes = Array.from(phoneCodeMap.keys()).sort(
+        (a, b) => b.length - a.length,
+      );
+
+      for (const phoneCode of sortedPhoneCodes) {
+        if (cleanPhone.startsWith(phoneCode)) {
+          const countryCodes = phoneCodeMap.get(phoneCode)!;
+          // If multiple countries share the same phone code, return the first one
+          // (In most cases, the first country is the primary one)
+          return countryCodes[0];
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Failed to extract country from phone:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Set user country from phone number country code
+   * Goes through all users without country and sets country based on phone number
+   */
+  async setUserCountryFromPhone(lang: string = 'en'): Promise<{
+    message: string;
+    updated: number;
+    failed: number;
+    details: Array<{
+      userId: string;
+      email: string;
+      phone: string | null;
+      countryCode: string | null;
+      countryName: string | null;
+      status: 'updated' | 'failed' | 'skipped';
+      error?: string;
+    }>;
+  }> {
+    try {
+      // Get all users without country
+      const usersWithoutCountry = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { country: null },
+            { country: '' },
+          ],
+          phone: { not: null },
+          is_deleted: false,
+        },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+        },
+      });
+
+      let updated = 0;
+      let failed = 0;
+      const details: Array<{
+        userId: string;
+        email: string;
+        phone: string | null;
+        countryCode: string | null;
+        countryName: string | null;
+        status: 'updated' | 'failed' | 'skipped';
+        error?: string;
+      }> = [];
+
+      for (const user of usersWithoutCountry) {
+        try {
+          // Extract country code from phone (now async, supports all countries)
+          const countryCode = await this.extractCountryCodeFromPhone(user.phone);
+          
+          if (!countryCode) {
+            details.push({
+              userId: user.id,
+              email: user.email,
+              phone: user.phone,
+              countryCode: null,
+              countryName: null,
+              status: 'skipped',
+              error: 'Could not extract country code from phone number',
+            });
+            continue;
+          }
+
+          // Get country name from country code
+          const countryInfo = await this.countriesApiService.getCountryInfo(countryCode);
+          
+          if (!countryInfo) {
+            details.push({
+              userId: user.id,
+              email: user.email,
+              phone: user.phone,
+              countryCode,
+              countryName: null,
+              status: 'failed',
+              error: `Country info not found for code: ${countryCode}`,
+            });
+            failed++;
+            continue;
+          }
+
+          // Update user country (in lowercase)
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+              country: countryInfo.name.toLowerCase(),
+            },
+          });
+
+          updated++;
+          details.push({
+            userId: user.id,
+            email: user.email,
+            phone: user.phone,
+            countryCode,
+            countryName: countryInfo.name,
+            status: 'updated',
+          });
+        } catch (error: any) {
+          console.log(error);
+          failed++;
+          details.push({
+            userId: user.id,
+            email: user.email,
+            phone: user.phone,
+            countryCode: null,
+            countryName: null,
+            status: 'failed',
+            error: error?.message || 'Unknown error',
+          });
+        }
+      }
+
+      const message = await this.i18n.translate(
+        'translation.admin.setUserCountryFromPhone.success',
+        {
+          lang,
+          defaultValue: `Successfully updated ${updated} users. ${failed} failed.`,
+          args: { updated, failed, total: usersWithoutCountry.length },
+        },
+      );
+
+      return {
+        message,
+        updated,
+        failed,
+        details,
+      };
+    } catch (error: any) {
+      console.error('Error setting user country from phone:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.setUserCountryFromPhone.failed',
+        {
+          lang,
+          defaultValue: 'Failed to set user country from phone numbers',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Get count of users per country
+   */
+  async getAdminUsersPerCountry(
+    lang: string = 'en',
+  ): Promise<{
+    message: string;
+    data: Array<{ country: string; count: number }>;
+  }> {
+    try {
+      // Get all users with country, excluding deleted users
+      const users = await this.prisma.user.findMany({
+        where: {
+          country: { not: null },
+          is_deleted: false,
+        },
+        select: {
+          country: true,
+        },
+      });
+
+      // Count users per country
+      const countryMap = new Map<string, number>();
+      users.forEach((user) => {
+        if (user.country) {
+          const country = user.country.toLowerCase();
+          const currentCount = countryMap.get(country) || 0;
+          countryMap.set(country, currentCount + 1);
+        }
+      });
+
+      // Convert to array and sort by count (descending)
+      const data = Array.from(countryMap.entries())
+        .map(([country, count]) => ({
+          country,
+          count,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      const message = await this.i18n.translate(
+        'translation.admin.usersPerCountry.success',
+        {
+          lang,
+          defaultValue: 'Users per country retrieved successfully',
+        },
+      );
+
+      return {
+        message,
+        data,
+      };
+    } catch (error: any) {
+      console.error('Error getting users per country:', error);
+      const message = await this.i18n.translate(
+        'translation.admin.usersPerCountry.failed',
+        {
+          lang,
+          defaultValue: 'Failed to retrieve users per country',
         },
       );
       throw new InternalServerErrorException(message);
