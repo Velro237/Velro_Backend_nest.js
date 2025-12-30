@@ -23,6 +23,7 @@ import { RidesModule } from './rides/rides.module';
 import { BoatsModule } from './boats/boats.module';
 import { LoggerService } from './logger/logger.service';
 import { LoggerModule } from './logger/logger.module';
+import { DeliveryModule } from './delivery/delivery.module';
 import * as path from 'path';
 
 @Module({
@@ -58,6 +59,7 @@ import * as path from 'path';
     RidesModule,
     BoatsModule,
     LoggerModule,
+    DeliveryModule,
   ],
   controllers: [],
   providers: [LoggerService],

@@ -3710,16 +3710,35 @@ export class ChatService {
         throw new NotFoundException('User not found');
       }
 
-      // Find existing support chat for this user (like user's getSupportChat)
-      // User can only have one support chat, so return it if it exists
+      // Find existing support chat between this specific user and admin
+      // Only one support chat should exist between a user and admin
+      // Check for a chat that has BOTH the user AND the admin as members
       let supportChat = await this.prisma.chat.findFirst({
         where: {
           type: 'SUPPORT',
           members: {
-            some: {
-              user_id: userId,
+            every: {
+              user_id: {
+                in: [userId, adminId],
+              },
             },
           },
+          AND: [
+            {
+              members: {
+                some: {
+                  user_id: userId,
+                },
+              },
+            },
+            {
+              members: {
+                some: {
+                  user_id: adminId,
+                },
+              },
+            },
+          ],
         },
         include: {
           members: {
@@ -3808,19 +3827,141 @@ export class ChatService {
         },
       });
 
-      // If no support chat exists for the user, create one between the user and the admin
-      // If a support chat already exists, return it (user can only have one support chat)
+      // If no support chat exists between this user and admin, create one
+      // Use a transaction to prevent race conditions when multiple admins try to create at the same time
       if (!supportChat) {
-        // Create support chat
-        supportChat = await this.prisma.chat.create({
-          data: {
-            type: 'SUPPORT',
-            name: 'Support',
-            members: {
-              create: [{ user_id: userId }, { user_id: adminId }],
+        // Use a transaction to ensure atomicity
+        supportChat = await this.prisma.$transaction(async (prisma) => {
+          // Double-check within transaction to prevent race conditions
+          const existingChat = await prisma.chat.findFirst({
+            where: {
+              type: 'SUPPORT',
+              members: {
+                every: {
+                  user_id: {
+                    in: [userId, adminId],
+                  },
+                },
+              },
+              AND: [
+                {
+                  members: {
+                    some: {
+                      user_id: userId,
+                    },
+                  },
+                },
+                {
+                  members: {
+                    some: {
+                      user_id: adminId,
+                    },
+                  },
+                },
+              ],
             },
-          },
-          include: {
+            include: {
+              members: {
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                      firstName: true,
+                      lastName: true,
+                      role: true,
+                      picture: true,
+                    },
+                  },
+                },
+              },
+              messages: {
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                include: {
+                  sender: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                      firstName: true,
+                      lastName: true,
+                      picture: true,
+                    },
+                  },
+                },
+              },
+              trip: {
+                select: {
+                  id: true,
+                  pickup: true,
+                  departure: true,
+                  destination: true,
+                  departure_date: true,
+                  departure_time: true,
+                  currency: true,
+                  airline_id: true,
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+              request: {
+                select: {
+                  id: true,
+                  status: true,
+                  cost: true,
+                  currency: true,
+                  created_at: true,
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                      firstName: true,
+                      lastName: true,
+                      picture: true,
+                    },
+                  },
+                  request_items: {
+                    select: {
+                      quantity: true,
+                    },
+                  },
+                },
+              },
+              _count: {
+                select: {
+                  messages: {
+                    where: {
+                      isRead: false,
+                      sender_id: { not: adminId },
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          // If another process created the chat, return it
+          if (existingChat) {
+            return existingChat;
+          }
+
+          // Create support chat
+          return await prisma.chat.create({
+            data: {
+              type: 'SUPPORT',
+              name: 'Support',
+              members: {
+                create: [{ user_id: userId }, { user_id: adminId }],
+              },
+            },
+            include: {
             members: {
               include: {
                 user: {
@@ -3906,8 +4047,9 @@ export class ChatService {
             },
           },
         });
+      });
 
-        // Invalidate cache for user chats
+      // Invalidate cache for user chats
       }
 
       // Transform to ChatSummaryDto format (same as getChats)

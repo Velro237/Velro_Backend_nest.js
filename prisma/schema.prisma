@@ -85,7 +85,7 @@ model User {
   firstName     String?
   lastName      String?
   phone         String?
-  country            String?
+  country       String?
   address       String?
   city          String?
   state         String?
@@ -145,6 +145,50 @@ model User {
   wallet                Wallet?
   transactions          Transaction[]
   accountDeleteRequests AccountDeleteRequest[]
+  delevries             Delivery[]
+}
+
+enum DeliveryStatus {
+  PENDING
+  ONGOING
+  EXPIRED
+}
+
+model Delivery {
+  id               String            @id @default(cuid())
+  userId           String
+  total_cost       Decimal           @db.Decimal(10, 2)
+  description      String?
+  currency         Currency
+  status           DeliveryStatus    @default(PENDING)
+  reward           Int               @default(15)
+  expected_date    DateTime
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  is_deleted        Boolean           @default(false)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  data             Json?
+  transaction_id   String?           @unique
+  transaction      Transaction?      @relation(fields: [transaction_id], references: [id], onDelete: Cascade)
+  deliveryProducts DeliveryProduct[]
+
+  @@index([userId])
+  @@index([transaction_id])
+}
+
+model DeliveryProduct {
+  id          String   @id @default(cuid())
+  deliveryId  String
+  delivery    Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  price       Decimal  @db.Decimal(10, 2)
+  currency    Currency
+  name        String
+  url         String?
+  weight      Decimal? @db.Decimal(10, 2)
+  description String?
+  quantity    Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Account {
@@ -513,7 +557,6 @@ enum ReportType {
   VEHICLE_CONDITION_ISSUE
   INAPPROPRIATE_BEHAVIOR
   OTHER
-  
 }
 
 enum ReportPriority {
@@ -778,9 +821,10 @@ model Transaction {
 
   phone_number String?
 
-  wallet  Wallet       @relation(fields: [wallet_id], references: [id])
-  trip    Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  wallet     Wallet       @relation(fields: [wallet_id], references: [id])
+  trip       Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request    TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  delivery   Delivery?
 
   @@index([userId, createdAt])
   @@index([reference])
