@@ -3710,20 +3710,14 @@ export class ChatService {
         throw new NotFoundException('User not found');
       }
 
-      // Find existing support chat between this user and the admin
+      // Find existing support chat for this user (like user's getSupportChat)
+      // User can only have one support chat, so return it if it exists
       let supportChat = await this.prisma.chat.findFirst({
         where: {
           type: 'SUPPORT',
           members: {
             some: {
               user_id: userId,
-            },
-          },
-          AND: {
-            members: {
-              some: {
-                user_id: adminId,
-              },
             },
           },
         },
@@ -3814,7 +3808,8 @@ export class ChatService {
         },
       });
 
-      // If no support chat exists, create one between the user and the admin
+      // If no support chat exists for the user, create one between the user and the admin
+      // If a support chat already exists, return it (user can only have one support chat)
       if (!supportChat) {
         // Create support chat
         supportChat = await this.prisma.chat.create({

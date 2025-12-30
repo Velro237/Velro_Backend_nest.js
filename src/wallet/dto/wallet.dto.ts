@@ -227,6 +227,13 @@ export class WalletResponseDto {
     type: [WithdrawalResponseDto],
   })
   withdrawals: WithdrawalResponseDto[];
+
+  @ApiProperty({
+    description: 'Wallet state',
+    enum: WalletState,
+    example: WalletState.ACTIVE,
+  })
+  state: WalletState;
 }
 
 export class ChangeWalletStateDto {
