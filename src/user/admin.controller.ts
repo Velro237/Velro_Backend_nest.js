@@ -20,6 +20,7 @@ import {
   AdminGetAllReportsResponseDto,
 } from './dto/admin-get-all-reports.dto';
 import { AdminReportsStatsResponseDto } from './dto/admin-reports-stats.dto';
+import { AdminGetReportByIdResponseDto } from './dto/admin-get-report-by-id.dto';
 import {
   AdminChangeReportStatusDto,
   AdminChangeReportStatusResponseDto,
@@ -128,6 +129,16 @@ import {
   AdminUsersRankingQueryDto,
   AdminUsersRankingResponseDto,
 } from './dto/admin-users-ranking.dto';
+import {
+  AdminUsersPerCountryResponseDto,
+} from './dto/admin-users-per-country.dto';
+import {
+  AdminShippingOriginsResponseDto,
+} from './dto/admin-shipping-origins.dto';
+import {
+  AdminRefundRequestDto,
+  AdminRefundResponseDto,
+} from '../payment/dto/admin-refund-request.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth('JWT-auth')
@@ -177,6 +188,42 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminGetAllReportsResponseDto> {
     return this.userService.getAllReports(query, lang);
+  }
+
+  @Get('reports/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get report by ID with comprehensive details (Admin only)',
+    description:
+      'Retrieve complete report information including all report data, reporter user (with firstName, lastName, KYC), reported user (with firstName, lastName, KYC), full trip details (with trip owner firstName, lastName, KYC), full request details (with request user firstName, lastName, KYC), and replier information.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Report ID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Report retrieved successfully',
+    type: AdminGetReportByIdResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Report not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getReportById(
+    @Param('id', ParseUUIDPipe) reportId: string,
+    @I18nLang() lang: string,
+  ): Promise<AdminGetReportByIdResponseDto> {
+    return this.userService.getAdminReportById(reportId, lang);
   }
 
   @Patch('reports/:id/status')
@@ -501,6 +548,58 @@ export class AdminController {
     @I18nLang() lang: string,
   ): Promise<AdminRequestStatusDistributionResponseDto> {
     return this.userService.getAdminRequestStatusDistribution(lang);
+  }
+
+  @Get('analytics/users_per_country')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get users per country (Admin only)',
+    description:
+      'Retrieve the count of users grouped by country. Returns all countries with their respective user counts, sorted by count in descending order.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Users per country retrieved successfully',
+    type: AdminUsersPerCountryResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getUsersPerCountry(
+    @I18nLang() lang: string,
+  ): Promise<AdminUsersPerCountryResponseDto> {
+    return this.userService.getAdminUsersPerCountry(lang);
+  }
+
+  @Get('analytics/shipping_origins')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get shipping origins (Admin only)',
+    description:
+      'Retrieve the count of unique users and total trips grouped by departure country. Returns all departure countries with their respective user counts and trip counts, sorted by user count in descending order.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Shipping origins retrieved successfully',
+    type: AdminShippingOriginsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getShippingOrigins(
+    @I18nLang() lang: string,
+  ): Promise<AdminShippingOriginsResponseDto> {
+    return this.tripService.getAdminShippingOrigins(lang);
   }
 
   @Get('chats/stats')
@@ -1171,6 +1270,50 @@ export class AdminController {
     return this.requestService.adminDeleteRequest(requestId, lang);
   }
 
+  @Post('requests/refund')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Refund a request (Admin only)',
+    description:
+      'Refund a request to either sender or traveller. Can refund full amount (100%) or partial (50%). Creates a transaction and credits the wallet. Admin access required.',
+  })
+  @ApiBody({
+    type: AdminRefundRequestDto,
+    description: 'Refund request data',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Refund processed successfully',
+    type: AdminRefundResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid input data or request has no cost',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Request not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async refundRequest(
+    @Body() refundDto: AdminRefundRequestDto,
+    @I18nLang() lang: string,
+  ): Promise<AdminRefundResponseDto> {
+    return this.paymentService.refundRequest(
+      refundDto.request_id,
+      refundDto.destination,
+      refundDto.portion,
+      lang,
+    );
+  }
+
   @Get('chats')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -1336,5 +1479,66 @@ export class AdminController {
       message: 'Warning sent successfully',
       warningMessage,
     };
+  }
+
+  @Post('users/set-country-from-phone')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Set user country from phone number country code (Admin only)',
+    description:
+      'Goes through all users without a country and sets their country based on the country code extracted from their phone number. Returns detailed results of the operation.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Country update process completed',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        updated: { type: 'number' },
+        failed: { type: 'number' },
+        details: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              userId: { type: 'string' },
+              email: { type: 'string' },
+              phone: { type: 'string', nullable: true },
+              countryCode: { type: 'string', nullable: true },
+              countryName: { type: 'string', nullable: true },
+              status: { type: 'string', enum: ['updated', 'failed', 'skipped'] },
+              error: { type: 'string', nullable: true },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async setUserCountryFromPhone(
+    @I18nLang() lang: string,
+  ): Promise<{
+    message: string;
+    updated: number;
+    failed: number;
+    details: Array<{
+      userId: string;
+      email: string;
+      phone: string | null;
+      countryCode: string | null;
+      countryName: string | null;
+      status: 'updated' | 'failed' | 'skipped';
+      error?: string;
+    }>;
+  }> {
+    return this.userService.setUserCountryFromPhone(lang);
   }
 }

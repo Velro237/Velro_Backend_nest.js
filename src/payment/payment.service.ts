@@ -1596,4 +1596,203 @@ export class PaymentService {
       throw new InternalServerErrorException(message);
     }
   }
+
+  /**
+   * Admin method to refund a request
+   * Refunds to either sender or traveller, full or partial (50%)
+   */
+  async refundRequest(
+    requestId: string,
+    destination: 'sender' | 'traveller',
+    portion: 'full' | 'partial',
+    lang?: string,
+  ): Promise<{
+    message: string;
+    transaction_id: string;
+    amount_refunded: number;
+    currency: string;
+    destination_user_id: string;
+  }> {
+    try {
+      // Get request with trip and user information
+      const request = await this.prisma.tripRequest.findUnique({
+        where: { id: requestId },
+        include: {
+          user: true, // Sender
+          trip: {
+            include: {
+              user: true, // Traveller
+            },
+          },
+        },
+      });
+
+      if (!request) {
+        const message = await this.i18n.translate(
+          'translation.request.notFound',
+          {
+            lang,
+            defaultValue: 'Request not found',
+          },
+        );
+        throw new NotFoundException(message);
+      }
+
+      if (!request.cost || !request.currency) {
+        const message = await this.i18n.translate(
+          'translation.payment.refund.noCost',
+          {
+            lang,
+            defaultValue: 'Request has no cost to refund',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      // Determine destination user
+      const destinationUserId =
+        destination === 'sender' ? request.user_id : request.trip.user_id;
+      const destinationUser =
+        destination === 'sender' ? request.user : request.trip.user;
+
+      // Calculate refund amount
+      const requestCost = Number(request.cost);
+      const refundAmount =
+        portion === 'full' ? requestCost : Math.round(requestCost * 0.5 * 100) / 100;
+      const currency = request.currency;
+
+      // Get or create wallet for destination user
+      let wallet = await this.prisma.wallet.findUnique({
+        where: { userId: destinationUserId },
+      });
+
+      if (!wallet) {
+        // Create wallet if it doesn't exist
+        wallet = await this.prisma.wallet.create({
+          data: {
+            userId: destinationUserId,
+            currency: currency,
+            available_balance_eur: 0,
+            available_balance_usd: 0,
+            available_balance_cad: 0,
+            available_balance_xaf: 0,
+            hold_balance_eur: 0,
+            hold_balance_usd: 0,
+            hold_balance_cad: 0,
+            hold_balance_xaf: 0,
+            available_balance: 0.0,
+            hold_balance: 0.0,
+            total_balance: 0.0,
+            state: 'ACTIVE',
+          },
+        });
+        this.logger.log(`Created wallet for user ${destinationUserId}`);
+      }
+
+      // Get currency columns
+      const currencyColumns = this.getCurrencyColumns(currency);
+
+      // Perform wallet update and transaction creation atomically
+      const result = await this.prisma.$transaction(async (prisma) => {
+        // Get current balance within transaction to avoid race conditions
+        const walletWithBalance = await prisma.wallet.findUnique({
+          where: { id: wallet.id },
+        });
+
+        if (!walletWithBalance) {
+          throw new NotFoundException(
+            `Wallet ${wallet.id} not found during transaction`,
+          );
+        }
+
+        const currentBalance = this.getWalletCurrencyBalance(
+          walletWithBalance,
+          currency,
+        );
+        const newBalance = currentBalance + refundAmount;
+
+        // Credit the refund amount to destination user's wallet
+        await prisma.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            [currencyColumns.available]: {
+              increment: refundAmount,
+            },
+          } as any,
+        });
+
+        // Create refund transaction
+        const transaction = await prisma.transaction.create({
+          data: {
+            userId: destinationUserId,
+            wallet_id: wallet.id,
+            type: 'CREDIT',
+            source: 'REFUND',
+            amount_requested: refundAmount,
+            fee_applied: 0,
+            amount_paid: refundAmount,
+            currency: currency,
+            request_id: requestId,
+            status: 'SUCCESS',
+            provider: 'STRIPE', // Default provider for admin refunds
+            description: `Admin refund (${portion}) for request ${requestId} to ${destination}`,
+            balance_after: newBalance,
+            metadata: {
+              requestId,
+              destination,
+              portion,
+              originalCost: requestCost,
+              refundAmount,
+            },
+          },
+        });
+
+        // Update request status to REFUNDED
+        await prisma.tripRequest.update({
+          where: { id: requestId },
+          data: {
+            status: 'REFUNDED',
+          },
+        });
+
+        return transaction;
+      });
+
+      const message = await this.i18n.translate(
+        'translation.payment.refund.success',
+        {
+          lang,
+          defaultValue: 'Refund processed successfully',
+        },
+      );
+
+      this.logger.log(
+        `Refunded ${currency} ${refundAmount} (${portion}) to ${destination} (${destinationUserId}) for request ${requestId}`,
+      );
+
+      return {
+        message,
+        transaction_id: result.id,
+        amount_refunded: refundAmount,
+        currency: currency,
+        destination_user_id: destinationUserId,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      this.logger.error(`Failed to process refund: ${error.message}`);
+      const message = await this.i18n.translate(
+        'translation.payment.refund.failed',
+        {
+          lang,
+          defaultValue: 'Failed to process refund',
+        },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
 }

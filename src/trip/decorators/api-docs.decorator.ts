@@ -168,7 +168,7 @@ export const ApiUpdateTrip = () =>
     ApiOperation({
       summary: 'Update a trip',
       description:
-        'Update an existing trip. Only the trip owner can update their trip.',
+        'Update an existing trip. The trip owner can update their trip. Admins can also update any trip.',
     }),
     ApiParam({
       name: 'id',

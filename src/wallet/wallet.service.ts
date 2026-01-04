@@ -179,6 +179,7 @@ export class WalletService {
           holdBalanceCad: Number(wallet.hold_balance_cad),
         },
         withdrawals: withdrawals.map((w) => this.mapWithdrawal(w)),
+        state: wallet.state,
       };
     } catch (error) {
       this.logger.error('Failed to get wallet:', error);

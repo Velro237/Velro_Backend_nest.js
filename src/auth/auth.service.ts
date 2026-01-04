@@ -57,6 +57,7 @@ import { OtpService } from './otp/otp.service';
 import { NotificationService } from '../notification/notification.service';
 import { CurrencyService } from '../currency/currency.service';
 import { CountryDetectionService } from '../currency/country-detection.service';
+import { CountriesApiService } from '../currency/countries-api.service';
 
 @Injectable()
 export class AuthService {
@@ -69,6 +70,7 @@ export class AuthService {
     private readonly notificationService: NotificationService,
     private readonly currencyService: CurrencyService,
     private readonly countryDetectionService: CountryDetectionService,
+    private readonly countriesApiService: CountriesApiService,
   ) {}
 
   async sendEmail(
@@ -155,6 +157,7 @@ export class AuthService {
       phone,
       address,
       city,
+      country,
       state,
       zip,
       isFreightForwarder,
@@ -225,6 +228,7 @@ export class AuthService {
           phone,
           address,
           city,
+          country: country?.toLowerCase() || undefined,
           state,
           zip,
           isFreightForwarder,
@@ -467,6 +471,7 @@ export class AuthService {
       accessToken?: string | null;
       refreshToken?: string | null;
       idToken?: string | null; // Apple
+      country?: string | null; // Country name in lowercase
     },
     options: { skipOtpEmail?: boolean } = {},
   ) {
@@ -513,6 +518,7 @@ export class AuthService {
           password: '',
           name: oauth.name,
           picture: oauth.picture,
+          country: oauth.country || null, // Store country from OAuth token
           otpCode: otpHash,
           last_seen: new Date(), // Set last_seen on user creation
         },
@@ -672,8 +678,13 @@ export class AuthService {
     const email = decoded.email || null;
     const name = decoded.name || null;
     const picture = decoded.picture || null;
+    const locale = decoded.locale || null; // e.g., "en-US", "fr-FR"
 
     if (!sub) throw new BadRequestException('Invalid Google id_token');
+    
+    // Extract country from locale
+    const country = await this.getCountryFromLocaleOrCode(locale, null);
+
     const user = await this.upsertUserFromOAuth(
       {
         provider: 'GOOGLE',
@@ -682,7 +693,8 @@ export class AuthService {
         name,
         picture,
         idToken,
-      },
+        country: country || undefined,
+      } as Parameters<typeof this.upsertUserFromOAuth>[0],
       {
         skipOtpEmail: true,
       },
@@ -729,6 +741,7 @@ export class AuthService {
 
     const sub = verified.sub;
     const email = verified.email ?? null;
+    const locale = verified.locale || decoded.payload.locale || null; // e.g., "en-US", "fr-FR"
 
     if (!sub) throw new BadRequestException('Invalid Apple id_token');
 
@@ -763,6 +776,9 @@ export class AuthService {
       }
     }
 
+    // Extract country from locale
+    const country = await this.getCountryFromLocaleOrCode(locale, null);
+
     const user = await this.upsertUserFromOAuth(
       {
         provider: 'APPLE',
@@ -771,7 +787,8 @@ export class AuthService {
         name, // Use extracted name if available, otherwise null
         picture: null,
         idToken,
-      },
+        country: country || undefined,
+      } as Parameters<typeof this.upsertUserFromOAuth>[0],
       {
         skipOtpEmail: true,
       },
@@ -794,6 +811,7 @@ export class AuthService {
       phone,
       email,
       city,
+      country,
       isFreightForwarder = false,
       companyName,
       companyAddress,
@@ -809,6 +827,7 @@ export class AuthService {
     const trimmedPhone = phone?.trim();
     const trimmedEmail = email?.trim().toLowerCase();
     const trimmedCity = city?.trim() || undefined;
+    const trimmedCountry = country?.trim()?.toLowerCase() || undefined;
     const trimmedCompanyName = companyName?.trim() || undefined;
     const trimmedCompanyAddress = companyAddress?.trim() || undefined;
     const trimmedCities = cities.map((cityData) => ({
@@ -901,6 +920,7 @@ export class AuthService {
           username: trimmedUsername,
           phone: trimmedPhone,
           city: trimmedCity,
+          country: trimmedCountry,
           companyName: trimmedCompanyName,
           companyAddress: trimmedCompanyAddress,
           additionalInfo: '',
@@ -1106,6 +1126,7 @@ export class AuthService {
           username: pendingUser.username,
           phone: pendingUser.phone,
           city: pendingUser.city,
+          country: pendingUser.country?.toLowerCase() || undefined,
           isFreightForwarder: pendingUser.isFreightForwarder,
           companyName: pendingUser.companyName,
           companyAddress: pendingUser.companyAddress,
@@ -1723,6 +1744,63 @@ export class AuthService {
         },
       );
       throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * Extract country code from locale string (e.g., "en-US" -> "US")
+   */
+  private extractCountryCodeFromLocale(locale: string | null | undefined): string | null {
+    if (!locale) return null;
+    
+    try {
+      // Locale format is typically "language-COUNTRY" (e.g., "en-US", "fr-FR", "en-GB")
+      const parts = locale.split('-');
+      if (parts.length >= 2) {
+        // Get the country code part (last part after hyphen)
+        const countryCode = parts[parts.length - 1].toUpperCase();
+        // Validate it's a 2-letter country code
+        if (countryCode.length === 2 && /^[A-Z]{2}$/.test(countryCode)) {
+          return countryCode;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to extract country from locale:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get country name from locale or country code
+   */
+  private async getCountryFromLocaleOrCode(
+    locale: string | null | undefined,
+    countryCode: string | null | undefined,
+  ): Promise<string | null> {
+    try {
+      let code: string | null = null;
+
+      // First, try to get country code from locale
+      if (locale) {
+        code = this.extractCountryCodeFromLocale(locale);
+      }
+
+      // If no code from locale, use provided country code
+      if (!code && countryCode) {
+        code = countryCode.toUpperCase();
+      }
+
+      if (!code) {
+        return null;
+      }
+
+      // Get country info from API
+      const countryInfo = await this.countriesApiService.getCountryInfo(code);
+      return countryInfo?.name?.toLowerCase() || null;
+    } catch (error) {
+      console.error('Failed to get country from locale/code:', error);
+      return null;
     }
   }
 

@@ -87,6 +87,15 @@ export class SignupDto {
   city?: string;
 
   @ApiProperty({
+    description: 'User country',
+    example: 'Cameroon',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  country?: string;
+
+  @ApiProperty({
     description: 'User state',
     example: 'Cameroon',
     required: false,

@@ -40,7 +40,7 @@ export class AdminGetAllUsersQueryDto {
 
   @ApiProperty({
     description:
-      'Search key to filter users by firstName, lastName, username, email, or companyName',
+      'Search key to filter users by userId, firstName, lastName, username, email, or companyName',
     example: 'john',
     required: false,
   })
@@ -93,6 +93,13 @@ export class AdminUserDto {
     required: false,
   })
   lastName?: string | null;
+
+  @ApiProperty({
+    description: 'User country',
+    example: 'cameroon',
+    required: false,
+  })
+  country?: string | null;
 
   @ApiProperty({
     description: 'Whether user is a freight forwarder (business user)',

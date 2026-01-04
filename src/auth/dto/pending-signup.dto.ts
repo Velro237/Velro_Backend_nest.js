@@ -115,6 +115,15 @@ export class PendingSignupDto {
   city?: string;
 
   @ApiProperty({
+    description: 'User country',
+    example: 'Cameroon',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  country?: string;
+
+  @ApiProperty({
     description: 'Whether user is a freight forwarder',
     example: false,
     default: false,

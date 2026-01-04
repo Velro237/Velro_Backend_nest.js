@@ -34,6 +34,21 @@ export class CountriesApiService {
   private readonly baseUrl = 'https://countriesnow.space/api/v0.1/countries';
   private countryCache = new Map<string, CountryInfo>();
 
+  // Fallback mapping for common countries (in case API doesn't return them)
+  private readonly fallbackCountries: Map<string, CountryInfo> = new Map([
+    ['CM', { code: 'CM', name: 'Cameroon', region: 'Central Africa', currency: 'XAF', phoneCode: '+237', continent: 'Africa', capital: 'Yaoundé' }],
+    ['CF', { code: 'CF', name: 'Central African Republic', region: 'Central Africa', currency: 'XAF', phoneCode: '+236', continent: 'Africa', capital: 'Bangui' }],
+    ['TD', { code: 'TD', name: 'Chad', region: 'Central Africa', currency: 'XAF', phoneCode: '+235', continent: 'Africa', capital: 'N\'Djamena' }],
+    ['CG', { code: 'CG', name: 'Republic of the Congo', region: 'Central Africa', currency: 'XAF', phoneCode: '+242', continent: 'Africa', capital: 'Brazzaville' }],
+    ['GQ', { code: 'GQ', name: 'Equatorial Guinea', region: 'Central Africa', currency: 'XAF', phoneCode: '+240', continent: 'Africa', capital: 'Malabo' }],
+    ['GA', { code: 'GA', name: 'Gabon', region: 'Central Africa', currency: 'XAF', phoneCode: '+241', continent: 'Africa', capital: 'Libreville' }],
+    ['US', { code: 'US', name: 'United States', region: 'North America', currency: 'USD', phoneCode: '+1', continent: 'North America', capital: 'Washington, D.C.' }],
+    ['CA', { code: 'CA', name: 'Canada', region: 'North America', currency: 'CAD', phoneCode: '+1', continent: 'North America', capital: 'Ottawa' }],
+    ['FR', { code: 'FR', name: 'France', region: 'Europe', currency: 'EUR', phoneCode: '+33', continent: 'Europe', capital: 'Paris' }],
+    ['GB', { code: 'GB', name: 'United Kingdom', region: 'Europe', currency: 'EUR', phoneCode: '+44', continent: 'Europe', capital: 'London' }],
+    ['DE', { code: 'DE', name: 'Germany', region: 'Europe', currency: 'EUR', phoneCode: '+49', continent: 'Europe', capital: 'Berlin' }],
+  ]);
+
   constructor(private readonly httpService: HttpService) {}
 
   /**
@@ -41,12 +56,24 @@ export class CountriesApiService {
    */
   async getCountryInfo(countryCode: string): Promise<CountryInfo | null> {
     try {
-      // Check cache first
-      if (this.countryCache.has(countryCode)) {
-        return this.countryCache.get(countryCode);
+      // Normalize country code to uppercase for consistent lookups
+      const normalizedCode = countryCode.toUpperCase();
+
+      // Check cache first (using normalized code)
+      if (this.countryCache.has(normalizedCode)) {
+        return this.countryCache.get(normalizedCode);
       }
 
-      this.logger.log(`Fetching country info for: ${countryCode}`);
+      // Check fallback mapping first (before API call)
+      const fallbackCountry = this.fallbackCountries.get(normalizedCode);
+      if (fallbackCountry) {
+        this.logger.log(`Using fallback country info for: ${normalizedCode} -> ${fallbackCountry.name}`);
+        // Cache the fallback result
+        this.countryCache.set(normalizedCode, fallbackCountry);
+        return fallbackCountry;
+      }
+
+      this.logger.log(`Fetching country info for: ${normalizedCode}`);
 
       // Get all countries from API
       const response = await firstValueFrom(
@@ -61,11 +88,11 @@ export class CountriesApiService {
 
       // Find country by ISO2 code
       const country = responseData.data.find(
-        c => c.iso2 && c.iso2.toLowerCase() === countryCode.toLowerCase()
+        c => c.iso2 && c.iso2.toUpperCase() === normalizedCode
       );
 
       if (!country) {
-        this.logger.warn(`Country not found: ${countryCode}`);
+        this.logger.warn(`Country not found: ${normalizedCode}`);
         return null;
       }
 
@@ -79,8 +106,8 @@ export class CountriesApiService {
         capital: country.capital,
       };
 
-      // Cache the result
-      this.countryCache.set(countryCode, countryInfo);
+      // Cache the result (using normalized code)
+      this.countryCache.set(normalizedCode, countryInfo);
       
       this.logger.log(`Country info cached: ${countryInfo.name} (${countryInfo.code})`);
       return countryInfo;
