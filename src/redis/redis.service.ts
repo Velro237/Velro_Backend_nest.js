@@ -37,6 +37,36 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.client;
   }
 
+  // Generic cache operations (for scraper, etc.)
+  async get(key: string): Promise<string | null> {
+    const val = await this.client.get(key);
+    return (val as string) ?? null;
+  }
+
+  async set(key: string, value: string, ttl?: number): Promise<boolean> {
+    if (ttl) {
+      await this.client.setEx(key, ttl, value);
+    } else {
+      await this.client.set(key, value);
+    }
+    return true;
+  }
+
+  async setObject<T>(key: string, value: T, ttl?: number): Promise<boolean> {
+    const serialized = JSON.stringify(value);
+    return this.set(key, serialized, ttl);
+  }
+
+  async getObject<T>(key: string): Promise<T | null> {
+    const value = await this.get(key);
+    if (!value) return null;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return null;
+    }
+  }
+
   // Chat-specific Redis operations
   async setChatCache(
     chatId: string,

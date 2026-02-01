@@ -1,0 +1,122 @@
+import {
+  Controller,
+  Post,
+  Get,
+  Put,
+  Param,
+  Body,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiBody, ApiParam } from '@nestjs/swagger';
+import { I18nLang } from 'nestjs-i18n';
+import { OffersService } from './offers.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from 'generated/prisma';
+import { CreateOfferDto, CancelOfferDto } from './dto/create-offer.dto';
+
+@ApiTags('offers')
+@Controller('offers')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth('JWT-auth')
+export class OffersController {
+  constructor(private readonly offersService: OffersService) {}
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create an offer for a shopping request' })
+  @ApiBody({ type: CreateOfferDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Offer created successfully',
+    schema: {
+      example: {
+        id: 'offer_uuid',
+        shoppingRequestId: 'req_abc123',
+        travelerId: 'user_uuid',
+        requestVersion: 1,
+        rewardAmount: 189,
+        rewardCurrency: 'EUR',
+        additionalFees: 25,
+        message: "I can deliver on Jan 10. I'll buy from the official store in Berlin.",
+        travelDate: '2026-01-10T00:00:00.000Z',
+        status: 'PENDING',
+        createdAt: '2026-01-01T12:00:00.000Z'
+      }
+    }
+  })
+  async create(@Body() dto: CreateOfferDto, @CurrentUser() user: User, @I18nLang() lang: string) {
+    return this.offersService.create(user.id, dto, lang);
+  }
+
+  @Get('mine')
+  @ApiOperation({ summary: "Get current user's offers" })
+  @ApiResponse({ status: 200, description: "List of offers created by the authenticated traveler" })
+  async getMine(@CurrentUser() user: User) {
+    return this.offersService.getMyOffers(user.id);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Get all offers (admin)' })
+  @ApiResponse({ status: 200, description: 'All offers retrieved successfully' })
+  async getAll() {
+    return this.offersService.getAllOffers();
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get an offer by id' })
+  @ApiParam({ name: 'id', description: 'Offer ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Offer retrieved successfully',
+    schema: {
+      example: {
+        id: 'offer_uuid',
+        shoppingRequestId: 'req_abc123',
+        travelerId: 'user_uuid',
+        traveler: { id: 'user_uuid', username: 'traveler1', profile_picture_url: null },
+        requestVersion: 1,
+        rewardAmount: 189,
+        rewardCurrency: 'EUR',
+        additionalFees: 25,
+        message: "I can deliver on Jan 10. I'll buy from the official store in Berlin.",
+        travelDate: '2026-01-10T00:00:00.000Z',
+        status: 'PENDING',
+        createdAt: '2026-01-01T12:00:00.000Z'
+      }
+    }
+  })
+  async getOne(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.offersService.getOfferById(id, user.id);
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: "Update an offer (cancel by traveler)" })
+  @ApiParam({ name: 'id', description: 'Offer ID' })
+  @ApiResponse({ status: 200, description: 'Offer updated successfully' })
+  async update(
+    @Param('id') id: string,
+    @Body() dto: CancelOfferDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.offersService.cancelOffer(id, user.id, dto);
+  }
+
+  @Post(':id/accept')
+  @ApiOperation({ summary: 'Accept an offer (request owner)' })
+  @ApiParam({ name: 'id', description: 'Offer ID' })
+  @ApiResponse({ status: 200, description: 'Offer accepted successfully' })
+  async accept(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.offersService.acceptOffer(id, user.id);
+  }
+
+  @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancel an accepted offer (request owner)' })
+  @ApiParam({ name: 'id', description: 'Offer ID' })
+  @ApiResponse({ status: 200, description: 'Offer cancelled successfully' })
+  async cancelByOwner(@Param('id') id: string, @Body() dto: CancelOfferDto, @CurrentUser() user: User) {
+    return this.offersService.cancelByOwner(id, user.id, dto);
+  }
+}

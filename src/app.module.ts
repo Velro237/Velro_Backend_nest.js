@@ -24,6 +24,11 @@ import { BoatsModule } from './boats/boats.module';
 import { LoggerService } from './logger/logger.service';
 import { LoggerModule } from './logger/logger.module';
 import { DeliveryModule } from './delivery/delivery.module';
+import { ShippingRequestModule } from './shipping-request/shipping-request.module';
+import { ShoppingRequestModule } from './shopping-request/shopping-request.module';
+import { ScraperModule } from './scraper/scraper.module';
+import { OffersModule } from './offers/offers.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import * as path from 'path';
 
 @Module({
@@ -60,6 +65,11 @@ import * as path from 'path';
     BoatsModule,
     LoggerModule,
     DeliveryModule,
+    CloudinaryModule,
+    ShippingRequestModule,
+    ScraperModule,
+    ShoppingRequestModule,
+    OffersModule,
   ],
   controllers: [],
   providers: [LoggerService],

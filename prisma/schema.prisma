@@ -146,6 +146,12 @@ model User {
   transactions          Transaction[]
   accountDeleteRequests AccountDeleteRequest[]
   delevries             Delivery[]
+
+  // Shipping & Shopping (Grabr-style)
+  shippingRequests ShippingRequest[]
+  shoppingRequests ShoppingRequest[]
+  offers           Offer[]
+  travelerStrikes  TravelerStrike[]
 }
 
 enum DeliveryStatus {
@@ -235,8 +241,9 @@ model Chat {
 
   members  ChatMember[]
   messages Message[]
-  trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  request  TripRequest? // One-to-one reverse relation
+  trip              Trip?              @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request           TripRequest?       // One-to-one reverse relation
+  shoppingRequest   ShoppingRequest?   @relation("ShoppingRequestChat")  // Reverse: ShoppingRequest.chat_id
 }
 
 model ChatMember {
@@ -886,4 +893,271 @@ model Logger {
   data          Json?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+}
+
+// ------------------------------------------------------
+// SHIPPING & SHOPPING (Grabr-style) - migrated from Currency Exchange
+// ------------------------------------------------------
+
+enum ShippingDeliveryTimeframe {
+  WITHIN_3_DAYS
+  WITHIN_1_WEEK
+  WITHIN_2_WEEKS
+  FLEXIBLE
+}
+
+enum ShippingWeight {
+  UNDER_1KG
+  KG_1_TO_3
+  KG_3_TO_5
+  KG_5_TO_10
+  ABOVE_10_KG
+}
+
+enum ShippingCategory {
+  LAPTOP
+  PHONE
+  DOCUMENTS
+  FULL_SUITCASE @map("FULL SUITCASE")
+  ELECTRONICS
+  CUSTOM_WEIGHT @map("CUSTOM WEIGHT")
+}
+
+enum ShippingRequestStatus {
+  PUBLISHED
+  BOOKED
+  SHIPPED
+  IN_TRANSIT
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum ShoppingRequestStatus {
+  PUBLISHED
+  OFFER_ACCEPTED
+  PAID
+  BOUGHT
+  PENDING_DELIVERY
+  DELIVERED
+  COMPLETED
+  DISPUTED
+  CANCELLED
+  EXPIRED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum DeliveryTimeframe {
+  ONE_WEEK
+  TWO_WEEKS
+  ONE_MONTH
+  FLEXIBLE
+}
+
+enum RequestSource {
+  WEBVIEW
+  URL
+  MANUAL
+}
+
+enum ProductSource {
+  AMAZON
+  SHEIN
+  HM
+  NIKE
+  ZARA
+  APPLE
+  EBAY
+  OTHER
+}
+
+model ShippingRequest {
+  id                   String                    @id @default(uuid())
+  user_id              String
+  user                 User                      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  category             ShippingCategory
+  package_photo_urls   String[]
+  package_description  String                    @db.Text
+  details_description  String?                   @db.Text
+  from                 String
+  to                   String
+
+  delivery_timeframe   ShippingDeliveryTimeframe
+  weight               ShippingWeight
+  packaging            Boolean                   @default(false)
+
+  traveler_reward      Decimal
+  status               ShippingRequestStatus     @default(PUBLISHED)
+
+  created_at           DateTime                  @default(now())
+  updated_at           DateTime                  @updatedAt
+
+  @@index([user_id])
+  @@index([delivery_timeframe])
+  @@index([weight])
+  @@index([status])
+  @@index([category])
+  @@index([from])
+  @@index([to])
+  @@index([created_at])
+  @@index([traveler_reward])
+}
+
+model Product {
+  id                  String          @id @default(uuid())
+  shopping_request_id String
+  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?       @db.Text
+  source      ProductSource
+  url         String?
+  image_urls  String[]
+
+  price          Decimal
+  price_currency Currency
+  weight         Decimal?
+  quantity       Int      @default(1)
+
+  variants Json?
+
+  in_stock          Boolean @default(true)
+  availability_text String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([shopping_request_id])
+}
+
+model ShoppingRequest {
+  id      String @id @default(uuid())
+  user_id String
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  version         Int       @default(1)
+  current_version Int       @default(1)
+  last_edited_at  DateTime?
+
+  source RequestSource
+
+  products Product[]
+
+  deliver_to         String
+  delivery_timeframe DeliveryTimeframe
+  packaging_option   Boolean           @default(false)
+
+  product_price    Decimal
+  product_currency Currency
+  traveler_reward  Decimal
+  platform_fee     Decimal
+  additional_fees  Decimal  @default(0)
+  total_cost       Decimal
+
+  suggested_reward_percentage Decimal @default(15)
+  reward_currency             Currency
+
+  status     ShoppingRequestStatus @default(PUBLISHED)
+  expires_at DateTime?
+
+  additional_notes String? @db.Text
+
+  offers           Offer[]
+  deliveryTracking DeliveryTracking?
+  chat_id          String?  @unique
+  chat             Chat?   @relation("ShoppingRequestChat", fields: [chat_id], references: [id], onDelete: SetNull)
+
+  purchase_proof_url         String?
+  purchase_proof_uploaded_at DateTime?
+
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  paid_at         DateTime?
+  bought_at       DateTime?
+  delivered_at    DateTime?
+  completed_at    DateTime?
+  cancelled_at    DateTime?
+  cancelled_by_id String?
+
+  @@index([user_id])
+  @@index([status])
+  @@index([expires_at])
+  @@index([created_at])
+}
+
+model Offer {
+  id                  String          @id @default(uuid())
+  shopping_request_id String
+  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+
+  traveler_id String
+  traveler    User   @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
+
+  request_version Int
+
+  reward_amount   Decimal
+  reward_currency Currency
+  additional_fees Decimal   @default(0)
+  travel_date     DateTime?
+  message         String?   @db.Text
+
+  status OfferStatus @default(PENDING)
+
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  accepted_at  DateTime?
+  rejected_at  DateTime?
+  cancelled_at DateTime?
+
+  @@index([shopping_request_id])
+  @@index([traveler_id])
+  @@index([status])
+  @@index([request_version])
+}
+
+model DeliveryTracking {
+  id                  String          @id @default(uuid())
+  shopping_request_id String          @unique
+  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+
+  marked_delivered_at DateTime?
+  auto_release_at     DateTime?
+  confirmed_at        DateTime?
+  confirmed_by        String?
+
+  issue_reported    Boolean   @default(false)
+  issue_reported_at DateTime?
+  issue_reported_by String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([auto_release_at])
+  @@index([marked_delivered_at])
+}
+
+model TravelerStrike {
+  id          String   @id @default(uuid())
+  traveler_id String
+  traveler    User     @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
+
+  offer_id            String
+  shopping_request_id String
+  cancelled_at        DateTime @default(now())
+
+  is_banned Boolean   @default(false)
+  banned_at DateTime?
+
+  created_at DateTime @default(now())
+
+  @@index([traveler_id])
+  @@index([is_banned])
 }

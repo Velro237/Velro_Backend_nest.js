@@ -274,5 +274,25 @@
         "ignore": "Si vous n'avez pas demandé de réinitialisation de mot de passe, veuillez ignorer cet e-mail."
       }
     }
+  },
+  "translation": {
+    "errors": {
+      "scraper": {
+        "unsupported_store": "Le scraping de produits depuis cette URL n'est pas pris en charge. Magasins supportés : Amazon, Shein, H&M, Nike, Zara, Apple, eBay.",
+        "scrape_failed": "Impossible de récupérer les détails du produit. Le site a peut-être changé sa structure, bloqué la requête ou nécessite un rendu JavaScript. Veuillez essayer une saisie manuelle ou contacter le support.",
+        "invalid_url": "Format d'URL invalide.",
+        "empty_basket": "Le tableau des URLs du panier ne peut pas être vide.",
+        "basket_too_large": "Maximum 50 produits par importation de panier."
+      },
+      "shopping_request": {
+        "not_found": "Demande d'achat introuvable",
+        "not_owner": "Vous n'êtes pas le propriétaire de cette demande",
+        "not_published": "La demande n'est pas publiée",
+        "cannot_edit_accepted": "Impossible de modifier une demande acceptée"
+      },
+      "offers": {
+        "cannot_offer_own_request": "Vous ne pouvez pas faire d'offre sur votre propre demande"
+      }
+    }
   }
 }
