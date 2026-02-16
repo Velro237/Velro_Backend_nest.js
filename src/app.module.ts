@@ -25,11 +25,13 @@ import { LoggerService } from './logger/logger.service';
 import { LoggerModule } from './logger/logger.module';
 import { DeliveryModule } from './delivery/delivery.module';
 import { ShippingRequestModule } from './shipping-request/shipping-request.module';
+import { ShippingOfferModule } from './shipping-offer/shipping-offer.module';
 import { ShoppingRequestModule } from './shopping-request/shopping-request.module';
 import { ScraperModule } from './scraper/scraper.module';
 import { OffersModule } from './offers/offers.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import * as path from 'path';
+import { PurchaseProofModule } from './purchase-proof/purchase-proof.module';
 
 @Module({
   imports: [
@@ -67,9 +69,11 @@ import * as path from 'path';
     DeliveryModule,
     CloudinaryModule,
     ShippingRequestModule,
+    ShippingOfferModule,
     ScraperModule,
     ShoppingRequestModule,
     OffersModule,
+    PurchaseProofModule,
   ],
   controllers: [],
   providers: [LoggerService],

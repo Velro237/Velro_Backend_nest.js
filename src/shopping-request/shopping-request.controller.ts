@@ -33,6 +33,7 @@ import {
 } from './dto/create-shopping-request.dto';
 import { UpdateShoppingRequestDto } from './dto/update-shopping-request.dto';
 import { GetShoppingRequestsQueryDto } from './dto/get-shopping-requests-query.dto';
+import { GetShoppingRequestQueryDto } from './dto/get-shopping-request-query.dto';
 
 @ApiTags('shopping-request')
 @ApiExtraModels(CreateShoppingRequestDto)
@@ -144,14 +145,42 @@ export class ShoppingRequestController {
     return this.shoppingRequestService.update(user.id, id, dto, lang);
   }
 
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Get a shopping request by id',
+    description:
+      'Returns a shopping request. If the caller is the request owner, returned data includes submitted offers.',
+  })
+  @ApiParam({ name: 'id', description: 'Shopping Request ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Shopping request retrieved successfully',
+  })
+  async getById(
+    @Param('id') id: string,
+    @Query() query: GetShoppingRequestQueryDto,
+    @CurrentUser() user: User,
+  ) {
+    const page = query?.offersPage ?? 1;
+    const limit = query?.offersLimit ?? 3;
+    return this.shoppingRequestService.getRequestById(user.id, id, {
+      page,
+      limit,
+    });
+  }
+
   @Get(':id/offers')
   @ApiOperation({
     summary: 'Get offers for a shopping request',
-    description: 'Returns all offers made for a specific shopping request. Only the request owner may view offers.',
+    description:
+      'Returns all offers made for a specific shopping request. Only the request owner may view offers.',
   })
   @ApiParam({ name: 'id', description: 'Shopping Request ID' })
   @ApiResponse({ status: 200, description: 'Offers retrieved successfully' })
-  async getOffersForRequest(@Param('id') id: string, @CurrentUser() user: User) {
+  async getOffersForRequest(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+  ) {
     return this.offersService.getOffersForRequest(id, user.id);
   }
 }

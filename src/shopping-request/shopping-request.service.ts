@@ -114,7 +114,8 @@ export class ShoppingRequestService {
       new URL(dto.source);
       dbSource = RequestSource.URL;
     } catch {
-      dbSource = (dto.source as unknown as RequestSource) || RequestSource.MANUAL;
+      dbSource =
+        (dto.source as unknown as RequestSource) || RequestSource.MANUAL;
     }
 
     // Create shopping request with products
@@ -257,6 +258,28 @@ export class ShoppingRequestService {
       where.status = query.status;
     }
 
+    if ((query as any).destination) {
+      where.deliver_to = {
+        contains: (query as any).destination,
+        mode: 'insensitive',
+      };
+    }
+
+    if ((query as any).date) {
+      try {
+        const d = new Date((query as any).date);
+        if (!isNaN(d.getTime())) {
+          const start = new Date(d);
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(start);
+          end.setDate(end.getDate() + 1);
+          where.created_at = { gte: start, lt: end };
+        }
+      } catch (err) {
+        // ignore invalid date filter
+      }
+    }
+
     const [data, total] = await Promise.all([
       this.prisma.shoppingRequest.findMany({
         where,
@@ -291,6 +314,190 @@ export class ShoppingRequestService {
         limit,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  /**
+   * Get a single shopping request by id. If the caller is the request owner,
+   * include submitted offers (with limited traveler info).
+   */
+  async getRequestById(
+    userId: string,
+    requestId: string,
+    opts?: { page?: number; limit?: number },
+  ) {
+    // First fetch without offers to check existence
+    const baseInclude = {
+      products: true,
+      user: {
+        select: {
+          id: true,
+          username: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+      _count: { select: { offers: true } },
+    } as const;
+
+    const request = await this.prisma.shoppingRequest.findUnique({
+      where: { id: requestId },
+      include: baseInclude,
+    });
+
+    if (!request) {
+      throw new NotFoundException({ code: 'SHOPPING_REQUEST_NOT_FOUND' });
+    }
+
+    const page = opts?.page ?? 1;
+    const limit = opts?.limit ?? 3;
+    const skip = (page - 1) * limit;
+
+    // Determine if caller can see offers: owner OR has created an offer for this request
+    const isOwner = request.user_id === userId;
+    const hasOffer = await this.prisma.offer.findFirst({
+      where: { shopping_request_id: requestId, traveler_id: userId },
+      select: { id: true },
+    });
+
+    if (!isOwner && !hasOffer) {
+      // Not permitted to see any offers
+      return request;
+    }
+
+    // If owner: count and fetch all offers. If traveler: count and fetch only their own offers.
+    const offersWhere: any = isOwner
+      ? { shopping_request_id: requestId }
+      : { shopping_request_id: requestId, traveler_id: userId };
+
+    // Count total offers for pagination metadata (for owner: all offers, for traveler: their offers)
+    const totalOffers = await this.prisma.offer.count({ where: offersWhere });
+
+    // Fetch paginated offers with traveler info
+    const offers = await this.prisma.offer.findMany({
+      where: offersWhere,
+      orderBy: { created_at: 'desc' },
+      skip,
+      take: limit,
+      include: {
+        traveler: {
+          select: {
+            id: true,
+            username: true,
+            firstName: true,
+            lastName: true,
+            picture: true,
+          },
+        },
+      },
+    });
+
+    // Enrich offers with rating, completed count, and hoursAgo
+    const enrichedOffers = await Promise.all(
+      offers.map(async (o) => {
+        const traveler = o.traveler as any;
+
+        // Compute average rating for traveler
+        const ratings = await this.prisma.rating.findMany({
+          where: { receiver_id: traveler.id },
+          select: { rating: true },
+        });
+        const totalRatings = ratings.length;
+        const averageRating =
+          totalRatings > 0
+            ? ratings.reduce((sum, r) => sum + r.rating, 0) / totalRatings
+            : 0;
+
+        // Count completed offers by this traveler (as a proxy for completed requests)
+        const completedCount = await this.prisma.offer.count({
+          where: { traveler_id: traveler.id, status: 'COMPLETED' },
+        });
+
+        const createdAt = o.created_at
+          ? new Date(o.created_at).getTime()
+          : Date.now();
+        const hoursAgo = Math.max(
+          0,
+          Math.floor((Date.now() - createdAt) / (1000 * 60 * 60)),
+        );
+
+        const travelerName =
+          traveler.firstName || traveler.username || 'Traveler';
+
+        return {
+          id: o.id,
+          travelerId: traveler.id,
+          travelerName,
+          offerPrice: Number(o.reward_amount ?? 0),
+          rewardCurrency: o.reward_currency,
+          rating: Number(averageRating.toFixed(2)),
+          completedRequests: completedCount,
+          hoursAgo,
+          message: o.message,
+          status: o.status,
+          createdAt: o.created_at,
+        };
+      }),
+    );
+
+    return {
+      ...request,
+      offers: enrichedOffers,
+      offersMeta: {
+        total: totalOffers,
+        page,
+        limit,
+        totalPages: Math.ceil(totalOffers / limit),
+      },
+    };
+  }
+
+  /**
+   * Rate a traveler for a specific offer on a shopping request.
+   * Only the request owner may rate the traveler for that request.
+   */
+  async rateTravelerOnOffer(
+    userId: string,
+    requestId: string,
+    offerId: string,
+    dto: { rating: number; review?: string },
+    lang: string,
+  ) {
+    // Validate request
+    const request = await this.prisma.shoppingRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) {
+      throw new NotFoundException({ code: 'SHOPPING_REQUEST_NOT_FOUND' });
+    }
+
+    if (request.user_id !== userId) {
+      throw new ForbiddenException({ code: 'NOT_REQUEST_OWNER' });
+    }
+
+    // Validate offer
+    const offer = await this.prisma.offer.findUnique({
+      where: { id: offerId },
+    });
+    if (!offer || offer.shopping_request_id !== requestId) {
+      throw new NotFoundException({ code: 'OFFER_NOT_FOUND' });
+    }
+
+    // Create rating record (giver is request owner, receiver is traveler)
+    const created = await this.prisma.rating.create({
+      data: {
+        giver_id: userId,
+        receiver_id: offer.traveler_id,
+        trip_id: null,
+        request_id: requestId,
+        rating: dto.rating,
+        comment: dto.review ?? null,
+      },
+    });
+
+    return {
+      message: 'Rating created successfully',
+      rating: created,
     };
   }
 

@@ -17,6 +17,7 @@ import {
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
 import { CreateChatDto, CreateChatResponseDto } from './dto/create-chat.dto';
+import { InitiateRequestChatDto } from './dto/initiate-request-chat.dto';
 import { GetChatsQueryDto, GetChatsResponseDto } from './dto/get-chats.dto';
 import {
   GetMessagesQueryDto,
@@ -75,6 +76,32 @@ export class ChatController {
     }
 
     return result;
+  }
+
+  @Post('initiate-request-chat')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Initiate or retrieve chat for a request',
+    description:
+      'Used when traveler clicks "Message" button on request details page before creating an offer. Returns existing chat if one exists between requester and traveler for this request, creates new chat otherwise.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Chat initiated or retrieved successfully',
+    type: CreateChatResponseDto,
+  })
+  async initiateRequestChat(
+    @Body() dto: InitiateRequestChatDto,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ): Promise<CreateChatResponseDto> {
+    return this.chatService.initiateRequestChat(
+      user.id,
+      dto.requestId,
+      dto.requestType,
+      dto.messageContent,
+      lang,
+    );
   }
 
   @Get()
