@@ -1,6 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsEnum, IsNumber, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsOptional,
+  IsEnum,
+  IsNumber,
+  Min,
+  Max,
+  IsString,
+  IsDateString,
+} from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 import { ShoppingRequestStatus } from 'generated/prisma';
 
 export class GetShoppingRequestsQueryDto {
@@ -34,6 +42,21 @@ export class GetShoppingRequestsQueryDto {
   @IsEnum(ShoppingRequestStatus)
   @IsOptional()
   status?: ShoppingRequestStatus;
+
+  @ApiPropertyOptional({
+    description: 'Filter by destination (matches deliver_to)',
+  })
+  @IsOptional()
+  @IsString()
+  destination?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter by creation date (ISO date, e.g. 2026-02-16)',
+  })
+  @IsOptional()
+  @IsDateString()
+  @Transform(({ value }) => (value ? String(value) : undefined))
+  date?: string;
 
   @ApiPropertyOptional({
     description:

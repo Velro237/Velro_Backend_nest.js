@@ -149,9 +149,11 @@ model User {
 
   // Shipping & Shopping (Grabr-style)
   shippingRequests ShippingRequest[]
+  shippingOffers   ShippingOffer[]   @relation("ShippingOffers")
   shoppingRequests ShoppingRequest[]
   offers           Offer[]
   travelerStrikes  TravelerStrike[]
+  purchaseProofs   PurchaseProof[]
 }
 
 enum DeliveryStatus {
@@ -225,12 +227,15 @@ model RefreshToken {
 enum ChatType {
   TRIP
   SUPPORT
+  SHOPPING
 }
 
 model Chat {
-  id      String  @id @default(uuid())
-  name    String?
-  trip_id String? // Optional: link to trip (multiple chats allowed per trip)
+  id                    String  @id @default(uuid())
+  name                  String?
+  trip_id               String? // Optional: link to trip (multiple chats allowed per trip)
+  shopping_request_id   String? // Optional: link to shopping request (for pre-offer chats)
+  shipping_request_id   String? // Optional: link to shipping request (for pre-offer chats)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -242,8 +247,11 @@ model Chat {
   members  ChatMember[]
   messages Message[]
   trip              Trip?              @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  shoppingRequest   ShoppingRequest?   @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+  shippingRequest   ShippingRequest?   @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
   request           TripRequest?       // One-to-one reverse relation
-  shoppingRequest   ShoppingRequest?   @relation("ShoppingRequestChat")  // Reverse: ShoppingRequest.chat_id
+  offer             Offer?             @relation("OfferChat")  // Reverse: Offer.chat_id
+  shippingOffer     ShippingOffer?     @relation("ShippingOfferChat")  // Reverse: ShippingOffer.chat_id
 }
 
 model ChatMember {
@@ -296,6 +304,7 @@ enum MessageType {
   IMAGE
   REQUEST
   PAYMENT
+  DELIVERY
   SYSTEM
   REVIEW
   WARNING
@@ -364,8 +373,72 @@ model Image {
   updated_at DateTime @updatedAt
 
   // Relations
-  trip_items   TripItem[]
-  requestLinks TripRequestImage[]
+  trip_items               TripItem[]
+  requestLinks             TripRequestImage[]
+  purchaseProofsAsPrimary  PurchaseProof[]  @relation
+  proofImages              ProofImage[]
+}
+
+enum ProofImageType {
+  RECEIPT
+  PRODUCT_PHOTO
+}
+
+enum ProofStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ProofDecision {
+  APPROVE
+  REJECT
+}
+
+model PurchaseProof {
+  id                       String    @id @default(uuid())
+  offer_id                 String?
+  offer                    Offer?    @relation(fields: [offer_id], references: [id], onDelete: Cascade)
+  uploader_id              String
+  uploader                 User      @relation(fields: [uploader_id], references: [id], onDelete: Cascade)
+  status                   ProofStatus @default(PENDING)
+  primary_receipt_image_id String?
+  primary_receipt_image    Image?    @relation(fields: [primary_receipt_image_id], references: [id], onDelete: SetNull)
+  metadata                 Json?
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  proof_images             ProofImage[]
+  verifications            ProofVerification[]
+
+  @@index([offer_id])
+  @@index([uploader_id])
+}
+
+model ProofImage {
+  id       String         @id @default(uuid())
+  proof_id String
+  image_id String
+  type     ProofImageType
+  ord      Int?
+
+  proof PurchaseProof @relation(fields: [proof_id], references: [id], onDelete: Cascade)
+  image Image          @relation(fields: [image_id], references: [id], onDelete: Cascade)
+
+  @@index([proof_id])
+  @@index([image_id])
+}
+
+model ProofVerification {
+  id          String     @id @default(uuid())
+  proof_id    String
+  proof       PurchaseProof @relation(fields: [proof_id], references: [id], onDelete: Cascade)
+  verified_by String?
+  decision    ProofDecision
+  reason      String?
+  created_at  DateTime   @default(now())
+
+  @@index([proof_id])
 }
 
 enum Language {
@@ -654,8 +727,9 @@ model Rating {
   id          String   @id @default(uuid())
   giver_id    String // User giving the rating
   receiver_id String // User receiving the rating
-  trip_id     String // Trip being rated
-  request_id  String? // Optional: specific request being rated
+  trip_id     String? // Trip being rated (optional for shopping request ratings)
+  request_id  String? // Optional: specific trip request being rated
+  shopping_request_id String? // Optional: specific shopping request being rated
   rating      Int // Rating value (1-5)
   comment     String? // Optional comment
   created_at  DateTime @default(now())
@@ -664,10 +738,11 @@ model Rating {
   // Relations
   giver    User         @relation("RatingGiver", fields: [giver_id], references: [id], onDelete: Cascade)
   receiver User         @relation("RatingReceiver", fields: [receiver_id], references: [id], onDelete: Cascade)
-  trip     Trip         @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
   request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  shoppingRequest ShoppingRequest? @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
 
-  @@unique([giver_id, receiver_id, trip_id]) // Prevent duplicate ratings for same trip
+  @@unique([giver_id, receiver_id, trip_id]) // Prevent duplicate ratings for same trip (trip_id may be null)
 }
 
 model Alert {
@@ -925,6 +1000,7 @@ enum ShippingCategory {
 
 enum ShippingRequestStatus {
   PUBLISHED
+  OFFER_ACCEPTED
   BOOKED
   SHIPPED
   IN_TRANSIT
@@ -951,6 +1027,8 @@ enum OfferStatus {
   PENDING
   ACCEPTED
   REJECTED
+  DELIVERED
+  COMPLETED
   CANCELLED
 }
 
@@ -1000,6 +1078,10 @@ model ShippingRequest {
   created_at           DateTime                  @default(now())
   updated_at           DateTime                  @updatedAt
 
+  // Relations
+  offers               ShippingOffer[]
+  chats                Chat[]  // Pre-offer chats initiated from request details
+
   @@index([user_id])
   @@index([delivery_timeframe])
   @@index([weight])
@@ -1009,6 +1091,37 @@ model ShippingRequest {
   @@index([to])
   @@index([created_at])
   @@index([traveler_reward])
+}
+
+model ShippingOffer {
+  id                  String                @id @default(uuid())
+  shipping_request_id String
+  shipping_request    ShippingRequest       @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
+
+  traveler_id String
+  traveler    User   @relation("ShippingOffers", fields: [traveler_id], references: [id], onDelete: Cascade)
+
+  reward_amount Decimal
+  travel_date   DateTime?
+  message       String? @db.Text
+
+  // Chat relation - each offer has its own private chat
+  chat_id String? @unique
+  chat    Chat?   @relation("ShippingOfferChat", fields: [chat_id], references: [id], onDelete: SetNull)
+
+  status OfferStatus @default(PENDING)
+
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  accepted_at  DateTime?
+  delivered_at DateTime?
+  rejected_at  DateTime?
+  cancelled_at DateTime?
+
+  @@index([shipping_request_id])
+  @@index([traveler_id])
+  @@index([status])
+  @@index([chat_id])
 }
 
 model Product {
@@ -1071,9 +1184,9 @@ model ShoppingRequest {
   additional_notes String? @db.Text
 
   offers           Offer[]
+  chats            Chat[]  // Pre-offer chats initiated from request details
   deliveryTracking DeliveryTracking?
-  chat_id          String?  @unique
-  chat             Chat?   @relation("ShoppingRequestChat", fields: [chat_id], references: [id], onDelete: SetNull)
+  ratings          Rating[] // Ratings for this shopping request
 
   purchase_proof_url         String?
   purchase_proof_uploaded_at DateTime?
@@ -1109,7 +1222,13 @@ model Offer {
   travel_date     DateTime?
   message         String?   @db.Text
 
+  // Chat relation - each offer has its own private chat
+  chat_id String? @unique
+  chat    Chat?   @relation("OfferChat", fields: [chat_id], references: [id], onDelete: SetNull)
+
   status OfferStatus @default(PENDING)
+
+  purchase_proofs PurchaseProof[]
 
   created_at   DateTime  @default(now())
   updated_at   DateTime  @updatedAt
@@ -1121,6 +1240,7 @@ model Offer {
   @@index([traveler_id])
   @@index([status])
   @@index([request_version])
+  @@index([chat_id])
 }
 
 model DeliveryTracking {

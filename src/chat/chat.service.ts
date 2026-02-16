@@ -211,6 +211,309 @@ export class ChatService {
   }
 
   /**
+   * Initiate or retrieve existing chat for a request (shopping/shipping)
+   * Used when traveler clicks "Message" button on request details before creating an offer
+   * Returns existing chat if one exists between requester and traveler for this request
+   * Creates new chat if none exists
+   */
+  async initiateRequestChat(
+    userId: string,
+    requestId: string,
+    requestType: 'SHOPPING' | 'SHIPPING',
+    messageContent?: string,
+    lang?: string,
+  ): Promise<CreateChatResponseDto> {
+    try {
+      // Get the request to find the requester (owner)
+      const request =
+        requestType === 'SHOPPING'
+          ? await this.prisma.shoppingRequest.findUnique({
+              where: { id: requestId },
+              select: { user_id: true },
+            })
+          : await this.prisma.shippingRequest.findUnique({
+              where: { id: requestId },
+              select: { user_id: true },
+            });
+
+      if (!request) {
+        const message = await this.i18n.translate(
+          'translation.chat.requestNotFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      const requesterId = request.user_id;
+
+      // Prevent users from chatting with themselves
+      if (userId === requesterId) {
+        const message = await this.i18n.translate(
+          'translation.chat.create.cannotChatWithSelf',
+          { lang },
+        );
+        throw new ConflictException(message);
+      }
+
+      // Check if chat already exists for this request between these two users
+      const requestIdField =
+        requestType === 'SHOPPING'
+          ? 'shopping_request_id'
+          : 'shipping_request_id';
+      const existingChat = await this.prisma.chat.findFirst({
+        where: {
+          [requestIdField]: requestId,
+          members: {
+            every: {
+              user_id: {
+                in: [userId, requesterId],
+              },
+            },
+          },
+        },
+        include: {
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                  role: true,
+                },
+              },
+            },
+          },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (existingChat) {
+        // Chat exists, optionally send a new message if messageContent provided
+        let newMessage = null;
+        if (messageContent) {
+          newMessage = await this.prisma.message.create({
+            data: {
+              content: messageContent,
+              type: PrismaMessageType.TEXT,
+              chat_id: existingChat.id,
+              sender_id: userId,
+            },
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+          });
+
+          // Send push notification
+          this.sendPushNotificationToChatMembers(
+            existingChat.id,
+            userId,
+            newMessage,
+          ).catch((error) => {
+            console.error('Push notification error (non-blocking):', error);
+          });
+        }
+
+        const message = await this.i18n.translate(
+          'translation.chat.existingChatRetrieved',
+          { lang },
+        );
+
+        return {
+          message,
+          chat: {
+            id: existingChat.id,
+            name: existingChat.name,
+            createdAt: existingChat.createdAt,
+            members: existingChat.members.map((member) => ({
+              id: member.user.id,
+              email: member.user.email,
+              firstName: member.user.firstName,
+              lastName: member.user.lastName,
+              role: member.user.role,
+            })),
+          },
+          lastMessage: newMessage
+            ? {
+                id: newMessage.id,
+                content: newMessage.content,
+                type: newMessage.type,
+                createdAt: newMessage.createdAt,
+                sender: {
+                  id: newMessage.sender.id,
+                  email: newMessage.sender.email,
+                  firstName: newMessage.sender.firstName,
+                  lastName: newMessage.sender.lastName,
+                },
+              }
+            : existingChat.messages[0]
+              ? {
+                  id: existingChat.messages[0].id,
+                  content: existingChat.messages[0].content,
+                  type: existingChat.messages[0].type,
+                  createdAt: existingChat.messages[0].createdAt,
+                  sender: {
+                    id: existingChat.messages[0].sender.id,
+                    email: existingChat.messages[0].sender.email,
+                    firstName: existingChat.messages[0].sender.firstName,
+                    lastName: existingChat.messages[0].sender.lastName,
+                  },
+                }
+              : null,
+        };
+      }
+
+      // No existing chat, create new one
+      const { chat, lastMessage } = await this.prisma.$transaction(
+        async (prisma) => {
+          // Create the chat with request context
+          const newChat = await prisma.chat.create({
+            data: {
+              name: null,
+              trip_id: null,
+              [requestIdField]: requestId,
+              type: requestType === 'SHOPPING' ? 'SHOPPING' : 'TRIP', // Use SHOPPING for shopping requests
+            },
+          });
+
+          // Add both users as members
+          await prisma.chatMember.createMany({
+            data: [
+              { chat_id: newChat.id, user_id: userId },
+              { chat_id: newChat.id, user_id: requesterId },
+            ],
+          });
+
+          // Create initial message if provided
+          let initialMessage = null;
+          if (messageContent) {
+            initialMessage = await prisma.message.create({
+              data: {
+                content: messageContent,
+                type: PrismaMessageType.TEXT,
+                chat_id: newChat.id,
+                sender_id: userId,
+              },
+              include: {
+                sender: {
+                  select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                  },
+                },
+              },
+            });
+          }
+
+          // Fetch the chat with members
+          const chat = await prisma.chat.findUnique({
+            where: { id: newChat.id },
+            include: {
+              members: {
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                      firstName: true,
+                      lastName: true,
+                      role: true,
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          return { chat, lastMessage: initialMessage };
+        },
+      );
+
+      // Send push notification if message was created
+      if (messageContent && lastMessage) {
+        this.sendPushNotificationToChatMembers(
+          chat.id,
+          userId,
+          lastMessage,
+        ).catch((error) => {
+          console.error('Push notification error (non-blocking):', error);
+        });
+      }
+
+      const message = await this.i18n.translate(
+        'translation.chat.create.success',
+        { lang },
+      );
+
+      return {
+        message,
+        chat: {
+          id: chat.id,
+          name: chat.name,
+          createdAt: chat.createdAt,
+          members: chat.members.map((member) => ({
+            id: member.user.id,
+            email: member.user.email,
+            firstName: member.user.firstName,
+            lastName: member.user.lastName,
+            role: member.user.role,
+          })),
+        },
+        lastMessage: lastMessage
+          ? {
+              id: lastMessage.id,
+              content: lastMessage.content,
+              type: lastMessage.type,
+              createdAt: lastMessage.createdAt,
+              sender: {
+                id: lastMessage.sender.id,
+                email: lastMessage.sender.email,
+                firstName: lastMessage.sender.firstName,
+                lastName: lastMessage.sender.lastName,
+              },
+            }
+          : null,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+      console.log('Error initiating request chat:', error);
+      const message = await this.i18n.translate(
+        'translation.chat.create.failed',
+        { lang },
+      );
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
    * Delete all chats that have no messages
    */
   private async deleteEmptyChats(): Promise<void> {
@@ -3962,94 +4265,94 @@ export class ChatService {
               },
             },
             include: {
-            members: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    role: true,
-                    picture: true,
+              members: {
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                      firstName: true,
+                      lastName: true,
+                      role: true,
+                      picture: true,
+                    },
+                  },
+                },
+              },
+              messages: {
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                include: {
+                  sender: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                      firstName: true,
+                      lastName: true,
+                      picture: true,
+                    },
+                  },
+                },
+              },
+              trip: {
+                select: {
+                  id: true,
+                  pickup: true,
+                  departure: true,
+                  destination: true,
+                  departure_date: true,
+                  departure_time: true,
+                  currency: true,
+                  airline_id: true,
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+              request: {
+                select: {
+                  id: true,
+                  status: true,
+                  cost: true,
+                  currency: true,
+                  created_at: true,
+                  user: {
+                    select: {
+                      id: true,
+                      email: true,
+                      name: true,
+                      firstName: true,
+                      lastName: true,
+                      picture: true,
+                    },
+                  },
+                  request_items: {
+                    select: {
+                      quantity: true,
+                    },
+                  },
+                },
+              },
+              _count: {
+                select: {
+                  messages: {
+                    where: {
+                      isRead: false,
+                      sender_id: { not: adminId },
+                    },
                   },
                 },
               },
             },
-            messages: {
-              orderBy: { createdAt: 'desc' },
-              take: 1,
-              include: {
-                sender: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            trip: {
-              select: {
-                id: true,
-                pickup: true,
-                departure: true,
-                destination: true,
-                departure_date: true,
-                departure_time: true,
-                currency: true,
-                airline_id: true,
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                  },
-                },
-              },
-            },
-            request: {
-              select: {
-                id: true,
-                status: true,
-                cost: true,
-                currency: true,
-                created_at: true,
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-                request_items: {
-                  select: {
-                    quantity: true,
-                  },
-                },
-              },
-            },
-            _count: {
-              select: {
-                messages: {
-                  where: {
-                    isRead: false,
-                    sender_id: { not: adminId },
-                  },
-                },
-              },
-            },
-          },
+          });
         });
-      });
 
-      // Invalidate cache for user chats
+        // Invalidate cache for user chats
       }
 
       // Transform to ChatSummaryDto format (same as getChats)
