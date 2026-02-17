@@ -32,6 +32,7 @@ import { OffersModule } from './offers/offers.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import * as path from 'path';
 import { PurchaseProofModule } from './purchase-proof/purchase-proof.module';
+import { MarketplaceListingModule } from './marketplace-listing/marketplace-listing.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { PurchaseProofModule } from './purchase-proof/purchase-proof.module';
     ShoppingRequestModule,
     OffersModule,
     PurchaseProofModule,
+    MarketplaceListingModule,
   ],
   controllers: [],
   providers: [LoggerService],
