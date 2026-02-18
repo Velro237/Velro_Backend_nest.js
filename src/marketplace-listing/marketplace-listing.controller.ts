@@ -21,6 +21,7 @@ import {
   ApiConsumes,
   ApiExtraModels,
   ApiOperation,
+  ApiParam,
   ApiResponse,
   ApiTags,
   getSchemaPath,
@@ -30,13 +31,13 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { FileConstants } from 'src/shared/constants/file.constants';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
-import { CacheTTL } from '@nestjs/cache-manager';
 import { RedisCacheInterceptor } from 'src/redis/interceptors/redis-cache.interceptor';
 import { RedisTTL } from 'src/redis/decorators/redis-ttl.decorator';
 import {
   MarketplaceListingDetialDto,
   MarketplaceListingDto,
 } from './dto/get-marketplace-listing.dto';
+import { TimeMs } from 'src/shared/utils';
 
 @ApiTags('Marketplace', 'Listing')
 @ApiExtraModels(CreateMarketplaceListingDto)
@@ -68,13 +69,13 @@ export class MarketplaceListingController {
       ],
     },
   })
-  @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FilesInterceptor('images', FileConstants.MAX_FILE_UPLOADS))
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'The record has been successfully created.',
     type: MarketplaceListingDto,
   })
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FilesInterceptor('images', FileConstants.MAX_FILE_UPLOADS))
   create(
     @UploadedFiles(
       new ParseFilePipeBuilder()
@@ -108,12 +109,17 @@ export class MarketplaceListingController {
   @ApiOperation({
     summary: 'Get a specific marketplace listing and its details',
   })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    required: true,
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Successful response',
     type: MarketplaceListingDetialDto,
   })
-  @RedisTTL(60000)
+  @RedisTTL(TimeMs.minutes(1))
   @UseInterceptors(RedisCacheInterceptor)
   findOne(@Param('id') id: string) {
     return this.marketplaceListingService.findOne(id);
@@ -121,18 +127,46 @@ export class MarketplaceListingController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
+  @ApiOperation({
+    summary: 'Update a specific marketplace listing',
+  })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    required: true,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'The record has been successfully updated.',
+    type: MarketplaceListingDto,
+  })
   update(
     @Param('id') id: string,
     @Body() updateMarketplaceListingDto: UpdateMarketplaceListingDto,
+    @CurrentUser('id') userId: string,
   ) {
     return this.marketplaceListingService.update(
-      +id,
+      id,
       updateMarketplaceListingDto,
+      userId,
     );
   }
 
   @UseGuards(JwtAuthGuard)
-  @Patch(':id/publish')
+  @Post(':id/publish')
+  @ApiOperation({
+    summary: 'Publish a specific marketplace listing',
+  })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    required: true,
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'The record has been successfully published.',
+    type: MarketplaceListingDto,
+  })
   publish(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.marketplaceListingService.publish(id, userId);
   }

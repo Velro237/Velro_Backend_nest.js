@@ -10,11 +10,13 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { TooManyRequestsException } from 'src/shared/exceptions/too-many-requests.exception';
 import { ImageService } from 'src/shared/services/image.service';
 import { ErrorMessage } from './misc/error-message';
+import { TimeMs } from 'src/shared/utils';
 
 @Injectable()
 export class MarketplaceListingService {
   private readonly logger: Logger;
   private readonly MAX_LISTING_LIMIT = 20;
+  private readonly LISTING_DURATION = TimeMs.days(30);
 
   constructor(
     private readonly prismaService: PrismaService,
@@ -28,9 +30,13 @@ export class MarketplaceListingService {
     createMarketplaceListingDto: CreateMarketplaceListingDto,
     userId: string,
   ) {
+    let expiryDate: Date | undefined = undefined;
+
     // Check if the user has exhausted their listing limit
     if (createMarketplaceListingDto.status === 'PUBLISHED') {
       const canPublish = await this.canUserPublishListing(userId);
+      expiryDate = this.calcExpiryDate();
+
       if (!canPublish) {
         throw new TooManyRequestsException(ErrorMessage.PUBLISH_QUOTA_EXCEEDED);
       }
@@ -42,6 +48,7 @@ export class MarketplaceListingService {
     const data = await this.prismaService.marketplaceListing.create({
       data: {
         ...createMarketplaceListingDto,
+        expiresAt: expiryDate,
         user: {
           connect: {
             id: userId,
@@ -120,30 +127,44 @@ export class MarketplaceListingService {
     };
   }
 
-  update(id: number, updateMarketplaceListingDto: UpdateMarketplaceListingDto) {
-    return `This action updates a #${id} marketplaceListing`;
-  }
+  async update(
+    id: string,
+    updateMarketplaceListingDto: UpdateMarketplaceListingDto,
+    userId: string,
+  ) {
+    const listing = await this.getListingByIdAndUserId(id, userId);
 
-  async publish(id: string, userId: string) {
-    const listing = await this.prismaService.marketplaceListing.findUnique({
-      where: { id, userId },
-    });
-
-    if (!listing) throw new NotFoundException(ErrorMessage.LISTING_NOT_FOUND);
-
-    const canPublish = await this.canUserPublishListing(userId);
-    if (!canPublish) {
-      throw new TooManyRequestsException(ErrorMessage.PUBLISH_QUOTA_EXCEEDED);
+    if (listing.status === 'ARCHIVED' || listing.status === 'PAID_ESCROW') {
+      throw new BadRequestException(ErrorMessage.LISTING_CANNOT_BE_MODIFIED);
     }
 
     if (listing.status === 'PUBLISHED') {
+      // Discard price, quantity, and currency
+      updateMarketplaceListingDto.price = undefined;
+      updateMarketplaceListingDto.quantity = undefined;
+      updateMarketplaceListingDto.currency = undefined;
+    }
+
+    return await this.prismaService.marketplaceListing.update({
+      where: { id },
+      data: updateMarketplaceListingDto,
+    });
+  }
+
+  async publish(id: string, userId: string) {
+    const listing = await this.getListingByIdAndUserId(id, userId);
+
+    if (listing.status !== 'DRAFT') {
       throw new BadRequestException(ErrorMessage.LISTING_ALREADY_PUBLISHED);
     }
+
+    const expiresAt = this.calcExpiryDate();
 
     return await this.prismaService.marketplaceListing.update({
       where: { id },
       data: {
         status: 'PUBLISHED',
+        expiresAt,
       },
     });
   }
@@ -160,5 +181,26 @@ export class MarketplaceListingService {
       },
     });
     return limit < this.MAX_LISTING_LIMIT;
+  }
+
+  private async getListingByIdAndUserId(id: string, userId: string) {
+    const listing = await this.prismaService.marketplaceListing.findUnique({
+      where: { id, userId },
+    });
+
+    if (!listing) throw new NotFoundException(ErrorMessage.LISTING_NOT_FOUND);
+
+    const canPublish = await this.canUserPublishListing(userId);
+    if (!canPublish) {
+      throw new TooManyRequestsException(ErrorMessage.PUBLISH_QUOTA_EXCEEDED);
+    }
+
+    return listing;
+  }
+
+  private calcExpiryDate(): Date {
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    return new Date(today + this.LISTING_DURATION);
   }
 }

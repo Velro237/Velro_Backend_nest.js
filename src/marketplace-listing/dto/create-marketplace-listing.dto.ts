@@ -19,7 +19,7 @@ import {
   MarketplaceListingItemStatus,
 } from 'generated/prisma';
 
-export class CreateMarketplaceListingDto {
+export class CreateMarketplaceListingDtoBase {
   @ApiProperty({
     description: 'Product name',
     required: true,
@@ -129,7 +129,9 @@ export class CreateMarketplaceListingDto {
     return v === 'true' || v === '1';
   })
   canShipInternationally: boolean;
+}
 
+export class CreateMarketplaceListingDto extends CreateMarketplaceListingDtoBase {
   @ApiProperty({
     description: 'Listing status',
     required: true,

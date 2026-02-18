@@ -3,4 +3,7 @@ export class ErrorMessage {
   public static readonly LISTING_NOT_FOUND = `Listing not found`;
   public static readonly LISTING_ALREADY_PUBLISHED =
     'Listing is already published';
+
+  public static readonly LISTING_CANNOT_BE_MODIFIED =
+    'This listing cannot be modified. Please archive the listing and create a new one.';
 }

@@ -1,4 +1,6 @@
 import { PartialType } from '@nestjs/swagger';
-import { CreateMarketplaceListingDto } from './create-marketplace-listing.dto';
+import { CreateMarketplaceListingDtoBase } from './create-marketplace-listing.dto';
 
-export class UpdateMarketplaceListingDto extends PartialType(CreateMarketplaceListingDto) {}
+export class UpdateMarketplaceListingDto extends PartialType(
+  CreateMarketplaceListingDtoBase,
+) {}

@@ -1312,6 +1312,7 @@ enum MarketplaceListingItemCondition {
 enum MarketplaceListingItemStatus {
   DRAFT
   PUBLISHED
+  PAID_ESCROW
   ARCHIVED
 }
 
@@ -1338,6 +1339,7 @@ model MarketplaceListing {
   location               String
   canShipInternationally Boolean?                         @default(false)
   isNegotiable           Boolean?                         @default(false)
+  expiresAt              DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
