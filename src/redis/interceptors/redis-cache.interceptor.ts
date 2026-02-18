@@ -10,6 +10,7 @@ import { map, Observable, of } from 'rxjs';
 import { RedisService } from '../redis.service';
 import { Reflector } from '@nestjs/core';
 import { RedisTTL } from '../decorators/redis-ttl.decorator';
+import { TimeMs } from 'src/shared/utils';
 
 export interface CachedResponse<T> {
   meta: {
@@ -41,7 +42,7 @@ export class RedisCacheInterceptor<T>
     const request: Request = ctx.getRequest();
     const key = request.originalUrl;
 
-    const ttl = Math.max(
+    const ttlSec = Math.max(
       0,
       this.reflector.get<number>(RedisTTL, context.getHandler()) || 60,
     );
@@ -63,12 +64,12 @@ export class RedisCacheInterceptor<T>
     return next.handle().pipe(
       map((data: T) => {
         const now = new Date();
-        const validUntil = new Date(now.getTime() + ttl);
+        const validUntil = new Date(now.getTime() + TimeMs.seconds(ttlSec));
         const meta = { cacheHit: false, cachedAt: now, validUntil };
 
         // Sett the cache (Fallable)
         this.redisService
-          .set(key, JSON.stringify({ data, meta }), ttl)
+          .set(key, JSON.stringify({ data, meta }), ttlSec)
           .then(() => this.logger.debug(`Cache set. Key: ${key}`))
           .catch((error) => this.logger.error(error));
 

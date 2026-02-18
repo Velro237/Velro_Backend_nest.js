@@ -1316,6 +1316,12 @@ enum MarketplaceListingItemStatus {
   ARCHIVED
 }
 
+enum MarketplaceListingItemSaleStatus {
+  PENDING
+  IN_ESCROW
+  SOLD
+}
+
 enum MarketplaceListingDeliveryOption {
   SELF_SHIP
   TRAVELER_DELIVERY
@@ -1344,7 +1350,8 @@ model MarketplaceListing {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  status MarketplaceListingItemStatus @default(DRAFT)
+  status     MarketplaceListingItemStatus     @default(DRAFT)
+  saleStatus MarketplaceListingItemSaleStatus @default(PENDING)
 
   @@index([productName])
   @@index([category])

@@ -6,4 +6,7 @@ export class ErrorMessage {
 
   public static readonly LISTING_CANNOT_BE_MODIFIED =
     'This listing cannot be modified. Please archive the listing and create a new one.';
+
+  public static readonly LISTING_NOT_PAID_ESCROW =
+    'Listing has not paid escrow. Please pay the escrow first.';
 }

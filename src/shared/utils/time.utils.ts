@@ -9,6 +9,15 @@ export const TimeMs = {
   days: (d: number) => Math.max(0, d * 86400000),
 };
 
+export const TimeSec = {
+  MINUTE: 60,
+  HOUR: 3600,
+  DAY: 86400,
+  minutes: (m: number) => Math.max(0, m * 60),
+  hours: (h: number) => Math.max(0, h * 3600),
+  days: (d: number) => Math.max(0, d * 86400),
+};
+
 type ToHMSOutput = {
   implicit: string;
   explicit: string;

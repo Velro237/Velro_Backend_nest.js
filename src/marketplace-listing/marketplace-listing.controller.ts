@@ -37,7 +37,7 @@ import {
   MarketplaceListingDetialDto,
   MarketplaceListingDto,
 } from './dto/get-marketplace-listing.dto';
-import { TimeMs } from 'src/shared/utils';
+import { TimeSec } from 'src/shared/utils';
 
 @ApiTags('Marketplace', 'Listing')
 @ApiExtraModels(CreateMarketplaceListingDto)
@@ -119,7 +119,7 @@ export class MarketplaceListingController {
     description: 'Successful response',
     type: MarketplaceListingDetialDto,
   })
-  @RedisTTL(TimeMs.minutes(1))
+  @RedisTTL(TimeSec.minutes(1))
   @UseInterceptors(RedisCacheInterceptor)
   findOne(@Param('id') id: string) {
     return this.marketplaceListingService.findOne(id);
@@ -169,6 +169,25 @@ export class MarketplaceListingController {
   })
   publish(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.marketplaceListingService.publish(id, userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/mark-sold')
+  @ApiOperation({
+    summary: 'Publish a specific marketplace listing',
+  })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    required: true,
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'The record has been successfully published.',
+    type: MarketplaceListingDto,
+  })
+  markSold(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.marketplaceListingService.markSold(id, userId);
   }
 
   @UseGuards(JwtAuthGuard)

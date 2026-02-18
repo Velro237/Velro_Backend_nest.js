@@ -164,7 +164,27 @@ export class MarketplaceListingService {
       where: { id },
       data: {
         status: 'PUBLISHED',
+        saleStatus: 'PENDING',
         expiresAt,
+      },
+    });
+  }
+
+  async markSold(id: string, userId: string) {
+    const listing = await this.getListingByIdAndUserId(id, userId);
+
+    if (
+      listing.status !== 'PAID_ESCROW' ||
+      listing.saleStatus !== 'IN_ESCROW'
+    ) {
+      throw new BadRequestException(ErrorMessage.LISTING_NOT_PAID_ESCROW);
+    }
+
+    return await this.prismaService.marketplaceListing.update({
+      where: { id },
+      data: {
+        status: 'ARCHIVED',
+        saleStatus: 'SOLD',
       },
     });
   }
