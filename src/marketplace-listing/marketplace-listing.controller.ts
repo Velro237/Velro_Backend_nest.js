@@ -33,7 +33,10 @@ import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { RedisCacheInterceptor } from 'src/redis/interceptors/redis-cache.interceptor';
 import { RedisTTL } from 'src/redis/decorators/redis-ttl.decorator';
-import { MarketplaceListingDetialDto } from './dto/get-marketplace-listing.dto';
+import {
+  MarketplaceListingDetialDto,
+  MarketplaceListingDto,
+} from './dto/get-marketplace-listing.dto';
 
 @ApiTags('Marketplace', 'Listing')
 @ApiExtraModels(CreateMarketplaceListingDto)
@@ -67,6 +70,11 @@ export class MarketplaceListingController {
   })
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FilesInterceptor('images', FileConstants.MAX_FILE_UPLOADS))
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'The record has been successfully created.',
+    type: MarketplaceListingDto,
+  })
   create(
     @UploadedFiles(
       new ParseFilePipeBuilder()
@@ -101,7 +109,7 @@ export class MarketplaceListingController {
     summary: 'Get a specific marketplace listing and its details',
   })
   @ApiResponse({
-    status: 200,
+    status: HttpStatus.OK,
     description: 'Successful response',
     type: MarketplaceListingDetialDto,
   })
