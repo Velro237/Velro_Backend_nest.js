@@ -21,6 +21,7 @@ import {
   ApiConsumes,
   ApiExtraModels,
   ApiOperation,
+  ApiResponse,
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
@@ -29,6 +30,10 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { FileConstants } from 'src/shared/constants/file.constants';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { CacheTTL } from '@nestjs/cache-manager';
+import { RedisCacheInterceptor } from 'src/redis/interceptors/redis-cache.interceptor';
+import { RedisTTL } from 'src/redis/decorators/redis-ttl.decorator';
+import { MarketplaceListingDetialDto } from './dto/get-marketplace-listing.dto';
 
 @ApiTags('Marketplace', 'Listing')
 @ApiExtraModels(CreateMarketplaceListingDto)
@@ -92,8 +97,18 @@ export class MarketplaceListingController {
   }
 
   @Get(':id')
+  @ApiOperation({
+    summary: 'Get a specific marketplace listing and its details',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Successful response',
+    type: MarketplaceListingDetialDto,
+  })
+  @RedisTTL(60000)
+  @UseInterceptors(RedisCacheInterceptor)
   findOne(@Param('id') id: string) {
-    return this.marketplaceListingService.findOne(+id);
+    return this.marketplaceListingService.findOne(id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -106,6 +121,12 @@ export class MarketplaceListingController {
       +id,
       updateMarketplaceListingDto,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/publish')
+  publish(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.marketplaceListingService.publish(id, userId);
   }
 
   @UseGuards(JwtAuthGuard)
