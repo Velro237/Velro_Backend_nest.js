@@ -13,9 +13,10 @@ import { ErrorMessage } from './misc/error-message';
 import { TimeMs } from 'src/shared/utils';
 import {
   GetMarketplaceListingsQueryDto,
+  GetUserListingsQueryDto,
   ListingSortMode,
 } from './dto/get-marketplace-listing.dto';
-import { Prisma } from 'generated/prisma';
+import { MarketplaceListingItemStatus, Prisma } from 'generated/prisma';
 
 type CursorData = {
   id: string;
@@ -106,64 +107,12 @@ export class MarketplaceListingService {
     return { ...data, imageUrls };
   }
 
+  async findUserListings(userId: string, query: GetUserListingsQueryDto) {
+    return this.getListings({ query, userId, status: query.status });
+  }
+
   async findAll(query: GetMarketplaceListingsQueryDto) {
-    const {
-      limit = 10,
-      sortMode = ListingSortMode.RECENT,
-      location,
-      category,
-      condition,
-      minPrice,
-      maxPrice,
-      cursor,
-    } = query;
-
-    const cursorData = this.decodeCursor<CursorData>(cursor);
-
-    const cursorFilters = this.buildCursorFilters(sortMode, cursorData);
-
-    const orderBy = this.buildOrderBy(sortMode);
-
-    const data = await this.prismaService.marketplaceListing.findMany({
-      take: limit + 1,
-      where: {
-        ...cursorFilters,
-        price: {
-          gte: minPrice,
-          lte: maxPrice,
-        },
-        status: 'PUBLISHED',
-        location: {
-          mode: 'insensitive',
-          contains: location,
-        },
-        category,
-        condition,
-      },
-      orderBy,
-    });
-
-    const hasNextPage = data.length > limit;
-    if (hasNextPage) data.pop();
-
-    const lastItem = data.at(data.length - 1);
-
-    const nextCursor: string | null =
-      hasNextPage && !!lastItem
-        ? this.encodeCursor({
-            id: lastItem.id,
-            createdAt: lastItem.createdAt,
-            price: lastItem.price,
-          })
-        : null;
-
-    return {
-      content: data,
-      page: {
-        hasNextPage,
-        nextCursor,
-      },
-    };
+    return this.getListings({ query, status: 'PUBLISHED' });
   }
 
   async findOne(id: string) {
@@ -258,6 +207,75 @@ export class MarketplaceListingService {
 
   remove(id: number) {
     return `This action removes a #${id} marketplaceListing`;
+  }
+
+  private async getListings({
+    query,
+    userId,
+    status,
+  }: {
+    query: GetMarketplaceListingsQueryDto;
+    userId?: string;
+    status?: MarketplaceListingItemStatus;
+  }) {
+    const {
+      limit = 10,
+      sortMode = ListingSortMode.RECENT,
+      location,
+      category,
+      condition,
+      minPrice,
+      maxPrice,
+      cursor,
+    } = query;
+
+    const cursorData = this.decodeCursor<CursorData>(cursor);
+
+    const cursorFilters = this.buildCursorFilters(sortMode, cursorData);
+
+    const orderBy = this.buildOrderBy(sortMode);
+
+    const data = await this.prismaService.marketplaceListing.findMany({
+      take: limit + 1,
+      where: {
+        ...cursorFilters,
+        userId,
+        price: {
+          gte: minPrice,
+          lte: maxPrice,
+        },
+        status: status,
+        location: {
+          mode: 'insensitive',
+          contains: location,
+        },
+        category,
+        condition,
+      },
+      orderBy,
+    });
+
+    const hasNextPage = data.length > limit;
+    if (hasNextPage) data.pop();
+
+    const lastItem = data.at(data.length - 1);
+
+    const nextCursor: string | null =
+      hasNextPage && !!lastItem
+        ? this.encodeCursor({
+            id: lastItem.id,
+            createdAt: lastItem.createdAt,
+            price: lastItem.price,
+          })
+        : null;
+
+    return {
+      content: data,
+      page: {
+        hasNextPage,
+        nextCursor,
+      },
+    };
   }
 
   private async canUserPublishListing(userId: string): Promise<boolean> {

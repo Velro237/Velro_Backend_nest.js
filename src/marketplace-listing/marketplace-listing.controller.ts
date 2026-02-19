@@ -38,6 +38,7 @@ import {
   MarketplaceListingDetialDto,
   MarketplaceListingDto,
   GetMarketplaceListingsQueryDto,
+  GetUserListingsQueryDto,
 } from './dto/get-marketplace-listing.dto';
 import { TimeSec } from 'src/shared/utils';
 
@@ -115,6 +116,25 @@ export class MarketplaceListingController {
   @UseInterceptors(RedisCacheInterceptor)
   findAll(@Query() query: GetMarketplaceListingsQueryDto) {
     return this.marketplaceListingService.findAll(query);
+  }
+
+  @Get('/my')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get all marketplace listings. Cursor pagination is supported.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successful response',
+    type: [MarketplaceListingDto],
+  })
+  @RedisTTL(TimeSec.minutes(1))
+  @UseInterceptors(RedisCacheInterceptor)
+  findUserListings(
+    @CurrentUser('id') userId: string,
+    @Query() query: GetUserListingsQueryDto,
+  ) {
+    return this.marketplaceListingService.findUserListings(userId, query);
   }
 
   @Get(':id')

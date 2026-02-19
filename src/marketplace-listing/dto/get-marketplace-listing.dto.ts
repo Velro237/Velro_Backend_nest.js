@@ -123,3 +123,12 @@ export class GetMarketplaceListingsQueryDto extends CursorPaginationQueryDto {
   })
   sortMode: ListingSortMode;
 }
+
+export class GetUserListingsQueryDto extends GetMarketplaceListingsQueryDto {
+  @ApiProperty({
+    enum: MarketplaceListingItemStatus,
+  })
+  @IsEnum(MarketplaceListingItemStatus)
+  @IsOptional()
+  status: MarketplaceListingItemStatus;
+}
