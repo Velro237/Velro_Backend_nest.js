@@ -33,6 +33,7 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import * as path from 'path';
 import { PurchaseProofModule } from './purchase-proof/purchase-proof.module';
 import { MarketplaceListingModule } from './marketplace-listing/marketplace-listing.module';
+import { MarketplaceOfferModule } from './marketplace-offer/marketplace-offer.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { MarketplaceListingModule } from './marketplace-listing/marketplace-list
     OffersModule,
     PurchaseProofModule,
     MarketplaceListingModule,
+    MarketplaceOfferModule,
   ],
   controllers: [],
   providers: [LoggerService],

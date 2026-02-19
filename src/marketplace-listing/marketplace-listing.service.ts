@@ -9,7 +9,7 @@ import { UpdateMarketplaceListingDto } from './dto/update-marketplace-listing.dt
 import { PrismaService } from 'src/prisma/prisma.service';
 import { TooManyRequestsException } from 'src/shared/exceptions/too-many-requests.exception';
 import { ImageService } from 'src/shared/services/image.service';
-import { ErrorMessage } from './misc/error-message';
+import { ListingErrorMessage } from './misc/listing-error-message';
 import { TimeMs } from 'src/shared/utils';
 import {
   GetMarketplaceListingsQueryDto,
@@ -50,7 +50,9 @@ export class MarketplaceListingService {
       expiryDate = this.calcExpiryDate();
 
       if (!canPublish) {
-        throw new TooManyRequestsException(ErrorMessage.PUBLISH_QUOTA_EXCEEDED);
+        throw new TooManyRequestsException(
+          ListingErrorMessage.PUBLISH_QUOTA_EXCEEDED,
+        );
       }
     }
 
@@ -134,7 +136,8 @@ export class MarketplaceListingService {
       },
     });
 
-    if (!listing) throw new NotFoundException(ErrorMessage.LISTING_NOT_FOUND);
+    if (!listing)
+      throw new NotFoundException(ListingErrorMessage.LISTING_NOT_FOUND);
 
     const { user: seller, ...rest } = listing;
     return {
@@ -151,7 +154,9 @@ export class MarketplaceListingService {
     const listing = await this.getListingByIdAndUserId(id, userId);
 
     if (listing.status === 'ARCHIVED' || listing.status === 'PAID_ESCROW') {
-      throw new BadRequestException(ErrorMessage.LISTING_CANNOT_BE_MODIFIED);
+      throw new BadRequestException(
+        ListingErrorMessage.LISTING_CANNOT_BE_MODIFIED,
+      );
     }
 
     if (listing.status === 'PUBLISHED') {
@@ -171,7 +176,9 @@ export class MarketplaceListingService {
     const listing = await this.getListingByIdAndUserId(id, userId);
 
     if (listing.status !== 'DRAFT') {
-      throw new BadRequestException(ErrorMessage.LISTING_ALREADY_PUBLISHED);
+      throw new BadRequestException(
+        ListingErrorMessage.LISTING_ALREADY_PUBLISHED,
+      );
     }
 
     const expiresAt = this.calcExpiryDate();
@@ -193,7 +200,9 @@ export class MarketplaceListingService {
       listing.status !== 'PAID_ESCROW' ||
       listing.saleStatus !== 'IN_ESCROW'
     ) {
-      throw new BadRequestException(ErrorMessage.LISTING_NOT_PAID_ESCROW);
+      throw new BadRequestException(
+        ListingErrorMessage.LISTING_NOT_PAID_ESCROW,
+      );
     }
 
     return await this.prismaService.marketplaceListing.update({
@@ -293,11 +302,14 @@ export class MarketplaceListingService {
       where: { id, userId },
     });
 
-    if (!listing) throw new NotFoundException(ErrorMessage.LISTING_NOT_FOUND);
+    if (!listing)
+      throw new NotFoundException(ListingErrorMessage.LISTING_NOT_FOUND);
 
     const canPublish = await this.canUserPublishListing(userId);
     if (!canPublish) {
-      throw new TooManyRequestsException(ErrorMessage.PUBLISH_QUOTA_EXCEEDED);
+      throw new TooManyRequestsException(
+        ListingErrorMessage.PUBLISH_QUOTA_EXCEEDED,
+      );
     }
 
     return listing;

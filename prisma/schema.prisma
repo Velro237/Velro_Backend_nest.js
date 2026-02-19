@@ -157,6 +157,7 @@ model User {
 
   // feat: Marketplace
   marketplaceListings MarketplaceListing[]
+  listingOffers       ListingOffer[]
 }
 
 enum DeliveryStatus {
@@ -231,6 +232,7 @@ enum ChatType {
   TRIP
   SUPPORT
   SHOPPING
+  MARKETPLACE
 }
 
 model Chat {
@@ -239,6 +241,7 @@ model Chat {
   trip_id             String? // Optional: link to trip (multiple chats allowed per trip)
   shopping_request_id String? // Optional: link to shopping request (for pre-offer chats)
   shipping_request_id String? // Optional: link to shipping request (for pre-offer chats)
+  listingId           String? @db.Uuid // Optional: Link to marketplace listing (for pre-offer chats)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -255,6 +258,7 @@ model Chat {
   request         TripRequest? // One-to-one reverse relation
   offer           Offer?           @relation("OfferChat") // Reverse: Offer.chat_id
   shippingOffer   ShippingOffer?   @relation("ShippingOfferChat") // Reverse: ShippingOffer.chat_id
+  listingOffer    ListingOffer?    @relation("ListingOfferChat")
 }
 
 model ChatMember {
@@ -1328,6 +1332,39 @@ enum MarketplaceListingDeliveryOption {
   LOCAL_MEETUP
 }
 
+model ListingOffer {
+  id        String             @id @default(uuid()) @db.Uuid
+  listingId String             @db.Uuid
+  listing   MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  buyerId String
+  buyer   User   @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  offerAmount    Decimal
+  currency       Currency                         @default(XAF)
+  deliveryOption MarketplaceListingDeliveryOption
+  message        String?                          @db.Text
+
+  // Chat relation - each offer has its own private chat
+  chatId String? @unique
+  chat   Chat?   @relation("ListingOfferChat", fields: [chatId], references: [id], onDelete: SetNull)
+
+  status OfferStatus @default(PENDING)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  acceptedAt  DateTime?
+  deliveredAt DateTime?
+  rejectedAt  DateTime?
+  cancelledAt DateTime?
+  expiresAt   DateTime?
+
+  @@index([listingId])
+  @@index([buyerId])
+  @@index([status])
+  @@index([chatId])
+}
+
 model MarketplaceListing {
   id     String @id @default(uuid()) @db.Uuid
   userId String
@@ -1352,6 +1389,8 @@ model MarketplaceListing {
 
   status     MarketplaceListingItemStatus     @default(DRAFT)
   saleStatus MarketplaceListingItemSaleStatus @default(PENDING)
+
+  offers ListingOffer[]
 
   @@index([productName])
   @@index([category])

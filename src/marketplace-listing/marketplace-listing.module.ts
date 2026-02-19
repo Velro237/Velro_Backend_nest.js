@@ -9,5 +9,6 @@ import { RedisModule } from 'src/redis/redis.module';
   imports: [PrismaModule, ImageModule, RedisModule],
   controllers: [MarketplaceListingController],
   providers: [MarketplaceListingService],
+  exports: [MarketplaceListingService],
 })
 export class MarketplaceListingModule {}
