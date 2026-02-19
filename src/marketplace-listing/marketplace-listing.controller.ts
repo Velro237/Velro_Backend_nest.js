@@ -11,6 +11,7 @@ import {
   UploadedFiles,
   ParseFilePipeBuilder,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 import { MarketplaceListingService } from './marketplace-listing.service';
 import { CreateMarketplaceListingDto } from './dto/create-marketplace-listing.dto';
@@ -36,6 +37,7 @@ import { RedisTTL } from 'src/redis/decorators/redis-ttl.decorator';
 import {
   MarketplaceListingDetialDto,
   MarketplaceListingDto,
+  GetMarketplaceListingsQueryDto,
 } from './dto/get-marketplace-listing.dto';
 import { TimeSec } from 'src/shared/utils';
 
@@ -101,8 +103,18 @@ export class MarketplaceListingController {
   }
 
   @Get()
-  findAll() {
-    return this.marketplaceListingService.findAll();
+  @ApiOperation({
+    summary: 'Get all marketplace listings. Cursor pagination is supported.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successful response',
+    type: [MarketplaceListingDto],
+  })
+  @RedisTTL(TimeSec.minutes(1))
+  @UseInterceptors(RedisCacheInterceptor)
+  findAll(@Query() query: GetMarketplaceListingsQueryDto) {
+    return this.marketplaceListingService.findAll(query);
   }
 
   @Get(':id')

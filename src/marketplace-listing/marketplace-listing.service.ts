@@ -11,6 +11,17 @@ import { TooManyRequestsException } from 'src/shared/exceptions/too-many-request
 import { ImageService } from 'src/shared/services/image.service';
 import { ErrorMessage } from './misc/error-message';
 import { TimeMs } from 'src/shared/utils';
+import {
+  GetMarketplaceListingsQueryDto,
+  ListingSortMode,
+} from './dto/get-marketplace-listing.dto';
+import { Prisma } from 'generated/prisma';
+
+type CursorData = {
+  id: string;
+  createdAt: Date;
+  price: number;
+};
 
 @Injectable()
 export class MarketplaceListingService {
@@ -95,8 +106,64 @@ export class MarketplaceListingService {
     return { ...data, imageUrls };
   }
 
-  findAll() {
-    return `This action returns all marketplaceListing`;
+  async findAll(query: GetMarketplaceListingsQueryDto) {
+    const {
+      limit = 10,
+      sortMode = ListingSortMode.RECENT,
+      location,
+      category,
+      condition,
+      minPrice,
+      maxPrice,
+      cursor,
+    } = query;
+
+    const cursorData = this.decodeCursor<CursorData>(cursor);
+
+    const cursorFilters = this.buildCursorFilters(sortMode, cursorData);
+
+    const orderBy = this.buildOrderBy(sortMode);
+
+    const data = await this.prismaService.marketplaceListing.findMany({
+      take: limit + 1,
+      where: {
+        ...cursorFilters,
+        price: {
+          gte: minPrice,
+          lte: maxPrice,
+        },
+        status: 'PUBLISHED',
+        location: {
+          mode: 'insensitive',
+          contains: location,
+        },
+        category,
+        condition,
+      },
+      orderBy,
+    });
+
+    const hasNextPage = data.length > limit;
+    if (hasNextPage) data.pop();
+
+    const lastItem = data.at(data.length - 1);
+
+    const nextCursor: string | null =
+      hasNextPage && !!lastItem
+        ? this.encodeCursor({
+            id: lastItem.id,
+            createdAt: lastItem.createdAt,
+            price: lastItem.price,
+          })
+        : null;
+
+    return {
+      content: data,
+      page: {
+        hasNextPage,
+        nextCursor,
+      },
+    };
   }
 
   async findOne(id: string) {
@@ -222,5 +289,117 @@ export class MarketplaceListingService {
     const now = new Date();
     const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
     return new Date(today + this.LISTING_DURATION);
+  }
+
+  private encodeCursor(data: Record<string, unknown>): string {
+    return Buffer.from(JSON.stringify(data)).toString('base64');
+  }
+
+  private decodeCursor<T>(cursor: string | undefined): T | null {
+    if (!cursor || cursor.length < 1) return null;
+
+    try {
+      return JSON.parse(Buffer.from(cursor, 'base64').toString('utf-8')) as T;
+    } catch (err) {
+      this.logger.error('Failed to decode cursor.', err);
+
+      return null;
+    }
+  }
+
+  private buildOrderBy(
+    sortMode: ListingSortMode,
+  ): Prisma.MarketplaceListingOrderByWithRelationInput[] {
+    if (sortMode === ListingSortMode.PRICE_ASC)
+      return [
+        {
+          price: 'asc',
+        },
+        {
+          id: 'asc',
+        },
+      ];
+
+    if (sortMode === ListingSortMode.PRICE_DESC)
+      return [
+        {
+          price: 'desc',
+        },
+        {
+          id: 'desc',
+        },
+      ];
+
+    return [
+      {
+        createdAt: 'desc',
+      },
+      {
+        id: 'desc',
+      },
+    ];
+  }
+
+  private buildCursorFilters(
+    sortMode: ListingSortMode,
+    cursorData: CursorData | null,
+  ): Prisma.MarketplaceListingWhereInput {
+    if (!cursorData) return {};
+
+    const { id, price, createdAt } = cursorData;
+
+    const d = new Date(createdAt);
+
+    if (sortMode === ListingSortMode.PRICE_ASC) {
+      return {
+        OR: [
+          {
+            price: {
+              gt: price,
+            },
+          },
+          {
+            price,
+            id: {
+              gt: id,
+            },
+          },
+        ],
+      };
+    }
+
+    if (sortMode === ListingSortMode.PRICE_DESC) {
+      return {
+        OR: [
+          {
+            price: {
+              lt: price,
+            },
+          },
+          {
+            price,
+            id: {
+              lt: id,
+            },
+          },
+        ],
+      };
+    }
+
+    return {
+      OR: [
+        {
+          createdAt: {
+            lt: d,
+          },
+        },
+        {
+          createdAt: d,
+          id: {
+            lt: id,
+          },
+        },
+      ],
+    };
   }
 }

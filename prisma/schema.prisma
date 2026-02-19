@@ -1357,4 +1357,6 @@ model MarketplaceListing {
   @@index([category])
   @@index([condition])
   @@index([status])
+  @@index([createdAt, id])
+  @@index([price, id])
 }
