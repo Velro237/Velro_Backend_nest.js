@@ -301,18 +301,30 @@ export class ScraperService implements OnModuleDestroy {
       }
 
       // Log detailed error for debugging
+      const errMsg = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Scraping error details: ${JSON.stringify({
           url,
-          error: error instanceof Error ? error.message : String(error),
+          error: errMsg,
           stack: error instanceof Error ? error.stack : undefined,
         })}`,
       );
 
-      const message = await this.i18n.translate(
-        'translation.errors.scraper.scrape_failed',
-        { lang },
-      );
+      let message: string;
+      try {
+        const translated = await this.i18n.translate(
+          'translation.errors.scraper.scrape_failed',
+          { lang: lang || 'en' },
+        );
+        // If i18n returns the key (translation failed), use fallback
+        message =
+          translated && !translated.startsWith('translation.errors.')
+            ? translated
+            : 'Failed to fetch product details. The website may have changed its structure, blocked the request, or requires JavaScript rendering. Please try manual entry or contact support.';
+      } catch {
+        message =
+          'Failed to fetch product details. The website may have changed its structure, blocked the request, or requires JavaScript rendering. Please try manual entry or contact support.';
+      }
       throw new InternalServerErrorException({
         code: 'SCRAPE_FAILED',
         message,
