@@ -62,6 +62,53 @@ export class ShippingRequestService {
     return shipping;
   }
 
+  /**
+   * Get all shipping requests (for discovery - travelers browsing available requests).
+   * Returns only PUBLISHED requests by default; use status filter for other states.
+   */
+  async getAll(query: GetShippingRequestsQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const skip = (page - 1) * limit;
+
+    const where: Record<string, unknown> = {};
+    if (query.status) {
+      where.status = query.status;
+    } else {
+      where.status = ShippingRequestStatus.PUBLISHED;
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.shippingRequest.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      }),
+      this.prisma.shippingRequest.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   async getMine(userId: string, query: GetShippingRequestsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
@@ -159,13 +206,13 @@ export class ShippingRequestService {
 
     const data: Record<string, unknown> = {};
     if (dto.category) data.category = dto.category;
-    if (dto.packageDescription) data.package_description = dto.packageDescription;
+    if (dto.packageDescription)
+      data.package_description = dto.packageDescription;
     if (dto.detailsDescription !== undefined)
       data.details_description = dto.detailsDescription;
     if (dto.from) data.from = dto.from;
     if (dto.to) data.to = dto.to;
-    if (dto.deliveryTimeframe)
-      data.delivery_timeframe = dto.deliveryTimeframe;
+    if (dto.deliveryTimeframe) data.delivery_timeframe = dto.deliveryTimeframe;
     if (dto.weight) data.weight = dto.weight;
     if (dto.packaging !== undefined) data.packaging = dto.packaging;
     if (dto.travelerReward !== undefined)

@@ -39,7 +39,9 @@ import { GetShippingRequestsQueryDto } from './dto/get-shipping-requests-query.d
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('JWT-auth')
 export class ShippingRequestController {
-  constructor(private readonly shippingRequestService: ShippingRequestService) {}
+  constructor(
+    private readonly shippingRequestService: ShippingRequestService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -67,6 +69,17 @@ export class ShippingRequestController {
   ) {
     const file = files && files.length > 0 ? files[0] : undefined;
     return this.shippingRequestService.create(user.id, dto, file);
+  }
+
+  @Get()
+  @ApiOperation({
+    summary: 'Get all shipping requests',
+    description:
+      'List all published shipping requests for discovery. Use query params to filter by status and paginate.',
+  })
+  @ApiResponse({ status: 200, description: 'Shipping requests retrieved' })
+  async getAll(@Query() query: GetShippingRequestsQueryDto) {
+    return this.shippingRequestService.getAll(query);
   }
 
   @Get('mine')
