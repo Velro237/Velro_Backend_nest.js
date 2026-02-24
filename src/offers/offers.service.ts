@@ -224,7 +224,7 @@ export class OffersService {
           chatId,
           senderId: userId,
           content: `Offer Pending - Payment Requested: ${rewardCurrency}${totalAmount.toFixed(2)}`,
-          type: PrismaMessageType.PAYMENT,
+          type: PrismaMessageType.SHOPPING,
           messageData: paymentMessage,
         });
 
@@ -460,7 +460,7 @@ export class OffersService {
           chatId: offer.chat_id,
           senderId: userId,
           content: `Offer Cancelled - The traveler cancelled their offer${dto.reason ? ': ' + dto.reason : ''}.`,
-          type: PrismaMessageType.SYSTEM,
+          type: PrismaMessageType.SHOPPING,
           messageData: cancellationMessage,
         });
 
@@ -705,7 +705,7 @@ export class OffersService {
             await tx.message.create({
               data: {
                 content: `Offer Declined - Unfortunately, ${requesterName} declined your offer of ${otherOffer.reward_currency}${totalAmount.toFixed(2)}.`,
-                type: 'PAYMENT',
+                type: 'SHOPPING',
                 chat_id: otherOffer.chat_id,
                 sender_id: userId,
                 data: rejectionMessage,
@@ -789,7 +789,7 @@ export class OffersService {
           chatId: offer.chat_id,
           senderId: userId,
           content: `${requesterName} accepted your offer of ${offer.reward_currency}${totalAmount.toFixed(2)}. Waiting for ${requesterName} to proceed with the payment.`,
-          type: PrismaMessageType.PAYMENT,
+          type: PrismaMessageType.SHOPPING,
           messageData: acceptanceMessage,
         });
 
@@ -966,7 +966,7 @@ export class OffersService {
           chatId: offer.chat_id,
           senderId: userId,
           content: `Offer Declined - Unfortunately, ${requesterName} declined your offer of ${offer.reward_currency}${totalAmount.toFixed(2)}.`,
-          type: PrismaMessageType.PAYMENT,
+          type: PrismaMessageType.SHOPPING,
           messageData: rejectionMessage,
         });
 
@@ -1106,7 +1106,7 @@ export class OffersService {
           chatId: offer.chat_id,
           senderId: userId,
           content: `Delivery Reported - Waiting for ${requesterName} to confirm receipt. Your earnings: ${offer.reward_currency}${travelerEarnings.toFixed(2)} (Pending confirmation)`,
-          type: PrismaMessageType.DELIVERY,
+          type: PrismaMessageType.SHOPPING,
           messageData: deliveryMessage,
         });
 
@@ -1253,7 +1253,7 @@ export class OffersService {
           chatId: offer.chat_id,
           senderId: userId,
           content: `Delivery Complete! You've successfully delivered ${requesterName}'s packages. Please rate your experience with ${travelerName}.`,
-          type: PrismaMessageType.DELIVERY,
+          type: PrismaMessageType.SHOPPING,
           messageData: confirmMessage,
         });
 
