@@ -199,7 +199,7 @@ export class ShippingOfferService {
           chatId,
           senderId: userId,
           content: `Shipping Offer Pending - Payment Requested: €${reward.toFixed(2)}`,
-          type: PrismaMessageType.PAYMENT,
+          type: PrismaMessageType.SHIPPING,
           messageData: paymentMessage,
         });
 
@@ -396,7 +396,7 @@ export class ShippingOfferService {
           chatId: offer.chat_id,
           senderId: userId,
           content: `Offer Cancelled - The traveler cancelled their shipping offer.`,
-          type: PrismaMessageType.SYSTEM,
+          type: PrismaMessageType.SHIPPING,
           messageData: cancellationMessage,
         });
 
@@ -503,7 +503,7 @@ export class ShippingOfferService {
             await tx.message.create({
               data: {
                 content: `Offer Declined - Unfortunately, the requester declined your shipping offer of €${Number(otherOffer.reward_amount).toFixed(2)}.`,
-                type: 'SYSTEM',
+                type: 'SHIPPING',
                 chat_id: otherOffer.chat_id,
                 sender_id: userId,
                 data: rejectionMessage,
@@ -548,7 +548,7 @@ export class ShippingOfferService {
           chatId: offer.chat_id,
           senderId: userId,
           content: `Offer Accepted - ${requester?.username || requester?.email || 'Requester'} accepted your shipping offer of €${reward.toFixed(2)}. Waiting for payment.`,
-          type: PrismaMessageType.SYSTEM,
+          type: PrismaMessageType.SHIPPING,
           messageData: acceptanceMessage,
         });
 
@@ -617,7 +617,7 @@ export class ShippingOfferService {
           chatId: offer.chat_id,
           senderId: userId,
           content: `Offer Declined - Unfortunately, the requester declined your shipping offer of €${reward.toFixed(2)}.`,
-          type: PrismaMessageType.SYSTEM,
+          type: PrismaMessageType.SHIPPING,
           messageData: rejectionMessage,
         });
 
