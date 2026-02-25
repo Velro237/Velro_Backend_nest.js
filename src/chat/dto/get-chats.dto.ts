@@ -253,6 +253,69 @@ export class ChatSummaryDto {
       } | null;
     }>;
   };
+
+  @ApiProperty({
+    description:
+      'Shopping request data (for shopping chats). Has type: "SHOPPING".',
+  })
+  shopping_request?: {
+    type: 'SHOPPING';
+    id: string;
+    user_id: string;
+    user?: {
+      id: string;
+      email: string;
+      name: string | null;
+      firstName: string | null;
+      lastName: string | null;
+      picture: string | null;
+    };
+    products: any[];
+    deliver_to: string;
+    delivery_timeframe: string;
+    packaging_option: boolean;
+    product_price: number | null;
+    product_currency: string;
+    traveler_reward: number | null;
+    platform_fee: number | null;
+    total_cost: number | null;
+    status: string;
+    expires_at: Date | null;
+    additional_notes: string | null;
+    created_at: Date;
+    updated_at: Date;
+  };
+
+  @ApiProperty({
+    description:
+      'Shipping request data (for shipping chats). Has type: "SHIPPING". Same structure as shopping_request.',
+  })
+  shipping_request?: {
+    type: 'SHIPPING';
+    id: string;
+    user_id: string;
+    user?: {
+      id: string;
+      email: string;
+      name: string | null;
+      firstName: string | null;
+      lastName: string | null;
+      picture: string | null;
+    };
+    category: string;
+    package_photo_urls: string[];
+    package_description: string;
+    details_description: string | null;
+    from: string;
+    to: string;
+    delivery_timeframe: string;
+    weight: string;
+    packaging: boolean;
+    traveler_reward: number | null;
+    status: string;
+    created_at: Date;
+    updated_at: Date;
+  };
 }
 
 export class GetChatsResponseDto {
