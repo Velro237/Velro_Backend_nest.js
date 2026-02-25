@@ -151,7 +151,7 @@ export class ShippingOfferService {
           await this.prisma.chat.update({
             where: { id: chatId },
             data: {
-              type: 'SHIPPING',
+              type: 'SHOPPING', // Using SHOPPING type for both shopping and shipping
               shipping_request_id: dto.requestId,
             },
           });

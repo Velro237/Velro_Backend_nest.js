@@ -11,7 +11,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { I18nService } from 'nestjs-i18n';
 import { RedisService } from '../redis/redis.service';
 import { CreateChatDto, CreateChatResponseDto } from './dto/create-chat.dto';
-import { MessageResponseDto } from './dto/send-message.dto';
+import {
+  SendMessageDto,
+  MessageResponseDto,
+  MessageType as DtoMessageType,
+} from './dto/send-message.dto';
 import { MessageType as PrismaMessageType } from 'generated/prisma';
 import {
   GetChatsQueryDto,
@@ -22,12 +26,6 @@ import {
   GetMessagesQueryDto,
   GetMessagesResponseDto,
 } from './dto/get-messages.dto';
-import {
-  ShoppingRequestData,
-  ShoppingOfferData,
-  ShippingRequestData,
-  ShippingOfferData,
-} from './types/chat-request-offer.types';
 import { NotificationService } from '../notification/notification.service';
 import { ImageService } from '../shared/services/image.service';
 import { CurrencyService } from '../currency/currency.service';
@@ -395,7 +393,7 @@ export class ChatService {
               name: null,
               trip_id: null,
               [requestIdField]: requestId,
-              type: requestType, // SHOPPING or SHIPPING based on requestType
+              type: requestType === 'SHOPPING' ? 'SHOPPING' : 'TRIP', // Use SHOPPING for shopping requests
             },
           });
 
@@ -745,92 +743,6 @@ export class ChatService {
                 },
               },
             },
-            shoppingRequest: {
-              include: {
-                products: true,
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            offer: {
-              include: {
-                shopping_request: {
-                  include: {
-                    products: true,
-                    user: {
-                      select: {
-                        id: true,
-                        email: true,
-                        name: true,
-                        firstName: true,
-                        lastName: true,
-                        picture: true,
-                      },
-                    },
-                  },
-                },
-                traveler: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            shippingRequest: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            shippingOffer: {
-              include: {
-                shipping_request: {
-                  include: {
-                    user: {
-                      select: {
-                        id: true,
-                        email: true,
-                        name: true,
-                        firstName: true,
-                        lastName: true,
-                        picture: true,
-                      },
-                    },
-                  },
-                },
-                traveler: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
             _count: {
               select: {
                 messages: {
@@ -984,79 +896,6 @@ export class ChatService {
                   : undefined,
               }
             : undefined,
-          shopping_request: (() => {
-            const sr =
-              (chat as any).offer?.shopping_request ||
-              (chat as any).shoppingRequest;
-            if (!sr) return undefined;
-            return {
-              type: 'SHOPPING' as const,
-              id: sr.id,
-              user_id: sr.user_id,
-              user: sr.user
-                ? {
-                    id: sr.user.id,
-                    email: sr.user.email,
-                    name: sr.user.name,
-                    firstName: sr.user.firstName,
-                    lastName: sr.user.lastName,
-                    picture: sr.user.picture,
-                  }
-                : undefined,
-              products: sr.products || [],
-              deliver_to: sr.deliver_to,
-              delivery_timeframe: sr.delivery_timeframe,
-              packaging_option: sr.packaging_option,
-              product_price: sr.product_price ? Number(sr.product_price) : null,
-              product_currency: sr.product_currency,
-              traveler_reward: sr.traveler_reward
-                ? Number(sr.traveler_reward)
-                : null,
-              platform_fee: sr.platform_fee ? Number(sr.platform_fee) : null,
-              total_cost: sr.total_cost ? Number(sr.total_cost) : null,
-              status: sr.status,
-              expires_at: sr.expires_at,
-              additional_notes: sr.additional_notes,
-              created_at: sr.created_at,
-              updated_at: sr.updated_at,
-            };
-          })(),
-          shipping_request: (() => {
-            const sr =
-              (chat as any).shippingOffer?.shipping_request ||
-              (chat as any).shippingRequest;
-            if (!sr) return undefined;
-            return {
-              type: 'SHIPPING' as const,
-              id: sr.id,
-              user_id: sr.user_id,
-              user: sr.user
-                ? {
-                    id: sr.user.id,
-                    email: sr.user.email,
-                    name: sr.user.name,
-                    firstName: sr.user.firstName,
-                    lastName: sr.user.lastName,
-                    picture: sr.user.picture,
-                  }
-                : undefined,
-              category: sr.category,
-              package_photo_urls: sr.package_photo_urls || [],
-              package_description: sr.package_description,
-              details_description: sr.details_description,
-              from: sr.from,
-              to: sr.to,
-              delivery_timeframe: sr.delivery_timeframe,
-              weight: sr.weight,
-              packaging: sr.packaging,
-              traveler_reward: sr.traveler_reward
-                ? Number(sr.traveler_reward)
-                : null,
-              status: sr.status,
-              created_at: sr.created_at,
-              updated_at: sr.updated_at,
-            };
-          })(),
         };
       });
 
@@ -1744,10 +1583,6 @@ export class ChatService {
         chat_info,
         request: chatData?.request || null,
         trip: chatData?.trip || null,
-        shopping_request: chatData?.shoppingRequest ?? null,
-        shopping_offer: chatData?.shoppingOffer ?? null,
-        shipping_request: chatData?.shippingRequest ?? null,
-        shipping_offer: chatData?.shippingOffer ?? null,
       };
 
       // Cache the result for 2 minutes
@@ -1755,7 +1590,6 @@ export class ChatService {
 
       return result;
     } catch (error) {
-      console.error('Error in getChatById:', error);
       const message = await this.i18n.translate(
         'translation.chat.messages.failed',
         { lang },
@@ -1915,92 +1749,6 @@ export class ChatService {
                 },
               },
             },
-            shoppingRequest: {
-              include: {
-                products: true,
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            offer: {
-              include: {
-                shopping_request: {
-                  include: {
-                    products: true,
-                    user: {
-                      select: {
-                        id: true,
-                        email: true,
-                        name: true,
-                        firstName: true,
-                        lastName: true,
-                        picture: true,
-                      },
-                    },
-                  },
-                },
-                traveler: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            shippingRequest: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            shippingOffer: {
-              include: {
-                shipping_request: {
-                  include: {
-                    user: {
-                      select: {
-                        id: true,
-                        email: true,
-                        name: true,
-                        firstName: true,
-                        lastName: true,
-                        picture: true,
-                      },
-                    },
-                  },
-                },
-                traveler: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
             _count: {
               select: {
                 messages: {
@@ -2151,79 +1899,6 @@ export class ChatService {
                   : undefined,
               }
             : undefined,
-          shopping_request: (() => {
-            const sr =
-              (chat as any).offer?.shopping_request ||
-              (chat as any).shoppingRequest;
-            if (!sr) return undefined;
-            return {
-              type: 'SHOPPING' as const,
-              id: sr.id,
-              user_id: sr.user_id,
-              user: sr.user
-                ? {
-                    id: sr.user.id,
-                    email: sr.user.email,
-                    name: sr.user.name,
-                    firstName: sr.user.firstName,
-                    lastName: sr.user.lastName,
-                    picture: sr.user.picture,
-                  }
-                : undefined,
-              products: sr.products || [],
-              deliver_to: sr.deliver_to,
-              delivery_timeframe: sr.delivery_timeframe,
-              packaging_option: sr.packaging_option,
-              product_price: sr.product_price ? Number(sr.product_price) : null,
-              product_currency: sr.product_currency,
-              traveler_reward: sr.traveler_reward
-                ? Number(sr.traveler_reward)
-                : null,
-              platform_fee: sr.platform_fee ? Number(sr.platform_fee) : null,
-              total_cost: sr.total_cost ? Number(sr.total_cost) : null,
-              status: sr.status,
-              expires_at: sr.expires_at,
-              additional_notes: sr.additional_notes,
-              created_at: sr.created_at,
-              updated_at: sr.updated_at,
-            };
-          })(),
-          shipping_request: (() => {
-            const sr =
-              (chat as any).shippingOffer?.shipping_request ||
-              (chat as any).shippingRequest;
-            if (!sr) return undefined;
-            return {
-              type: 'SHIPPING' as const,
-              id: sr.id,
-              user_id: sr.user_id,
-              user: sr.user
-                ? {
-                    id: sr.user.id,
-                    email: sr.user.email,
-                    name: sr.user.name,
-                    firstName: sr.user.firstName,
-                    lastName: sr.user.lastName,
-                    picture: sr.user.picture,
-                  }
-                : undefined,
-              category: sr.category,
-              package_photo_urls: sr.package_photo_urls || [],
-              package_description: sr.package_description,
-              details_description: sr.details_description,
-              from: sr.from,
-              to: sr.to,
-              delivery_timeframe: sr.delivery_timeframe,
-              weight: sr.weight,
-              packaging: sr.packaging,
-              traveler_reward: sr.traveler_reward
-                ? Number(sr.traveler_reward)
-                : null,
-              status: sr.status,
-              created_at: sr.created_at,
-              updated_at: sr.updated_at,
-            };
-          })(),
         };
       });
 
@@ -2833,15 +2508,10 @@ export class ChatService {
         chat_info,
         request: chatData?.request || null,
         trip: chatData?.trip || null,
-        shopping_request: chatData?.shoppingRequest ?? null,
-        shopping_offer: chatData?.shoppingOffer ?? null,
-        shipping_request: chatData?.shippingRequest ?? null,
-        shipping_offer: chatData?.shippingOffer ?? null,
       };
 
       return result;
     } catch (error) {
-      console.error('Error in createMessage:', error);
       const message = await this.i18n.translate(
         'translation.chat.messages.failed',
         { lang },
@@ -3509,100 +3179,10 @@ export class ChatService {
   async getChatWithRequestAndTripData(chatId: string): Promise<{
     request: any;
     trip: any;
-    shoppingRequest?: ShoppingRequestData;
-    shoppingOffer?: ShoppingOfferData;
-    shippingRequest?: ShippingRequestData;
-    shippingOffer?: ShippingOfferData;
   } | null> {
     const chat = await this.prisma.chat.findFirst({
       where: { id: chatId },
       include: {
-        shoppingRequest: {
-          include: {
-            products: true,
-            user: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                firstName: true,
-                lastName: true,
-                picture: true,
-              },
-            },
-          },
-        },
-        offer: {
-          include: {
-            shopping_request: {
-              include: {
-                products: true,
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            traveler: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                firstName: true,
-                lastName: true,
-                picture: true,
-              },
-            },
-          },
-        },
-        shippingRequest: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                firstName: true,
-                lastName: true,
-                picture: true,
-              },
-            },
-          },
-        },
-        shippingOffer: {
-          include: {
-            shipping_request: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    firstName: true,
-                    lastName: true,
-                    picture: true,
-                  },
-                },
-              },
-            },
-            traveler: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                firstName: true,
-                lastName: true,
-                picture: true,
-              },
-            },
-          },
-        },
         trip: {
           select: {
             id: true,
@@ -3831,127 +3411,6 @@ export class ChatService {
             user: chatWithData.trip.user,
           }
         : null,
-      shoppingRequest: (() => {
-        const sr =
-          chatWithData.offer?.shopping_request || chatWithData.shoppingRequest;
-        if (!sr) return undefined;
-        return {
-          type: 'SHOPPING' as const,
-          id: sr.id,
-          user_id: sr.user_id,
-          user: sr.user,
-          version: sr.version,
-          current_version: sr.current_version,
-          source: sr.source,
-          products: sr.products || [],
-          deliver_to: sr.deliver_to,
-          delivery_timeframe: sr.delivery_timeframe,
-          packaging_option: sr.packaging_option,
-          product_price: sr.product_price ? Number(sr.product_price) : null,
-          product_currency: sr.product_currency,
-          traveler_reward: sr.traveler_reward
-            ? Number(sr.traveler_reward)
-            : null,
-          platform_fee: sr.platform_fee ? Number(sr.platform_fee) : null,
-          additional_fees: sr.additional_fees
-            ? Number(sr.additional_fees)
-            : null,
-          total_cost: sr.total_cost ? Number(sr.total_cost) : null,
-          suggested_reward_percentage: sr.suggested_reward_percentage
-            ? Number(sr.suggested_reward_percentage)
-            : null,
-          reward_currency: sr.reward_currency,
-          status: sr.status,
-          expires_at: sr.expires_at,
-          additional_notes: sr.additional_notes,
-          created_at: sr.created_at,
-          updated_at: sr.updated_at,
-        };
-      })(),
-      shoppingOffer: chatWithData.offer
-        ? {
-            type: 'SHOPPING' as const,
-            id: chatWithData.offer.id,
-            shopping_request_id: chatWithData.offer.shopping_request_id,
-            traveler_id: chatWithData.offer.traveler_id,
-            request_version: chatWithData.offer.request_version,
-            reward_amount: chatWithData.offer.reward_amount
-              ? Number(chatWithData.offer.reward_amount)
-              : null,
-            reward_currency: chatWithData.offer.reward_currency,
-            additional_fees: chatWithData.offer.additional_fees
-              ? Number(chatWithData.offer.additional_fees)
-              : null,
-            travel_date: chatWithData.offer.travel_date,
-            message: chatWithData.offer.message,
-            status: chatWithData.offer.status,
-            created_at: chatWithData.offer.created_at,
-            updated_at: chatWithData.offer.updated_at,
-            traveler: chatWithData.offer.traveler
-              ? {
-                  id: chatWithData.offer.traveler.id,
-                  email: chatWithData.offer.traveler.email,
-                  name: chatWithData.offer.traveler.name,
-                  firstName: chatWithData.offer.traveler.firstName,
-                  lastName: chatWithData.offer.traveler.lastName,
-                  picture: chatWithData.offer.traveler.picture,
-                }
-              : undefined,
-          }
-        : undefined,
-      shippingRequest: (() => {
-        const sr =
-          chatWithData.shippingOffer?.shipping_request ||
-          chatWithData.shippingRequest;
-        if (!sr) return undefined;
-        return {
-          type: 'SHIPPING' as const,
-          id: sr.id,
-          user_id: sr.user_id,
-          user: sr.user,
-          category: sr.category,
-          package_photo_urls: sr.package_photo_urls || [],
-          package_description: sr.package_description,
-          details_description: sr.details_description,
-          from: sr.from,
-          to: sr.to,
-          delivery_timeframe: sr.delivery_timeframe,
-          weight: sr.weight,
-          packaging: sr.packaging,
-          traveler_reward: sr.traveler_reward
-            ? Number(sr.traveler_reward)
-            : null,
-          status: sr.status,
-          created_at: sr.created_at,
-          updated_at: sr.updated_at,
-        };
-      })(),
-      shippingOffer: chatWithData.shippingOffer
-        ? {
-            type: 'SHIPPING' as const,
-            id: chatWithData.shippingOffer.id,
-            shipping_request_id: chatWithData.shippingOffer.shipping_request_id,
-            traveler_id: chatWithData.shippingOffer.traveler_id,
-            reward_amount: chatWithData.shippingOffer.reward_amount
-              ? Number(chatWithData.shippingOffer.reward_amount)
-              : null,
-            travel_date: chatWithData.shippingOffer.travel_date,
-            message: chatWithData.shippingOffer.message,
-            status: chatWithData.shippingOffer.status,
-            created_at: chatWithData.shippingOffer.created_at,
-            updated_at: chatWithData.shippingOffer.updated_at,
-            traveler: chatWithData.shippingOffer.traveler
-              ? {
-                  id: chatWithData.shippingOffer.traveler.id,
-                  email: chatWithData.shippingOffer.traveler.email,
-                  name: chatWithData.shippingOffer.traveler.name,
-                  firstName: chatWithData.shippingOffer.traveler.firstName,
-                  lastName: chatWithData.shippingOffer.traveler.lastName,
-                  picture: chatWithData.shippingOffer.traveler.picture,
-                }
-              : undefined,
-          }
-        : undefined,
     };
   }
 

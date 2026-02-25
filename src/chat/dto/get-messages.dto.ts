@@ -2,12 +2,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsOptional, IsNumber, Min, Max, IsUUID } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { MessageResponseDto } from './send-message.dto';
-import {
-  ShoppingRequestData,
-  ShoppingOfferData,
-  ShippingRequestData,
-  ShippingOfferData,
-} from '../types/chat-request-offer.types';
 
 export class GetMessagesQueryDto {
   @ApiProperty({
@@ -372,34 +366,6 @@ export class GetMessagesResponseDto {
       email: string;
     };
   };
-
-  @ApiProperty({
-    description:
-      'Shopping request data (for shopping chats). Has type: "SHOPPING".',
-    nullable: true,
-  })
-  shopping_request?: ShoppingRequestData | null;
-
-  @ApiProperty({
-    description:
-      'Shopping offer data with traveler who created the offer (for shopping offer chats). Has type: "SHOPPING".',
-    nullable: true,
-  })
-  shopping_offer?: ShoppingOfferData | null;
-
-  @ApiProperty({
-    description:
-      'Shipping request data (for shipping chats). Has type: "SHIPPING". Same structure as shopping_request.',
-    nullable: true,
-  })
-  shipping_request?: ShippingRequestData | null;
-
-  @ApiProperty({
-    description:
-      'Shipping offer data with traveler who created the offer (for shipping offer chats). Has type: "SHIPPING". Same structure as shopping_offer.',
-    nullable: true,
-  })
-  shipping_offer?: ShippingOfferData | null;
 
   @ApiProperty({
     description: 'Chat information including members',
