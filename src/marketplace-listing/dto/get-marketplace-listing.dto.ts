@@ -8,7 +8,7 @@ import {
   MarketplaceListingItemCondition,
   MarketplaceListingItemStatus,
 } from 'generated/prisma';
-import { CursorPaginationQueryDto } from './cursor-p[agination.dto';
+import { CursorPaginationQueryDto } from './cursor-pagination.dto';
 
 export class ListingSellerDto {
   @ApiProperty()
