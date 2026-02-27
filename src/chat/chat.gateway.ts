@@ -28,8 +28,9 @@ import { NotificationService } from '../notification/notification.service';
 import { I18nService } from 'nestjs-i18n';
 
 @WebSocketGateway({
-  cors: { origin: '*' }, // restrict in production
-  namespace: '/chat',
+  cors: { origin: '*', credentials: true }, // restrict in production
+  namespace: 'chat',
+  transports: ['websocket', 'polling'],
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
