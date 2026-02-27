@@ -173,7 +173,7 @@ model Delivery {
   expected_date    DateTime
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-  is_deleted        Boolean           @default(false)
+  is_deleted       Boolean           @default(false)
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   data             Json?
   transaction_id   String?           @unique
@@ -228,14 +228,15 @@ enum ChatType {
   TRIP
   SUPPORT
   SHOPPING
+  SHIPPING
 }
 
 model Chat {
-  id                    String  @id @default(uuid())
-  name                  String?
-  trip_id               String? // Optional: link to trip (multiple chats allowed per trip)
-  shopping_request_id   String? // Optional: link to shopping request (for pre-offer chats)
-  shipping_request_id   String? // Optional: link to shipping request (for pre-offer chats)
+  id                  String  @id @default(uuid())
+  name                String?
+  trip_id             String? // Optional: link to trip (multiple chats allowed per trip)
+  shopping_request_id String? // Optional: link to shopping request (for pre-offer chats)
+  shipping_request_id String? // Optional: link to shipping request (for pre-offer chats)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -244,14 +245,14 @@ model Chat {
 
   type ChatType @default(TRIP)
 
-  members  ChatMember[]
-  messages Message[]
-  trip              Trip?              @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  shoppingRequest   ShoppingRequest?   @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
-  shippingRequest   ShippingRequest?   @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
-  request           TripRequest?       // One-to-one reverse relation
-  offer             Offer?             @relation("OfferChat")  // Reverse: Offer.chat_id
-  shippingOffer     ShippingOffer?     @relation("ShippingOfferChat")  // Reverse: ShippingOffer.chat_id
+  members         ChatMember[]
+  messages        Message[]
+  trip            Trip?            @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  shoppingRequest ShoppingRequest? @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+  shippingRequest ShippingRequest? @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
+  request         TripRequest? // One-to-one reverse relation
+  offer           Offer?           @relation("OfferChat") // Reverse: Offer.chat_id
+  shippingOffer   ShippingOffer?   @relation("ShippingOfferChat") // Reverse: ShippingOffer.chat_id
 }
 
 model ChatMember {
@@ -308,8 +309,8 @@ enum MessageType {
   SYSTEM
   REVIEW
   WARNING
-  SHOPPING   // All shopping-request system messages (offers, payment, delivery)
-  SHIPPING   // All shipping-request system messages (offers, accept, reject, cancel)
+  SHOPPING // All shopping-request system messages (offers, payment, delivery)
+  SHIPPING // All shipping-request system messages (offers, accept, reject, cancel)
 }
 
 model Trip {
@@ -375,10 +376,10 @@ model Image {
   updated_at DateTime @updatedAt
 
   // Relations
-  trip_items               TripItem[]
-  requestLinks             TripRequestImage[]
-  purchaseProofsAsPrimary  PurchaseProof[]  @relation
-  proofImages              ProofImage[]
+  trip_items              TripItem[]
+  requestLinks            TripRequestImage[]
+  purchaseProofsAsPrimary PurchaseProof[]    @relation
+  proofImages             ProofImage[]
 }
 
 enum ProofImageType {
@@ -398,20 +399,20 @@ enum ProofDecision {
 }
 
 model PurchaseProof {
-  id                       String    @id @default(uuid())
+  id                       String      @id @default(uuid())
   offer_id                 String?
-  offer                    Offer?    @relation(fields: [offer_id], references: [id], onDelete: Cascade)
+  offer                    Offer?      @relation(fields: [offer_id], references: [id], onDelete: Cascade)
   uploader_id              String
-  uploader                 User      @relation(fields: [uploader_id], references: [id], onDelete: Cascade)
+  uploader                 User        @relation(fields: [uploader_id], references: [id], onDelete: Cascade)
   status                   ProofStatus @default(PENDING)
   primary_receipt_image_id String?
-  primary_receipt_image    Image?    @relation(fields: [primary_receipt_image_id], references: [id], onDelete: SetNull)
+  primary_receipt_image    Image?      @relation(fields: [primary_receipt_image_id], references: [id], onDelete: SetNull)
   metadata                 Json?
-  created_at               DateTime  @default(now())
-  updated_at               DateTime  @updatedAt
+  created_at               DateTime    @default(now())
+  updated_at               DateTime    @updatedAt
 
-  proof_images             ProofImage[]
-  verifications            ProofVerification[]
+  proof_images  ProofImage[]
+  verifications ProofVerification[]
 
   @@index([offer_id])
   @@index([uploader_id])
@@ -425,20 +426,20 @@ model ProofImage {
   ord      Int?
 
   proof PurchaseProof @relation(fields: [proof_id], references: [id], onDelete: Cascade)
-  image Image          @relation(fields: [image_id], references: [id], onDelete: Cascade)
+  image Image         @relation(fields: [image_id], references: [id], onDelete: Cascade)
 
   @@index([proof_id])
   @@index([image_id])
 }
 
 model ProofVerification {
-  id          String     @id @default(uuid())
+  id          String        @id @default(uuid())
   proof_id    String
   proof       PurchaseProof @relation(fields: [proof_id], references: [id], onDelete: Cascade)
   verified_by String?
   decision    ProofDecision
   reason      String?
-  created_at  DateTime   @default(now())
+  created_at  DateTime      @default(now())
 
   @@index([proof_id])
 }
@@ -726,22 +727,22 @@ model UserKYC {
 }
 
 model Rating {
-  id          String   @id @default(uuid())
-  giver_id    String // User giving the rating
-  receiver_id String // User receiving the rating
-  trip_id     String? // Trip being rated (optional for shopping request ratings)
-  request_id  String? // Optional: specific trip request being rated
+  id                  String   @id @default(uuid())
+  giver_id            String // User giving the rating
+  receiver_id         String // User receiving the rating
+  trip_id             String? // Trip being rated (optional for shopping request ratings)
+  request_id          String? // Optional: specific trip request being rated
   shopping_request_id String? // Optional: specific shopping request being rated
-  rating      Int // Rating value (1-5)
-  comment     String? // Optional comment
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  rating              Int // Rating value (1-5)
+  comment             String? // Optional comment
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
 
   // Relations
-  giver    User         @relation("RatingGiver", fields: [giver_id], references: [id], onDelete: Cascade)
-  receiver User         @relation("RatingReceiver", fields: [receiver_id], references: [id], onDelete: Cascade)
-  trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  giver           User             @relation("RatingGiver", fields: [giver_id], references: [id], onDelete: Cascade)
+  receiver        User             @relation("RatingReceiver", fields: [receiver_id], references: [id], onDelete: Cascade)
+  trip            Trip?            @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request         TripRequest?     @relation(fields: [request_id], references: [id], onDelete: Cascade)
   shoppingRequest ShoppingRequest? @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
 
   @@unique([giver_id, receiver_id, trip_id]) // Prevent duplicate ratings for same trip (trip_id may be null)
@@ -905,10 +906,10 @@ model Transaction {
 
   phone_number String?
 
-  wallet     Wallet       @relation(fields: [wallet_id], references: [id])
-  trip       Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  request    TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
-  delivery   Delivery?
+  wallet   Wallet       @relation(fields: [wallet_id], references: [id])
+  trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  delivery Delivery?
 
   @@index([userId, createdAt])
   @@index([reference])
@@ -1059,30 +1060,30 @@ enum ProductSource {
 }
 
 model ShippingRequest {
-  id                   String                    @id @default(uuid())
-  user_id              String
-  user                 User                      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id      String @id @default(uuid())
+  user_id String
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  category             ShippingCategory
-  package_photo_urls   String[]
-  package_description  String                    @db.Text
-  details_description  String?                   @db.Text
-  from                 String
-  to                   String
+  category            ShippingCategory
+  package_photo_urls  String[]
+  package_description String           @db.Text
+  details_description String?          @db.Text
+  from                String
+  to                  String
 
-  delivery_timeframe   ShippingDeliveryTimeframe
-  weight               ShippingWeight
-  packaging            Boolean                   @default(false)
+  delivery_timeframe ShippingDeliveryTimeframe
+  weight             ShippingWeight
+  packaging          Boolean                   @default(false)
 
-  traveler_reward      Decimal
-  status               ShippingRequestStatus     @default(PUBLISHED)
+  traveler_reward Decimal
+  status          ShippingRequestStatus @default(PUBLISHED)
 
-  created_at           DateTime                  @default(now())
-  updated_at           DateTime                  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relations
-  offers               ShippingOffer[]
-  chats                Chat[]  // Pre-offer chats initiated from request details
+  offers ShippingOffer[]
+  chats  Chat[] // Pre-offer chats initiated from request details
 
   @@index([user_id])
   @@index([delivery_timeframe])
@@ -1096,16 +1097,16 @@ model ShippingRequest {
 }
 
 model ShippingOffer {
-  id                  String                @id @default(uuid())
+  id                  String          @id @default(uuid())
   shipping_request_id String
-  shipping_request    ShippingRequest       @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
+  shipping_request    ShippingRequest @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
 
   traveler_id String
   traveler    User   @relation("ShippingOffers", fields: [traveler_id], references: [id], onDelete: Cascade)
 
   reward_amount Decimal
   travel_date   DateTime?
-  message       String? @db.Text
+  message       String?   @db.Text
 
   // Chat relation - each offer has its own private chat
   chat_id String? @unique
@@ -1177,7 +1178,7 @@ model ShoppingRequest {
   additional_fees  Decimal  @default(0)
   total_cost       Decimal
 
-  suggested_reward_percentage Decimal @default(15)
+  suggested_reward_percentage Decimal  @default(15)
   reward_currency             Currency
 
   status     ShoppingRequestStatus @default(PUBLISHED)
@@ -1186,7 +1187,7 @@ model ShoppingRequest {
   additional_notes String? @db.Text
 
   offers           Offer[]
-  chats            Chat[]  // Pre-offer chats initiated from request details
+  chats            Chat[] // Pre-offer chats initiated from request details
   deliveryTracking DeliveryTracking?
   ratings          Rating[] // Ratings for this shopping request
 
@@ -1267,9 +1268,9 @@ model DeliveryTracking {
 }
 
 model TravelerStrike {
-  id          String   @id @default(uuid())
+  id          String @id @default(uuid())
   traveler_id String
-  traveler    User     @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
+  traveler    User   @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
 
   offer_id            String
   shopping_request_id String
