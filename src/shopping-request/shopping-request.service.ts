@@ -8,9 +8,11 @@ import {
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScraperService } from '../scraper/scraper.service';
+import { ImageService } from '../shared/services/image.service';
 import {
   CreateShoppingRequestDto,
   CreateShoppingRequestFromUrlDto,
+  CreateManualShoppingRequestDto,
 } from './dto/create-shopping-request.dto';
 import { UpdateShoppingRequestDto } from './dto/update-shopping-request.dto';
 import { GetShoppingRequestsQueryDto } from './dto/get-shopping-requests-query.dto';
@@ -33,6 +35,7 @@ export class ShoppingRequestService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly scraperService: ScraperService,
+    private readonly imageService: ImageService,
   ) {}
 
   /**
@@ -172,6 +175,118 @@ export class ShoppingRequestService {
     });
 
     return shoppingRequest;
+  }
+
+  /**
+   * Create shopping request manually with uploaded images (isolated; does not call create).
+   */
+  async createManual(
+    userId: string,
+    dto: CreateManualShoppingRequestDto,
+    files: Express.Multer.File[],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for i18n
+    _lang: string,
+  ) {
+    if (!files?.length) {
+      throw new BadRequestException('At least one image is required');
+    }
+
+    const productPrice = Number(dto.productPrice) * Number(dto.productQuantity);
+    const productCurrency = dto.productPriceCurrency || Currency.EUR;
+    const suggestedReward =
+      productPrice * (this.SUGGESTED_REWARD_PERCENTAGE / 100);
+    const travelerReward = dto.travelerReward ?? suggestedReward;
+    const rewardCurrency = dto.rewardCurrency || productCurrency;
+    const platformFee = productPrice * (this.PLATFORM_FEE_PERCENTAGE / 100);
+    const totalCost = productPrice + travelerReward + platformFee;
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 60);
+
+    let variants: Record<string, any> | undefined;
+    if (dto.productVariants) {
+      try {
+        variants = JSON.parse(dto.productVariants) as Record<string, any>;
+      } catch {
+        variants = undefined;
+      }
+    }
+
+    const shoppingRequest = await this.prisma.shoppingRequest.create({
+      data: {
+        user_id: userId,
+        source: RequestSource.MANUAL,
+        deliver_to: dto.deliverTo,
+        delivery_timeframe: dto.deliveryTimeframe,
+        packaging_option: dto.packagingOption ?? false,
+        product_price: new Decimal(productPrice),
+        product_currency: productCurrency,
+        traveler_reward: new Decimal(travelerReward),
+        reward_currency: rewardCurrency,
+        platform_fee: new Decimal(platformFee),
+        additional_fees: new Decimal(0),
+        total_cost: new Decimal(totalCost),
+        suggested_reward_percentage: new Decimal(
+          this.SUGGESTED_REWARD_PERCENTAGE,
+        ),
+        additional_notes: dto.additionalNotes,
+        status: ShoppingRequestStatus.PUBLISHED,
+        expires_at: expiresAt,
+        version: 1,
+        current_version: 1,
+        products: {
+          create: [],
+        },
+      },
+    });
+
+    const uploadResult = await this.imageService.uploadMultipleFiles(
+      files.map((f) => ({
+        buffer: f.buffer,
+        mimetype: f.mimetype,
+        originalname: f.originalname,
+      })),
+      { folder: 'shopping-requests', object_id: shoppingRequest.id },
+    );
+
+    const imageUrls = uploadResult.images.map((i) => i.secure_url);
+
+    // Create the product with image urls
+    const updatedShoppingRequest = await this.prisma.shoppingRequest.update({
+      where: { id: shoppingRequest.id },
+      data: {
+        products: {
+          create: {
+            name: dto.productName,
+            description: dto.productDescription ?? undefined,
+            source: dto.productSource ?? ProductSource.OTHER,
+            url: null,
+            image_urls: imageUrls,
+            price: new Decimal(dto.productPrice),
+            price_currency: dto.productPriceCurrency,
+            weight:
+              dto.productWeight != null ? new Decimal(dto.productWeight) : null,
+            quantity: dto.productQuantity,
+            variants: variants ?? undefined,
+            in_stock: dto.productInStock ?? true,
+            availability_text: dto.productAvailabilityText ?? undefined,
+          },
+        },
+      },
+      include: {
+        products: true,
+        user: {
+          select: {
+            id: true,
+            username: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    return updatedShoppingRequest;
   }
 
   /**

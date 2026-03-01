@@ -4,9 +4,10 @@ import { ShoppingRequestController } from './shopping-request.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ScraperModule } from '../scraper/scraper.module';
 import { OffersModule } from '../offers/offers.module';
+import { ImageModule } from '../shared/image.module';
 
 @Module({
-  imports: [PrismaModule, ScraperModule, OffersModule],
+  imports: [PrismaModule, ScraperModule, OffersModule, ImageModule],
   controllers: [ShoppingRequestController],
   providers: [ShoppingRequestService],
   exports: [ShoppingRequestService],

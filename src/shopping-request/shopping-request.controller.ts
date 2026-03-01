@@ -9,6 +9,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,10 +18,12 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiExtraModels,
   getSchemaPath,
   ApiParam,
 } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { RequestSource } from 'generated/prisma';
 import { I18nLang } from 'nestjs-i18n';
 import { ShoppingRequestService } from './shopping-request.service';
@@ -30,13 +34,14 @@ import { User } from 'generated/prisma';
 import {
   CreateShoppingRequestDto,
   CreateShoppingRequestFromUrlDto,
+  CreateManualShoppingRequestDto,
 } from './dto/create-shopping-request.dto';
 import { UpdateShoppingRequestDto } from './dto/update-shopping-request.dto';
 import { GetShoppingRequestsQueryDto } from './dto/get-shopping-requests-query.dto';
 import { GetShoppingRequestQueryDto } from './dto/get-shopping-request-query.dto';
 
 @ApiTags('shopping-request')
-@ApiExtraModels(CreateShoppingRequestDto)
+@ApiExtraModels(CreateShoppingRequestDto, CreateManualShoppingRequestDto)
 @Controller('shopping-request')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('JWT-auth')
@@ -101,6 +106,54 @@ export class ShoppingRequestController {
     @I18nLang() lang: string,
   ) {
     return this.shoppingRequestService.createFromUrl(user.id, dto, lang);
+  }
+
+  @Post('manual')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create shopping request manually with uploaded images',
+    description:
+      'Creates a shopping request with manually entered product details and user-uploaded images (max 6, 5MB each). No product URL.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      allOf: [
+        { $ref: getSchemaPath(CreateManualShoppingRequestDto) },
+        {
+          type: 'object',
+          properties: {
+            images: {
+              type: 'array',
+              items: { type: 'string', format: 'binary' },
+              maxItems: 6,
+            },
+          },
+        },
+      ],
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Shopping request created successfully',
+  })
+  @UseInterceptors(
+    FilesInterceptor('images', 6, {
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  async createManual(
+    @Body() dto: CreateManualShoppingRequestDto,
+    @UploadedFiles() files: Express.Multer.File[] | undefined,
+    @CurrentUser() user: User,
+    @I18nLang() lang: string,
+  ) {
+    return this.shoppingRequestService.createManual(
+      user.id,
+      dto,
+      files ?? [],
+      lang,
+    );
   }
 
   @Get()
