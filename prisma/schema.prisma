@@ -9,157 +9,129 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Provider {
-  GOOGLE
-  APPLE
-}
-
 model PendingUser {
-  id                 String  @id @default(uuid())
+  id                 String           @id @default(uuid())
   firstName          String?
   lastName           String?
   email              String
-  username           String?
-  country            String?
   phone              String?
   city               String?
   companyName        String?
   companyAddress     String?
-  businessType       String?
   additionalInfo     String
-  isFreightForwarder Boolean @default(false)
+  isFreightForwarder Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
   otp_id             String
-  lang               String? @default("en")
-
-  // Relation
-  services CompanyService[] @relation("PendingUserServices")
-  cities   CompanyCity[]    @relation("PendingUserCities")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  expiresAt DateTime
+  expiresAt          DateTime
+  username           String?
+  lang               String?          @default("en")
+  businessType       String?
+  country            String?
+  cities             CompanyCity[]    @relation("PendingUserCities")
+  services           CompanyService[] @relation("PendingUserServices")
 }
 
 model CompanyCity {
-  id           String @id @default(uuid())
+  id           String        @id @default(uuid())
   name         String
   address      String
   contactName  String
   contactPhone String
-
+  userId       String?
   pendingUsers PendingUser[] @relation("PendingUserCities")
   users        User[]        @relation("UserCities")
-  userId       String?
 }
 
 model CompanyService {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  users       User[]   @relation("UserServices")
-
-  // Relation
+  id           String        @id @default(uuid())
+  name         String
+  description  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   pendingUsers PendingUser[] @relation("PendingUserServices")
+  users        User[]        @relation("UserServices")
 }
 
 model WithdrawalNumber {
   id        String   @id @default(uuid())
   number    String
   carrier   String
-  name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  // Relations
-  user    User   @relation(fields: [user_id], references: [id])
-  user_id String
+  user_id   String
+  name      String
+  user      User     @relation(fields: [user_id], references: [id])
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String
-  username      String?
-  password      String
-  firstName     String?
-  lastName      String?
-  phone         String?
-  country       String?
-  address       String?
-  city          String?
-  state         String?
-  zip           String?
-  picture       String?
-  currency      String?   @default("XAF")
-  lang          String?   @default("en")
-  date_of_birth DateTime?
-  otpCode       String?
-  businessType  String?
-
-  name               String?
-  isFreightForwarder Boolean            @default(false)
-  companyName        String?
-  companyAddress     String?
-  device_id          String?
-  role               UserRole           @default(USER)
-  last_seen          DateTime? // Last time user was active (general, not per chat)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  trips              Trip[]
-  requests           TripRequest[]
-  messages           Message[]
-  chats              ChatMember[]
-  withdrawalNumbers  WithdrawalNumber[]
-
-  // Stripe Connect fields
-  stripe_account_id          String? @unique
+  id                         String                 @id @default(uuid())
+  email                      String
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  role                       UserRole               @default(USER)
+  password                   String
+  name                       String?
+  picture                    String?
+  device_id                  String?
+  address                    String?
+  city                       String?
+  companyAddress             String?
+  companyName                String?
+  firstName                  String?
+  isFreightForwarder         Boolean                @default(false)
+  lastName                   String?
+  phone                      String?
+  state                      String?
+  zip                        String?
   payout_country             String?
-  payout_currency            String? @default("EUR")
-  transfers_capability       String? @default("inactive")
-  stripe_onboarding_complete Boolean @default(false)
-  is_suspended               Boolean @default(false)
-  status_message_fr          String?
+  payout_currency            String?                @default("EUR")
+  stripe_account_id          String?                @unique
+  stripe_onboarding_complete Boolean                @default(false)
+  transfers_capability       String?                @default("inactive")
+  currency                   String?                @default("XAF")
+  username                   String?
+  date_of_birth              DateTime?
+  lang                       String?                @default("en")
+  otpCode                    String?
+  businessType               String?
+  last_seen                  DateTime?
+  is_suspended               Boolean                @default(false)
   status_message_en          String?
-
-  push_notification  Boolean @default(true)
-  email_notification Boolean @default(true)
-  sms_notification   Boolean @default(true)
-  flag_count         Int     @default(0)
-
-  is_deleted Boolean @default(false)
-
-  services CompanyService[] @relation("UserServices")
-  cities   CompanyCity[]    @relation("UserCities")
-
-  reportsSubmitted      Report[]               @relation("ReportReporter")
-  reportsReceived       Report[]               @relation("ReportReported")
-  reportsReplied        Report[]               @relation("ReportReplier")
-  refreshTokens         RefreshToken[]
-  accounts              Account[]
-  kycRecords            UserKYC[]
-  alerts                Alert[]
-  ratingsGiven          Rating[]               @relation("RatingGiver")
-  ratingsReceived       Rating[]               @relation("RatingReceiver")
-  notifications         Notification[]
-  wallet                Wallet?
-  transactions          Transaction[]
-  accountDeleteRequests AccountDeleteRequest[]
-  delevries             Delivery[]
-
-  // Shipping & Shopping (Grabr-style)
-  shippingRequests ShippingRequest[]
-  shippingOffers   ShippingOffer[]   @relation("ShippingOffers")
-  shoppingRequests ShoppingRequest[]
-  offers           Offer[]
-  travelerStrikes  TravelerStrike[]
-  purchaseProofs   PurchaseProof[]
-}
-
-enum DeliveryStatus {
-  PENDING
-  ONGOING
-  EXPIRED
+  status_message_fr          String?
+  email_notification         Boolean                @default(true)
+  push_notification          Boolean                @default(true)
+  sms_notification           Boolean                @default(true)
+  is_deleted                 Boolean                @default(false)
+  flag_count                 Int                    @default(0)
+  country                    String?
+  accounts                   Account[]
+  accountDeleteRequests      AccountDeleteRequest[]
+  alerts                     Alert[]
+  chats                      ChatMember[]
+  delevries                  Delivery[]
+  messages                   Message[]
+  notifications              Notification[]
+  offers                     Offer[]
+  purchaseProofs             PurchaseProof[]
+  ratingsGiven               Rating[]               @relation("RatingGiver")
+  ratingsReceived            Rating[]               @relation("RatingReceiver")
+  refreshTokens              RefreshToken[]
+  reportsReplied             Report[]               @relation("ReportReplier")
+  reportsReceived            Report[]               @relation("ReportReported")
+  reportsSubmitted           Report[]               @relation("ReportReporter")
+  shippingOffers             ShippingOffer[]        @relation("ShippingOffers")
+  shippingRequests           ShippingRequest[]
+  shoppingRequests           ShoppingRequest[]
+  transactions               Transaction[]
+  travelerStrikes            TravelerStrike[]
+  trips                      Trip[]
+  requests                   TripRequest[]
+  kycRecords                 UserKYC[]
+  wallet                     Wallet?
+  withdrawalNumbers          WithdrawalNumber[]
+  cities                     CompanyCity[]          @relation("UserCities")
+  services                   CompanyService[]       @relation("UserServices")
 }
 
 model Delivery {
@@ -174,10 +146,10 @@ model Delivery {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   is_deleted       Boolean           @default(false)
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   data             Json?
   transaction_id   String?           @unique
   transaction      Transaction?      @relation(fields: [transaction_id], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   deliveryProducts DeliveryProduct[]
 
   @@index([userId])
@@ -187,7 +159,6 @@ model Delivery {
 model DeliveryProduct {
   id          String   @id @default(cuid())
   deliveryId  String
-  delivery    Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
   price       Decimal  @db.Decimal(10, 2)
   currency    Currency
   name        String
@@ -197,19 +168,19 @@ model DeliveryProduct {
   quantity    Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  delivery    Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
 }
 
 model Account {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  id                String    @id @default(cuid())
+  userId            String
   provider          Provider
-  providerAccountId String // "sub" (Google/Apple subject)
+  providerAccountId String
   accessToken       String?
   refreshToken      String?
   idToken           String?
   expiresAt         DateTime?
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -217,11 +188,666 @@ model Account {
 model RefreshToken {
   id        String   @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique // (en pratique: stocke un hash)
+  token     String   @unique
   revoked   Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Chat {
+  id                  String           @id @default(uuid())
+  name                String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  trip_id             String?
+  type                ChatType         @default(TRIP)
+  is_flagged          Boolean          @default(false)
+  shipping_request_id String?
+  shopping_request_id String?
+  shippingRequest     ShippingRequest? @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
+  shoppingRequest     ShoppingRequest? @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+  trip                Trip?            @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  members             ChatMember[]
+  messages            Message[]
+  offer               Offer?           @relation("OfferChat")
+  shippingOffer       ShippingOffer?   @relation("ShippingOfferChat")
+  request             TripRequest?
+}
+
+model ChatMember {
+  id        String   @id @default(uuid())
+  chat_id   String
+  user_id   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  joinedAt  DateTime @default(now())
+  chat      Chat     @relation(fields: [chat_id], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, chat_id])
+}
+
+model Message {
+  id          String       @id @default(uuid())
+  chat_id     String
+  sender_id   String
+  content     String?
+  image_url   String?
+  request_id  String?
+  type        MessageType  @default(TEXT)
+  isRead      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  reply_to_id String?
+  review_id   String?
+  data        Json?
+  is_flagged  Boolean      @default(false)
+  chat        Chat         @relation(fields: [chat_id], references: [id], onDelete: Cascade)
+  reply_to    Message?     @relation("MessageReplies", fields: [reply_to_id], references: [id])
+  replies     Message[]    @relation("MessageReplies")
+  request     TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  sender      User         @relation(fields: [sender_id], references: [id], onDelete: Cascade)
+}
+
+model Trip {
+  id                   String          @id @default(uuid())
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  destination          Json?
+  maximum_weight_in_kg Decimal?        @db.Decimal(5, 2)
+  mode_of_transport_id String?
+  notes                String?
+  pickup               Json?
+  status               TripStatus      @default(SCHEDULED)
+  user_id              String
+  arrival_date         DateTime?
+  arrival_time         String?
+  departure            Json?
+  departure_date       DateTime
+  departure_time       String
+  meetup_flexible      Boolean         @default(false)
+  delivery             Json?
+  airline_id           String
+  fully_booked         Boolean         @default(false)
+  currency             Currency        @default(USD)
+  is_deleted           Boolean         @default(false)
+  chats                Chat[]
+  ratings              Rating[]
+  reports              Report[]
+  transactions         Transaction[]
+  airline              Airline         @relation(fields: [airline_id], references: [id], onDelete: Cascade)
+  mode_of_transport    TransportType?  @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
+  user                 User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  trip_items           TripItemsList[]
+  requests             TripRequest[]
+}
+
+model Airline {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  trips       Trip[]
+}
+
+model Image {
+  id                      String             @id @default(uuid())
+  object_id               String
+  url                     String
+  alt_text                String?
+  created_at              DateTime           @default(now())
+  updated_at              DateTime           @updatedAt
+  proofImages             ProofImage[]
+  purchaseProofsAsPrimary PurchaseProof[]
+  trip_items              TripItem[]
+  requestLinks            TripRequestImage[]
+}
+
+model PurchaseProof {
+  id                       String              @id @default(uuid())
+  offer_id                 String?
+  uploader_id              String
+  status                   ProofStatus         @default(PENDING)
+  primary_receipt_image_id String?
+  metadata                 Json?
+  created_at               DateTime            @default(now())
+  updated_at               DateTime            @updatedAt
+  proof_images             ProofImage[]
+  verifications            ProofVerification[]
+  offer                    Offer?              @relation(fields: [offer_id], references: [id], onDelete: Cascade)
+  primary_receipt_image    Image?              @relation(fields: [primary_receipt_image_id], references: [id])
+  uploader                 User                @relation(fields: [uploader_id], references: [id], onDelete: Cascade)
+
+  @@index([offer_id])
+  @@index([uploader_id])
+}
+
+model ProofImage {
+  id       String         @id @default(uuid())
+  proof_id String
+  image_id String
+  type     ProofImageType
+  ord      Int?
+  image    Image          @relation(fields: [image_id], references: [id], onDelete: Cascade)
+  proof    PurchaseProof  @relation(fields: [proof_id], references: [id], onDelete: Cascade)
+
+  @@index([proof_id])
+  @@index([image_id])
+}
+
+model ProofVerification {
+  id          String        @id @default(uuid())
+  proof_id    String
+  verified_by String?
+  decision    ProofDecision
+  reason      String?
+  created_at  DateTime      @default(now())
+  proof       PurchaseProof @relation(fields: [proof_id], references: [id], onDelete: Cascade)
+
+  @@index([proof_id])
+}
+
+model TripItem {
+  id              String            @id @default(uuid())
+  name            String            @unique
+  description     String?
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  image_id        String?
+  translations    Translation[]
+  image           Image?            @relation(fields: [image_id], references: [id])
+  trip_items_list TripItemsList[]
+  request_items   TripRequestItem[]
+}
+
+model Translation {
+  id           String    @id @default(uuid())
+  name         String
+  description  String?
+  language     Language  @default(en)
+  trip_item_id String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  tripItem     TripItem? @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
+
+  @@unique([trip_item_id, language])
+}
+
+model TripItemsList {
+  trip_id       String
+  trip_item_id  String
+  price         Decimal              @db.Decimal(10, 2)
+  created_at    DateTime             @default(now())
+  updated_at    DateTime             @updatedAt
+  avalailble_kg Decimal?             @db.Decimal(10, 2)
+  trip          Trip                 @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  trip_item     TripItem             @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
+  prices        TripItemsListPrice[]
+
+  @@id([trip_id, trip_item_id])
+}
+
+model TripItemsListPrice {
+  trip_id         String
+  trip_item_id    String
+  currency        Currency
+  price           Decimal       @db.Decimal(10, 2)
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+  trip_items_list TripItemsList @relation(fields: [trip_id, trip_item_id], references: [trip_id, trip_item_id], onDelete: Cascade)
+
+  @@id([trip_id, trip_item_id, currency])
+}
+
+model TripRequest {
+  id                          String             @id @default(uuid())
+  trip_id                     String
+  user_id                     String
+  status                      RequestStatus      @default(PENDING)
+  message                     String?
+  created_at                  DateTime           @default(now())
+  updated_at                  DateTime           @updatedAt
+  cost                        Decimal?           @db.Decimal(10, 2)
+  delivered_at                DateTime?
+  paid_at                     DateTime?
+  payment_intent_id           String?            @unique
+  payment_status              PaymentStatus?     @default(PENDING)
+  sender_confirmed_delivery   Boolean            @default(false)
+  traveler_confirmed_delivery Boolean            @default(false)
+  chat_id                     String?            @unique
+  cancellation_reason         String?
+  cancellation_type           String?
+  cancelled_at                DateTime?
+  currency                    Currency?
+  is_deleted                  Boolean            @default(false)
+  messages                    Message[]
+  ratings                     Rating[]
+  reports                     Report[]
+  transactions                Transaction[]
+  chat                        Chat?              @relation(fields: [chat_id], references: [id])
+  trip                        Trip               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  user                        User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  images                      TripRequestImage[]
+  request_items               TripRequestItem[]
+}
+
+model TripRequestItem {
+  request_id    String
+  trip_item_id  String
+  quantity      Int
+  special_notes String?
+  request       TripRequest @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  trip_item     TripItem    @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
+
+  @@id([request_id, trip_item_id])
+}
+
+model TripRequestImage {
+  trip_request_id String
+  image_id        String
+  created_at      DateTime    @default(now())
+  image           Image       @relation(fields: [image_id], references: [id], onDelete: Cascade)
+  tripRequest     TripRequest @relation(fields: [trip_request_id], references: [id], onDelete: Cascade)
+
+  @@id([trip_request_id, image_id])
+}
+
+model TransportType {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  trips       Trip[]
+}
+
+model Report {
+  id          String         @id @default(uuid())
+  user_id     String
+  reported_id String
+  reply_to_id String?
+  trip_id     String
+  request_id  String?
+  type        ReportType
+  text        String?
+  priority    ReportPriority
+  status      ReportStatus   @default(PENDING)
+  data        Json?
+  replied_by  String?
+  created_at  DateTime       @default(now())
+  updated_at  DateTime       @updatedAt
+  images      Json?
+  replier     User?          @relation("ReportReplier", fields: [replied_by], references: [id])
+  replyTo     Report?        @relation("ReportReplies", fields: [reply_to_id], references: [id])
+  replies     Report[]       @relation("ReportReplies")
+  reported    User           @relation("ReportReported", fields: [reported_id], references: [id], onDelete: Cascade)
+  request     TripRequest?   @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  trip        Trip           @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  user        User           @relation("ReportReporter", fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model UserKYC {
+  id               String      @id @default(uuid())
+  userId           String
+  diditSessionId   String?     @unique
+  diditWorkflowId  String?
+  sessionUrl       String?
+  callbackUrl      String?
+  status           KYCStatus   @default(NOT_STARTED)
+  provider         KYCProvider @default(DIDIT)
+  verificationData Json?
+  rejectionReason  String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  verifiedAt       DateTime?
+  expiresAt        DateTime?
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+}
+
+model Rating {
+  id                  String           @id @default(uuid())
+  giver_id            String
+  receiver_id         String
+  trip_id             String?
+  request_id          String?
+  rating              Int
+  comment             String?
+  created_at          DateTime         @default(now())
+  updated_at          DateTime         @updatedAt
+  shopping_request_id String?
+  giver               User             @relation("RatingGiver", fields: [giver_id], references: [id], onDelete: Cascade)
+  receiver            User             @relation("RatingReceiver", fields: [receiver_id], references: [id], onDelete: Cascade)
+  request             TripRequest?     @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  shoppingRequest     ShoppingRequest? @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+  trip                Trip?            @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+
+  @@unique([giver_id, receiver_id, trip_id])
+}
+
+model Alert {
+  id            String    @id @default(uuid())
+  user_id       String
+  depature      String
+  destination   String
+  form_date     DateTime?
+  to_date       DateTime?
+  notificaction Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  user          User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  user_id    String
+  title      String
+  message    String
+  type       NotificationType
+  data       Json?
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+  read_at    DateTime?
+  request_id String?
+  trip_id    String?
+  user       User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Wallet {
+  id                    String        @id @default(uuid())
+  userId                String        @unique
+  available_balance     Decimal       @default(0.00) @db.Decimal(10, 2)
+  hold_balance          Decimal       @default(0.00) @db.Decimal(10, 2)
+  total_balance         Decimal       @default(0.00) @db.Decimal(10, 2)
+  state                 WalletState   @default(BLOCKED)
+  currency              String        @default("XAF")
+  updatedAt             DateTime      @updatedAt
+  createdAt             DateTime      @default(now())
+  available_balance_cad Decimal       @default(0) @db.Decimal(10, 2)
+  available_balance_eur Decimal       @default(0) @db.Decimal(10, 2)
+  available_balance_usd Decimal       @default(0) @db.Decimal(10, 2)
+  available_balance_xaf Decimal       @default(0) @db.Decimal(10, 2)
+  hold_balance_cad      Decimal       @default(0) @db.Decimal(10, 2)
+  hold_balance_eur      Decimal       @default(0) @db.Decimal(10, 2)
+  hold_balance_usd      Decimal       @default(0) @db.Decimal(10, 2)
+  hold_balance_xaf      Decimal       @default(0) @db.Decimal(10, 2)
+  status_message_en     String?
+  status_message_fr     String?
+  transactions          Transaction[]
+  user                  User          @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Transaction {
+  id                 String              @id @default(uuid())
+  userId             String
+  trip_id            String?
+  request_id         String?
+  type               TransactionType
+  status             TransactionStatus   @default(PENDING)
+  reference          String?             @unique
+  provider           TransactionProvider
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  amount_paid        Decimal             @db.Decimal(10, 2)
+  amount_requested   Decimal             @db.Decimal(10, 2)
+  currency           String
+  description        String?
+  fee_applied        Decimal             @db.Decimal(10, 2)
+  metadata           Json?
+  processedAt        DateTime?
+  source             TransactionSource
+  status_message     String?
+  wallet_id          String
+  balance_after      Decimal?            @db.Decimal(10, 2)
+  stripe_account_id  String?
+  stripe_transfer_id String?             @unique
+  phone_number       String?
+  provider_id        String?
+  delivery           Delivery?
+  request            TripRequest?        @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  trip               Trip?               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet             Wallet              @relation(fields: [wallet_id], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([reference])
+  @@index([stripe_transfer_id])
+}
+
+model Otp {
+  id         String   @id @default(uuid())
+  code       String
+  email      String?
+  phone      String?
+  type       OtpType
+  expiresAt  DateTime
+  verified   Boolean  @default(false)
+  access_key String?  @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AccountDeleteRequest {
+  id        String              @id @default(uuid())
+  email     String
+  reason    String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  status    deleteRequestStatus @default(PENDING)
+  user_id   String
+  user      User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([email])
+}
+
+model Logger {
+  id            String     @id @default(uuid())
+  user_id       String
+  error_message String
+  type          loggerType
+  data          Json?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model ShippingRequest {
+  id                  String                    @id @default(uuid())
+  user_id             String
+  category            ShippingCategory
+  package_photo_urls  String[]
+  package_description String
+  details_description String?
+  from                String
+  to                  String
+  delivery_timeframe  ShippingDeliveryTimeframe
+  weight              ShippingWeight
+  packaging           Boolean                   @default(false)
+  traveler_reward     Decimal
+  status              ShippingRequestStatus     @default(PUBLISHED)
+  created_at          DateTime                  @default(now())
+  updated_at          DateTime                  @updatedAt
+  chats               Chat[]
+  offers              ShippingOffer[]
+  user                User                      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([delivery_timeframe])
+  @@index([weight])
+  @@index([status])
+  @@index([category])
+  @@index([from])
+  @@index([to])
+  @@index([created_at])
+  @@index([traveler_reward])
+}
+
+model ShippingOffer {
+  id                  String          @id @default(uuid())
+  shipping_request_id String
+  traveler_id         String
+  reward_amount       Decimal
+  travel_date         DateTime?
+  message             String?
+  chat_id             String?         @unique
+  status              OfferStatus     @default(PENDING)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  accepted_at         DateTime?
+  rejected_at         DateTime?
+  cancelled_at        DateTime?
+  delivered_at        DateTime?
+  chat                Chat?           @relation("ShippingOfferChat", fields: [chat_id], references: [id])
+  shipping_request    ShippingRequest @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
+  traveler            User            @relation("ShippingOffers", fields: [traveler_id], references: [id], onDelete: Cascade)
+
+  @@index([shipping_request_id])
+  @@index([traveler_id])
+  @@index([status])
+  @@index([chat_id])
+}
+
+model Product {
+  id                  String          @id @default(uuid())
+  shopping_request_id String
+  name                String
+  description         String?
+  source              ProductSource
+  url                 String?
+  image_urls          String[]
+  price               Decimal
+  price_currency      Currency
+  weight              Decimal?
+  quantity            Int             @default(1)
+  variants            Json?
+  in_stock            Boolean         @default(true)
+  availability_text   String?
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+
+  @@index([shopping_request_id])
+}
+
+model ShoppingRequest {
+  id                          String                @id @default(uuid())
+  user_id                     String
+  version                     Int                   @default(1)
+  current_version             Int                   @default(1)
+  last_edited_at              DateTime?
+  source                      RequestSource
+  deliver_to                  String
+  delivery_timeframe          DeliveryTimeframe
+  packaging_option            Boolean               @default(false)
+  product_price               Decimal
+  product_currency            Currency
+  traveler_reward             Decimal
+  platform_fee                Decimal
+  additional_fees             Decimal               @default(0)
+  total_cost                  Decimal
+  suggested_reward_percentage Decimal               @default(15)
+  reward_currency             Currency
+  status                      ShoppingRequestStatus @default(PUBLISHED)
+  expires_at                  DateTime?
+  additional_notes            String?
+  purchase_proof_url          String?
+  purchase_proof_uploaded_at  DateTime?
+  created_at                  DateTime              @default(now())
+  updated_at                  DateTime              @updatedAt
+  paid_at                     DateTime?
+  bought_at                   DateTime?
+  delivered_at                DateTime?
+  completed_at                DateTime?
+  cancelled_at                DateTime?
+  cancelled_by_id             String?
+  chats                       Chat[]
+  deliveryTracking            DeliveryTracking?
+  offers                      Offer[]
+  products                    Product[]
+  ratings                     Rating[]
+  user                        User                  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([status])
+  @@index([expires_at])
+  @@index([created_at])
+}
+
+model Offer {
+  id                  String          @id @default(uuid())
+  shopping_request_id String
+  traveler_id         String
+  request_version     Int
+  reward_amount       Decimal
+  reward_currency     Currency
+  additional_fees     Decimal         @default(0)
+  travel_date         DateTime?
+  message             String?
+  status              OfferStatus     @default(PENDING)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  accepted_at         DateTime?
+  rejected_at         DateTime?
+  cancelled_at        DateTime?
+  chat_id             String?         @unique
+  chat                Chat?           @relation("OfferChat", fields: [chat_id], references: [id])
+  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+  traveler            User            @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
+  purchase_proofs     PurchaseProof[]
+
+  @@index([shopping_request_id])
+  @@index([traveler_id])
+  @@index([status])
+  @@index([request_version])
+  @@index([chat_id])
+}
+
+model DeliveryTracking {
+  id                  String          @id @default(uuid())
+  shopping_request_id String          @unique
+  marked_delivered_at DateTime?
+  auto_release_at     DateTime?
+  confirmed_at        DateTime?
+  confirmed_by        String?
+  issue_reported      Boolean         @default(false)
+  issue_reported_at   DateTime?
+  issue_reported_by   String?
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
+
+  @@index([auto_release_at])
+  @@index([marked_delivered_at])
+}
+
+model TravelerStrike {
+  id                  String    @id @default(uuid())
+  traveler_id         String
+  offer_id            String
+  shopping_request_id String
+  cancelled_at        DateTime  @default(now())
+  is_banned           Boolean   @default(false)
+  banned_at           DateTime?
+  created_at          DateTime  @default(now())
+  traveler            User      @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
+
+  @@index([traveler_id])
+  @@index([is_banned])
+}
+
+enum Provider {
+  GOOGLE
+  APPLE
+}
+
+enum DeliveryStatus {
+  PENDING
+  ONGOING
+  EXPIRED
 }
 
 enum ChatType {
@@ -231,122 +857,17 @@ enum ChatType {
   SHIPPING
 }
 
-model Chat {
-  id                  String  @id @default(uuid())
-  name                String?
-  trip_id             String? // Optional: link to trip (multiple chats allowed per trip)
-  shopping_request_id String? // Optional: link to shopping request (for pre-offer chats)
-  shipping_request_id String? // Optional: link to shipping request (for pre-offer chats)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  is_flagged Boolean @default(false)
-
-  type ChatType @default(TRIP)
-
-  members         ChatMember[]
-  messages        Message[]
-  trip            Trip?            @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  shoppingRequest ShoppingRequest? @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
-  shippingRequest ShippingRequest? @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
-  request         TripRequest? // One-to-one reverse relation
-  offer           Offer?           @relation("OfferChat") // Reverse: Offer.chat_id
-  shippingOffer   ShippingOffer?   @relation("ShippingOfferChat") // Reverse: ShippingOffer.chat_id
-}
-
-model ChatMember {
-  id        String   @id @default(uuid())
-  chat_id   String
-  user_id   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  joinedAt DateTime @default(now())
-
-  // Relations
-  chat Chat @relation(fields: [chat_id], references: [id], onDelete: Cascade)
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@unique([user_id, chat_id]) // Prevent duplicate memberships
-}
-
-model Message {
-  id String @id @default(uuid())
-
-  chat_id    String
-  sender_id  String
-  chat       Chat    @relation(fields: [chat_id], references: [id], onDelete: Cascade)
-  sender     User    @relation(fields: [sender_id], references: [id], onDelete: Cascade)
-  data       Json?
-  is_flagged Boolean @default(false)
-
-  content    String? // Text message
-  image_url  String? // Optional for media messages
-  request_id String? // Optional for request messages
-  review_id  String? // Optional for review messages
-
-  type MessageType @default(TEXT)
-
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  // Optional: for threaded messages/replies
-  reply_to_id String?
-  reply_to    Message?  @relation("MessageReplies", fields: [reply_to_id], references: [id])
-  replies     Message[] @relation("MessageReplies")
-
-  // Relation to TripRequest (if the message references a trip request)
-  request TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
-}
-
 enum MessageType {
   TEXT
   IMAGE
   REQUEST
   PAYMENT
-  DELIVERY
   SYSTEM
   REVIEW
   WARNING
-  SHOPPING // All shopping-request system messages (offers, payment, delivery)
-  SHIPPING // All shipping-request system messages (offers, accept, reject, cancel)
-}
-
-model Trip {
-  id                   String    @id @default(uuid())
-  user_id              String
-  pickup               Json?
-  destination          Json?
-  departure            Json?
-  delivery             Json?
-  departure_date       DateTime
-  departure_time       String
-  currency             Currency  @default(USD)
-  arrival_date         DateTime?
-  arrival_time         String?
-  mode_of_transport_id String?
-  airline_id           String
-  maximum_weight_in_kg Decimal?  @db.Decimal(5, 2)
-  notes                String?
-  fully_booked         Boolean   @default(false)
-  is_deleted           Boolean   @default(false)
-
-  meetup_flexible Boolean    @default(false)
-  status          TripStatus @default(SCHEDULED)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-
-  // Relations
-  user              User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  mode_of_transport TransportType?  @relation(fields: [mode_of_transport_id], references: [id], onDelete: Cascade)
-  airline           Airline         @relation(fields: [airline_id], references: [id], onDelete: Cascade)
-  trip_items        TripItemsList[]
-  requests          TripRequest[]
-  chats             Chat[]
-  reports           Report[]
-  ratings           Rating[]
-  transactions      Transaction[]
+  DELIVERY
+  SHOPPING
+  SHIPPING
 }
 
 enum Currency {
@@ -354,32 +875,6 @@ enum Currency {
   USD
   EUR
   CAD
-}
-
-model Airline {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  // Relations
-  trips Trip[]
-}
-
-model Image {
-  id         String   @id @default(uuid())
-  object_id  String // optional pointer to external object if needed
-  url        String
-  alt_text   String?
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  // Relations
-  trip_items              TripItem[]
-  requestLinks            TripRequestImage[]
-  purchaseProofsAsPrimary PurchaseProof[]    @relation
-  proofImages             ProofImage[]
 }
 
 enum ProofImageType {
@@ -398,195 +893,9 @@ enum ProofDecision {
   REJECT
 }
 
-model PurchaseProof {
-  id                       String      @id @default(uuid())
-  offer_id                 String?
-  offer                    Offer?      @relation(fields: [offer_id], references: [id], onDelete: Cascade)
-  uploader_id              String
-  uploader                 User        @relation(fields: [uploader_id], references: [id], onDelete: Cascade)
-  status                   ProofStatus @default(PENDING)
-  primary_receipt_image_id String?
-  primary_receipt_image    Image?      @relation(fields: [primary_receipt_image_id], references: [id], onDelete: SetNull)
-  metadata                 Json?
-  created_at               DateTime    @default(now())
-  updated_at               DateTime    @updatedAt
-
-  proof_images  ProofImage[]
-  verifications ProofVerification[]
-
-  @@index([offer_id])
-  @@index([uploader_id])
-}
-
-model ProofImage {
-  id       String         @id @default(uuid())
-  proof_id String
-  image_id String
-  type     ProofImageType
-  ord      Int?
-
-  proof PurchaseProof @relation(fields: [proof_id], references: [id], onDelete: Cascade)
-  image Image         @relation(fields: [image_id], references: [id], onDelete: Cascade)
-
-  @@index([proof_id])
-  @@index([image_id])
-}
-
-model ProofVerification {
-  id          String        @id @default(uuid())
-  proof_id    String
-  proof       PurchaseProof @relation(fields: [proof_id], references: [id], onDelete: Cascade)
-  verified_by String?
-  decision    ProofDecision
-  reason      String?
-  created_at  DateTime      @default(now())
-
-  @@index([proof_id])
-}
-
 enum Language {
   en
   fr
-}
-
-model TripItem {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String?
-  image_id    String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  // Relations
-  image           Image?            @relation(fields: [image_id], references: [id], onDelete: SetNull)
-  trip_items_list TripItemsList[]
-  request_items   TripRequestItem[]
-
-  // ✅ Link to translations
-  translations Translation[]
-}
-
-model Translation {
-  id           String   @id @default(uuid())
-  name         String
-  description  String?
-  language     Language @default(en)
-  trip_item_id String? // foreign key to TripItem
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  tripItem TripItem? @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
-
-  @@unique([trip_item_id, language]) // prevent duplicate language per TripItem
-}
-
-model TripItemsList {
-  trip_id       String
-  trip_item_id  String
-  price         Decimal  @db.Decimal(10, 2)
-  avalailble_kg Decimal? @db.Decimal(10, 2)
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-
-  // Relations
-  trip      Trip                 @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  trip_item TripItem             @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
-  prices    TripItemsListPrice[]
-
-  @@id([trip_id, trip_item_id])
-}
-
-model TripItemsListPrice {
-  trip_id      String
-  trip_item_id String
-  currency     Currency
-  price        Decimal  @db.Decimal(10, 2)
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
-
-  // Relations
-  trip_items_list TripItemsList @relation(fields: [trip_id, trip_item_id], references: [trip_id, trip_item_id], onDelete: Cascade)
-
-  @@id([trip_id, trip_item_id, currency])
-}
-
-model TripRequest {
-  id         String        @id @default(uuid())
-  trip_id    String
-  user_id    String
-  status     RequestStatus @default(PENDING)
-  message    String?
-  created_at DateTime      @default(now())
-  updated_at DateTime      @updatedAt
-  cost       Decimal?      @db.Decimal(10, 2)
-
-  // Payment fields
-  currency          Currency?
-  payment_intent_id String?        @unique
-  payment_status    PaymentStatus? @default(PENDING)
-  paid_at           DateTime?
-  is_deleted        Boolean        @default(false)
-
-  // Delivery confirmation
-  sender_confirmed_delivery   Boolean   @default(false)
-  traveler_confirmed_delivery Boolean   @default(false)
-  delivered_at                DateTime?
-
-  // Cancellation fields
-  cancelled_at        DateTime?
-  cancellation_type   String?
-  cancellation_reason String?
-
-  // Chat relation (one-to-one)
-  chat_id String? @unique
-
-  // Relations
-  trip          Trip               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  user          User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  chat          Chat?              @relation(fields: [chat_id], references: [id], onDelete: SetNull)
-  request_items TripRequestItem[]
-  images        TripRequestImage[]
-  messages      Message[] // messages that reference this request via request_id
-  reports       Report[]
-  ratings       Rating[]
-  transactions  Transaction[]
-}
-
-model TripRequestItem {
-  request_id    String
-  trip_item_id  String
-  quantity      Int
-  special_notes String?
-
-  // Relations
-  request   TripRequest @relation(fields: [request_id], references: [id], onDelete: Cascade)
-  trip_item TripItem    @relation(fields: [trip_item_id], references: [id], onDelete: Cascade)
-
-  @@id([request_id, trip_item_id])
-}
-
-// join table to attach images to trip requests (explicit FK)
-model TripRequestImage {
-  trip_request_id String
-  image_id        String
-  created_at      DateTime @default(now())
-
-  tripRequest TripRequest @relation(fields: [trip_request_id], references: [id], onDelete: Cascade)
-  image       Image       @relation(fields: [image_id], references: [id], onDelete: Cascade)
-
-  @@id([trip_request_id, image_id])
-}
-
-model TransportType {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  // Relations
-  trips Trip[]
 }
 
 enum UserRole {
@@ -603,26 +912,26 @@ enum TripStatus {
   PUBLISHED
   SCHEDULED
   RESCHEDULED
-  INPROGRESS
   CANCELLED
   COMPLETED
   DRAFT
+  INPROGRESS
 }
 
 enum RequestStatus {
-  PENDING //when the request is created
-  ACCEPTED //when the request is accepted by the traveler
-  DECLINED //when the request is declined by the traveler
-  CANCELLED //when the request is cancelled by the traveler or sender
-  REFUNDED //when the request is refunded to the sender
-  EXPIRED //when the traveller do not accept the request before the departure date
-  CONFIRMED //when the request is paid by the sender
-  SENT //when user confrin send package to traveller
-  RECEIVED //when traveller confirm received package from user
-  IN_TRANSIT //when travel date and time arrives
-  PENDING_DELIVERY //traveller mark as delivered but not confirmed by user
-  DELIVERED //when the user confirm package is delivered by the traveler
-  REVIEWED //when the user review the request
+  PENDING
+  ACCEPTED
+  DELIVERED
+  DECLINED
+  CANCELLED
+  REFUNDED
+  CONFIRMED
+  EXPIRED
+  SENT
+  RECEIVED
+  IN_TRANSIT
+  PENDING_DELIVERY
+  REVIEWED
 }
 
 enum ReportType {
@@ -654,131 +963,20 @@ enum ReportStatus {
   RESOLVED
 }
 
-model Report {
-  id          String         @id @default(uuid())
-  user_id     String // User reporting
-  reported_id String // User being reported
-  reply_to_id String? // ID of report we are replying to (not required)
-  trip_id     String // Trip ID (required)
-  request_id  String? // Request ID (not required)
-  type        ReportType
-  text        String? // Report text (not required)
-  priority    ReportPriority
-  status      ReportStatus   @default(PENDING)
-  data        Json? // Additional data in JSON format
-  replied_by  String? // ID of user replying to report (not required)
-  created_at  DateTime       @default(now())
-  updated_at  DateTime       @updatedAt
-  images      Json?
-
-  // Relations
-  user     User         @relation("ReportReporter", fields: [user_id], references: [id], onDelete: Cascade)
-  reported User         @relation("ReportReported", fields: [reported_id], references: [id], onDelete: Cascade)
-  replyTo  Report?      @relation("ReportReplies", fields: [reply_to_id], references: [id])
-  replies  Report[]     @relation("ReportReplies")
-  trip     Trip         @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
-  replier  User?        @relation("ReportReplier", fields: [replied_by], references: [id])
-}
-
-// KYC Verification Models
 enum KYCStatus {
-  NOT_STARTED // The verification process has not been initiated by the user yet
-  IN_PROGRESS // The user has started the verification process and is currently submitting information
-  APPROVED // The verification has been successfully completed and approved
-  DECLINED // The verification has been rejected due to issues with submitted information
-  KYC_EXPIRED // The previously verified KYC has expired and needs to be renewed
-  IN_REVIEW // The verification requires manual review by the compliance team
-  EXPIRED // The verification session has timed out before completion
-  ABANDONED // The user started but did not complete the verification process
+  NOT_STARTED
+  IN_PROGRESS
+  APPROVED
+  DECLINED
+  KYC_EXPIRED
+  IN_REVIEW
+  EXPIRED
+  ABANDONED
 }
 
 enum KYCProvider {
   DIDIT
   OTHER
-}
-
-model UserKYC {
-  id     String @id @default(uuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Didit.me specific fields
-  diditSessionId  String? @unique
-  diditWorkflowId String?
-  sessionUrl      String?
-  callbackUrl     String?
-
-  // Verification status and data
-  status   KYCStatus   @default(NOT_STARTED)
-  provider KYCProvider @default(DIDIT)
-
-  // Verification results
-  verificationData Json? // Store verification results from Didit
-  rejectionReason  String? // Reason for rejection if applicable
-
-  // Metadata
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  verifiedAt DateTime? // When verification was completed
-  expiresAt  DateTime? // When the verification session expires
-
-  @@unique([userId, provider]) // One active verification per provider per user
-}
-
-model Rating {
-  id                  String   @id @default(uuid())
-  giver_id            String // User giving the rating
-  receiver_id         String // User receiving the rating
-  trip_id             String? // Trip being rated (optional for shopping request ratings)
-  request_id          String? // Optional: specific trip request being rated
-  shopping_request_id String? // Optional: specific shopping request being rated
-  rating              Int // Rating value (1-5)
-  comment             String? // Optional comment
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
-
-  // Relations
-  giver           User             @relation("RatingGiver", fields: [giver_id], references: [id], onDelete: Cascade)
-  receiver        User             @relation("RatingReceiver", fields: [receiver_id], references: [id], onDelete: Cascade)
-  trip            Trip?            @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  request         TripRequest?     @relation(fields: [request_id], references: [id], onDelete: Cascade)
-  shoppingRequest ShoppingRequest? @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
-
-  @@unique([giver_id, receiver_id, trip_id]) // Prevent duplicate ratings for same trip (trip_id may be null)
-}
-
-model Alert {
-  id            String    @id @default(uuid())
-  user_id       String
-  depature      String
-  destination   String
-  form_date     DateTime?
-  to_date       DateTime?
-  notificaction Boolean   @default(true)
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
-
-  // Relations
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-}
-
-model Notification {
-  id      String @id @default(uuid())
-  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  user_id String
-
-  trip_id    String?
-  request_id String?
-
-  title   String
-  message String
-  type    NotificationType // enum for categorizing
-  data    Json? // extra metadata (e.g. { "postId": "123" })
-
-  read      Boolean   @default(false) // track read/unread
-  createdAt DateTime  @default(now())
-  read_at   DateTime?
 }
 
 enum NotificationType {
@@ -787,7 +985,6 @@ enum NotificationType {
   ALERT
 }
 
-// Payment & Wallet Enums
 enum PaymentStatus {
   PENDING
   PROCESSING
@@ -798,21 +995,21 @@ enum PaymentStatus {
 }
 
 enum TransactionType {
-  CREDIT // Money added to wallet
-  DEBIT // Money removed from wallet
+  CREDIT
+  DEBIT
 }
 
 enum TransactionSource {
-  ORDER // From completed order
-  WITHDRAW // Withdrawal request
-  ADJUSTMENT // Manual adjustment by admin
-  REFUND // Refund to sender
-  COMMISSION // Platform commission deduction
-  TRIP_EARNING // Trip earning
-  FEE // Fee deduction
-  CANCELLATION_COMPENSATION // Traveler compensation for cancellation
-  VELRO_FEE // Velro platform fee
-  PAYMENT_CANCELLATION // PaymentIntent cancellation (not captured)
+  ORDER
+  WITHDRAW
+  ADJUSTMENT
+  REFUND
+  COMMISSION
+  TRIP_EARNING
+  FEE
+  CANCELLATION_COMPENSATION
+  VELRO_FEE
+  PAYMENT_CANCELLATION
   TRIP_PAYMENT
 }
 
@@ -840,117 +1037,11 @@ enum WalletState {
   BLOCKED
 }
 
-model Wallet {
-  id     String @id @default(uuid())
-  user   User   @relation(fields: [userId], references: [id])
-  userId String @unique
-
-  available_balance Decimal @default(0.00) @db.Decimal(10, 2) // to be removed
-  hold_balance      Decimal @default(0.00) @db.Decimal(10, 2) // to be removed
-  total_balance     Decimal @default(0.00) @db.Decimal(10, 2)
-
-  available_balance_xaf Decimal @default(0) @db.Decimal(10, 2)
-  hold_balance_xaf      Decimal @default(0) @db.Decimal(10, 2)
-
-  available_balance_usd Decimal @default(0) @db.Decimal(10, 2)
-  hold_balance_usd      Decimal @default(0) @db.Decimal(10, 2)
-
-  available_balance_eur Decimal @default(0) @db.Decimal(10, 2)
-  hold_balance_eur      Decimal @default(0) @db.Decimal(10, 2)
-
-  available_balance_cad Decimal @default(0) @db.Decimal(10, 2)
-  hold_balance_cad      Decimal @default(0) @db.Decimal(10, 2)
-
-  state             WalletState @default(BLOCKED)
-  currency          String      @default("XAF") // or USD, EUR, etc.
-  status_message_fr String?
-  status_message_en String?
-
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
-
-  transactions Transaction[]
-
-  // removed legacy stripe balance fields: available_balance_stripe, pending_balance_stripe, withdrawn_total_stripe
-
-  @@index([userId])
-}
-
-model Transaction {
-  id               String              @id @default(uuid())
-  userId           String
-  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  trip_id          String?
-  request_id       String?
-  amount_requested Decimal             @db.Decimal(10, 2)
-  fee_applied      Decimal             @db.Decimal(10, 2)
-  amount_paid      Decimal             @db.Decimal(10, 2)
-  wallet_id        String
-  currency         String
-  status_message   String?
-  description      String? // Human-readable description
-  metadata         Json? // Additional data
-  reference        String?             @unique
-  balance_after    Decimal?            @db.Decimal(10, 2)
-  createdAt        DateTime            @default(now())
-  processedAt      DateTime? // When transfer was completed
-  updatedAt        DateTime            @updatedAt
-  type             TransactionType
-  source           TransactionSource
-  status           TransactionStatus   @default(PENDING)
-  provider         TransactionProvider
-  provider_id      String?
-
-  stripe_transfer_id String? @unique
-  stripe_account_id  String?
-
-  phone_number String?
-
-  wallet   Wallet       @relation(fields: [wallet_id], references: [id])
-  trip     Trip?        @relation(fields: [trip_id], references: [id], onDelete: Cascade)
-  request  TripRequest? @relation(fields: [request_id], references: [id], onDelete: Cascade)
-  delivery Delivery?
-
-  @@index([userId, createdAt])
-  @@index([reference])
-  @@index([stripe_transfer_id])
-}
-
-model Otp {
-  id         String   @id @default(uuid())
-  code       String
-  email      String?
-  phone      String?
-  type       OtpType
-  expiresAt  DateTime
-  verified   Boolean  @default(false)
-  access_key String?  @unique
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
 enum OtpType {
   LOGIN
   SIGNUP
   FORGOT_PASSWORD
   VERIFY_EMAIL
-}
-
-model AccountDeleteRequest {
-  id        String              @id @default(uuid())
-  email     String
-  reason    String?
-  createdAt DateTime            @default(now())
-  updatedAt DateTime            @updatedAt
-  status    deleteRequestStatus @default(PENDING)
-
-  // Relation
-  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  user_id String
-
-  @@index([user_id])
-  @@index([email])
 }
 
 enum deleteRequestStatus {
@@ -962,20 +1053,6 @@ enum deleteRequestStatus {
 enum loggerType {
   MESSAGE
 }
-
-model Logger {
-  id            String     @id @default(uuid())
-  user_id       String
-  error_message String
-  type          loggerType
-  data          Json?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-}
-
-// ------------------------------------------------------
-// SHIPPING & SHOPPING (Grabr-style) - migrated from Currency Exchange
-// ------------------------------------------------------
 
 enum ShippingDeliveryTimeframe {
   WITHIN_3_DAYS
@@ -1030,9 +1107,9 @@ enum OfferStatus {
   PENDING
   ACCEPTED
   REJECTED
+  CANCELLED
   DELIVERED
   COMPLETED
-  CANCELLED
 }
 
 enum DeliveryTimeframe {
@@ -1057,230 +1134,4 @@ enum ProductSource {
   APPLE
   EBAY
   OTHER
-}
-
-model ShippingRequest {
-  id      String @id @default(uuid())
-  user_id String
-  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  category            ShippingCategory
-  package_photo_urls  String[]
-  package_description String           @db.Text
-  details_description String?          @db.Text
-  from                String
-  to                  String
-
-  delivery_timeframe ShippingDeliveryTimeframe
-  weight             ShippingWeight
-  packaging          Boolean                   @default(false)
-
-  traveler_reward Decimal
-  status          ShippingRequestStatus @default(PUBLISHED)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  // Relations
-  offers ShippingOffer[]
-  chats  Chat[] // Pre-offer chats initiated from request details
-
-  @@index([user_id])
-  @@index([delivery_timeframe])
-  @@index([weight])
-  @@index([status])
-  @@index([category])
-  @@index([from])
-  @@index([to])
-  @@index([created_at])
-  @@index([traveler_reward])
-}
-
-model ShippingOffer {
-  id                  String          @id @default(uuid())
-  shipping_request_id String
-  shipping_request    ShippingRequest @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
-
-  traveler_id String
-  traveler    User   @relation("ShippingOffers", fields: [traveler_id], references: [id], onDelete: Cascade)
-
-  reward_amount Decimal
-  travel_date   DateTime?
-  message       String?   @db.Text
-
-  // Chat relation - each offer has its own private chat
-  chat_id String? @unique
-  chat    Chat?   @relation("ShippingOfferChat", fields: [chat_id], references: [id], onDelete: SetNull)
-
-  status OfferStatus @default(PENDING)
-
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  accepted_at  DateTime?
-  delivered_at DateTime?
-  rejected_at  DateTime?
-  cancelled_at DateTime?
-
-  @@index([shipping_request_id])
-  @@index([traveler_id])
-  @@index([status])
-  @@index([chat_id])
-}
-
-model Product {
-  id                  String          @id @default(uuid())
-  shopping_request_id String
-  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
-
-  name        String
-  description String?       @db.Text
-  source      ProductSource
-  url         String?
-  image_urls  String[]
-
-  price          Decimal
-  price_currency Currency
-  weight         Decimal?
-  quantity       Int      @default(1)
-
-  variants Json?
-
-  in_stock          Boolean @default(true)
-  availability_text String?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  @@index([shopping_request_id])
-}
-
-model ShoppingRequest {
-  id      String @id @default(uuid())
-  user_id String
-  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  version         Int       @default(1)
-  current_version Int       @default(1)
-  last_edited_at  DateTime?
-
-  source RequestSource
-
-  products Product[]
-
-  deliver_to         String
-  delivery_timeframe DeliveryTimeframe
-  packaging_option   Boolean           @default(false)
-
-  product_price    Decimal
-  product_currency Currency
-  traveler_reward  Decimal
-  platform_fee     Decimal
-  additional_fees  Decimal  @default(0)
-  total_cost       Decimal
-
-  suggested_reward_percentage Decimal  @default(15)
-  reward_currency             Currency
-
-  status     ShoppingRequestStatus @default(PUBLISHED)
-  expires_at DateTime?
-
-  additional_notes String? @db.Text
-
-  offers           Offer[]
-  chats            Chat[] // Pre-offer chats initiated from request details
-  deliveryTracking DeliveryTracking?
-  ratings          Rating[] // Ratings for this shopping request
-
-  purchase_proof_url         String?
-  purchase_proof_uploaded_at DateTime?
-
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  paid_at         DateTime?
-  bought_at       DateTime?
-  delivered_at    DateTime?
-  completed_at    DateTime?
-  cancelled_at    DateTime?
-  cancelled_by_id String?
-
-  @@index([user_id])
-  @@index([status])
-  @@index([expires_at])
-  @@index([created_at])
-}
-
-model Offer {
-  id                  String          @id @default(uuid())
-  shopping_request_id String
-  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
-
-  traveler_id String
-  traveler    User   @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
-
-  request_version Int
-
-  reward_amount   Decimal
-  reward_currency Currency
-  additional_fees Decimal   @default(0)
-  travel_date     DateTime?
-  message         String?   @db.Text
-
-  // Chat relation - each offer has its own private chat
-  chat_id String? @unique
-  chat    Chat?   @relation("OfferChat", fields: [chat_id], references: [id], onDelete: SetNull)
-
-  status OfferStatus @default(PENDING)
-
-  purchase_proofs PurchaseProof[]
-
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  accepted_at  DateTime?
-  rejected_at  DateTime?
-  cancelled_at DateTime?
-
-  @@index([shopping_request_id])
-  @@index([traveler_id])
-  @@index([status])
-  @@index([request_version])
-  @@index([chat_id])
-}
-
-model DeliveryTracking {
-  id                  String          @id @default(uuid())
-  shopping_request_id String          @unique
-  shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
-
-  marked_delivered_at DateTime?
-  auto_release_at     DateTime?
-  confirmed_at        DateTime?
-  confirmed_by        String?
-
-  issue_reported    Boolean   @default(false)
-  issue_reported_at DateTime?
-  issue_reported_by String?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  @@index([auto_release_at])
-  @@index([marked_delivered_at])
-}
-
-model TravelerStrike {
-  id          String @id @default(uuid())
-  traveler_id String
-  traveler    User   @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
-
-  offer_id            String
-  shopping_request_id String
-  cancelled_at        DateTime @default(now())
-
-  is_banned Boolean   @default(false)
-  banned_at DateTime?
-
-  created_at DateTime @default(now())
-
-  @@index([traveler_id])
-  @@index([is_banned])
 }
