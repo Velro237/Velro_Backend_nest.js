@@ -16,7 +16,7 @@ import {
   ValidationArguments,
   Validate,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   DeliveryTimeframe,
   RequestSource,
@@ -171,6 +171,117 @@ export class CreateShoppingRequestDto {
   @IsString()
   @IsOptional()
   additionalNotes?: string;
+}
+
+// Flattened DTO for manual creation (multipart/form-data); images come from file upload
+export class CreateManualShoppingRequestDto {
+  @ApiProperty({ description: 'Delivery city', example: 'Douala, Cameroon' })
+  @IsString()
+  @IsNotEmpty()
+  deliverTo!: string;
+
+  @ApiProperty({
+    description: 'Delivery timeframe',
+    enum: DeliveryTimeframe,
+    example: DeliveryTimeframe.ONE_MONTH,
+  })
+  @IsEnum(DeliveryTimeframe)
+  @IsNotEmpty()
+  deliveryTimeframe!: DeliveryTimeframe;
+
+  @ApiPropertyOptional({
+    description: 'Remove original packaging',
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'boolean') return value;
+    const v = String(value).toLowerCase();
+    return v === 'true' || v === '1';
+  })
+  packagingOption?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Traveler reward amount (if not provided, 15% will be suggested)',
+  })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  travelerReward?: number;
+
+  @ApiPropertyOptional({ description: 'Reward currency', enum: Currency })
+  @IsEnum(Currency)
+  @IsOptional()
+  rewardCurrency?: Currency;
+
+  @ApiPropertyOptional({ description: 'Additional notes for the traveler' })
+  @IsString()
+  @IsOptional()
+  additionalNotes?: string;
+
+  @ApiProperty({ description: 'Product name', example: 'iPhone 15 Pro 256GB' })
+  @IsString()
+  @IsNotEmpty()
+  productName!: string;
+
+  @ApiPropertyOptional({ description: 'Product description' })
+  @IsString()
+  @IsOptional()
+  productDescription?: string;
+
+  @ApiPropertyOptional({ description: 'Product source', enum: ProductSource })
+  @IsEnum(ProductSource)
+  @IsNotEmpty()
+  productSource!: ProductSource;
+
+  @ApiProperty({ description: 'Product price', example: 999.0 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  productPrice!: number;
+
+  @ApiProperty({ description: 'Price currency', enum: Currency })
+  @IsEnum(Currency)
+  @IsNotEmpty()
+  productPriceCurrency!: Currency;
+
+  @ApiPropertyOptional({ description: 'Product weight in kg' })
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  productWeight?: number;
+
+  @ApiProperty({ description: 'Quantity', example: 1, default: 1 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  productQuantity!: number;
+
+  @ApiPropertyOptional({
+    description: 'Product variants as JSON string (size, color, etc.)',
+  })
+  @IsString()
+  @IsOptional()
+  productVariants?: string;
+
+  @ApiProperty({ description: 'In stock status', default: true })
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null) return true;
+    if (typeof value === 'boolean') return value;
+    const v = String(value).toLowerCase();
+    return v === 'true' || v === '1';
+  })
+  productInStock!: boolean;
+
+  @ApiPropertyOptional({ description: 'Availability text' })
+  @IsString()
+  @IsOptional()
+  productAvailabilityText?: string;
 }
 
 // DTO for URL-based request creation
