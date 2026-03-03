@@ -415,17 +415,23 @@ export class WalletService {
       }
 
       // Calculate withdrawal fee
+      const withdrawalCurrency = dto.currency || wallet.currency;
       const fee = this.calculateWithdrawalFee(dto.amount);
       const netAmount = dto.amount - fee;
 
-      // Minimum withdrawal check
-      const minWithdrawal = this.configService.get<number>(
-        'MIN_WITHDRAWAL_AMOUNT',
-        10.0,
-      );
-      if (netAmount < minWithdrawal) {
+      // Minimum withdrawal check (currency-aware)
+      const minWithdrawalByCurrency: Record<string, number> = {
+        EUR: 5,
+        USD: 5,
+        CAD: 5,
+        XAF: 5000,
+      };
+      const minWithdrawal = minWithdrawalByCurrency[withdrawalCurrency]
+        ?? this.configService.get<number>('MIN_WITHDRAWAL_AMOUNT', 10.0);
+
+      if (dto.amount < minWithdrawal) {
         throw new BadRequestException(
-          `Minimum withdrawal amount is ${minWithdrawal} ${wallet.currency}`,
+          `Minimum withdrawal amount is ${minWithdrawal} ${withdrawalCurrency}`,
         );
       }
 
