@@ -41,10 +41,30 @@ export class UserRequestService {
       }),
     ]);
 
-    return {
-      shoppingRequests,
-      shippingRequests,
-    };
+    const data = [];
+    shoppingRequests.data.forEach((request) => {
+      data.push({
+        ...request,
+        type: 'shopping',
+      });
+    });
+    shippingRequests.data.forEach((request) => {
+      data.push({
+        ...request,
+        type: 'shipping',
+      });
+    });
+
+    const meta = shoppingRequests.meta;
+    meta.totalPages = Math.max(
+      meta.totalPages,
+      shippingRequests.meta.totalPages,
+    );
+    meta.total = shoppingRequests.meta.total + shippingRequests.meta.total;
+    meta.limit = limit;
+    meta.page = page;
+
+    return { data, meta };
   }
 
   private mapStatusToShoppingRequestStatus(
