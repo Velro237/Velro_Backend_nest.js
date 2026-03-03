@@ -127,12 +127,11 @@ async ensureConnectedAccount(params: {
       throw new BadRequestException('User must have verified phone number in KYC to create Stripe account');
     }
 
-    // 4. Create Express account
-    // IMPORTANT: Do NOT set country or capabilities - this locks the country field
+    // 4. Create Express account with country pre-set to skip country selection page
 
     const account = await this.stripe.accounts.create({
       type: 'express',
-
+      country: params.country,
       email: user.email,
       business_type: 'individual',
       individual: {
@@ -196,6 +195,10 @@ async ensureConnectedAccount(params: {
         refresh_url: `${this.appUrl}/connect/refresh`,
         return_url: `${this.appUrl}/connect/return`,
         type: 'account_onboarding',
+        collection_options: {
+          fields: 'eventually_due',
+          future_requirements: 'omit',
+        },
       });
 
       return accountLink.url;
@@ -671,4 +674,3 @@ async ensureConnectedAccount(params: {
     return this.stripe;
   }
 }
-
