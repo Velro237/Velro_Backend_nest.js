@@ -92,6 +92,8 @@ async ensureConnectedAccount(params: {
         city: true,
         state: true,
         zip: true,
+        country: true,
+        date_of_birth: true,
         stripe_account_id: true,
       },
     });
@@ -123,11 +125,14 @@ async ensureConnectedAccount(params: {
     const kycPhone = this.extractPhoneFromKYC(kycData?.verificationData);
     const dateOfBirth = this.extractDateOfBirthFromKYC(kycData?.verificationData);
 
-    if (!kycPhone) {
-      throw new BadRequestException('User must have verified phone number in KYC to create Stripe account');
-    }
+    // Use KYC phone, fall back to user profile phone
+    const phone = kycPhone || user.phone || null;
 
-    // 4. Create Express account with country pre-set to skip country selection page
+    // Use KYC DOB, fall back to user profile date_of_birth
+    const dob = dateOfBirth || (user.date_of_birth ? new Date(user.date_of_birth) : null);
+
+    // 4. Create Express account with everything prefilled
+    // Stripe will skip onboarding pages for fields that are already provided
 
     const account = await this.stripe.accounts.create({
       type: 'express',
@@ -139,14 +144,28 @@ async ensureConnectedAccount(params: {
         first_name: user.firstName,
         last_name: user.lastName,
 
-        ...(dateOfBirth ? {
+        // Phone — Stripe skips the phone page if provided
+        ...(phone ? { phone } : {}),
+
+        // Date of birth — Stripe skips the DOB page if provided
+        ...(dob ? {
           dob: {
-            day: dateOfBirth.getDate(),
-            month: dateOfBirth.getMonth() + 1,
-            year: dateOfBirth.getFullYear(),
+            day: dob.getDate(),
+            month: dob.getMonth() + 1,
+            year: dob.getFullYear(),
           },
-        } : {}), // Pre-filled from KYC
-        // ID number will be collected during Stripe onboarding if required
+        } : {}),
+
+        // Address — Stripe skips the address page if provided
+        ...(user.address ? {
+          address: {
+            line1: user.address,
+            city: user.city || undefined,
+            state: user.state || undefined,
+            postal_code: user.zip || undefined,
+            country: params.country,
+          },
+        } : {}),
       },
       business_profile: {
         mcc: '7299', // Miscellaneous services
@@ -154,7 +173,7 @@ async ensureConnectedAccount(params: {
         support_email: user.email,
         name: `${user.firstName} ${user.lastName} - Traveler`,
       },
-      // Capabilities NOT set - Stripe will configure them based on country selected during onboarding
+      // Capabilities NOT set - Stripe will configure them based on country
       settings: {
         payouts: {
           schedule: { interval: 'daily' },
