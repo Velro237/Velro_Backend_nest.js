@@ -11,6 +11,7 @@ import { CreateShippingRequestDto } from './dto/create-shipping-request.dto';
 import { ShippingRequestStatus } from 'generated/prisma';
 import { GetShippingRequestsQueryDto } from './dto/get-shipping-requests-query.dto';
 import { UpdateShippingRequestDto } from './dto/update-shipping-request.dto';
+import { I18nService } from 'nestjs-i18n';
 
 @Injectable()
 export class ShippingRequestService {
@@ -19,6 +20,7 @@ export class ShippingRequestService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly i18n: I18nService,
   ) {}
 
   async create(
@@ -150,7 +152,7 @@ export class ShippingRequestService {
     };
   }
 
-  async getById(id: string, userId?: string) {
+  async getById(id: string, userId?: string, lang = 'en') {
     const request = await this.prisma.shippingRequest.findUnique({
       where: { id },
       include: {
@@ -166,13 +168,31 @@ export class ShippingRequestService {
     });
 
     if (!request) {
-      throw new NotFoundException({ code: 'SHIPPING_REQUEST_NOT_FOUND' });
+      throw new NotFoundException({
+        code: 'SHIPPING_REQUEST_NOT_FOUND',
+        message: this.i18n.translate(
+          'translation.shipping_request.errors.not_found',
+          {
+            lang,
+          },
+        ),
+      });
     }
 
     const isOwner = request.user_id === userId;
-    if (!isOwner && request.status !== ShippingRequestStatus.PUBLISHED) {
+    if (
+      !isOwner &&
+      (request.status === ShippingRequestStatus.EXPIRED ||
+        request.status === ShippingRequestStatus.CANCELLED)
+    ) {
       throw new ForbiddenException({
         code: 'NOT_AUTHORIZED_TO_VIEW_SHIPPING_REQUEST',
+        message: this.i18n.translate(
+          'translation.shipping_request.errors.not_authorized',
+          {
+            lang,
+          },
+        ),
       });
     }
 
