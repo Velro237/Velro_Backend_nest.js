@@ -293,5 +293,14 @@
         "cannot_offer_own_request": "You cannot make an offer on your own request"
       }
     }
+  },
+  "shipping_request": {
+    "errors": {
+      "not_authorized": "You are not authorized to perform this action",
+      "not_found": "Shipping request not found",
+      "not_owner": "You are not the owner of this request",
+      "not_published": "Request is not published",
+      "cannot_edit_accepted": "Cannot edit an accepted request"
+    }
   }
 }
