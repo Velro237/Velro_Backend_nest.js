@@ -12,10 +12,14 @@ import {
   ShippingDeliveryTimeframe,
   ShippingWeight,
   ShippingCategory,
+  Currency,
 } from 'generated/prisma';
 
 export class CreateShippingRequestDto {
-  @ApiProperty({ description: 'Category of the package', enum: ShippingCategory })
+  @ApiProperty({
+    description: 'Category of the package',
+    enum: ShippingCategory,
+  })
   @IsEnum(ShippingCategory)
   category!: ShippingCategory;
 
@@ -39,7 +43,10 @@ export class CreateShippingRequestDto {
   @IsOptional()
   detailsDescription?: string;
 
-  @ApiProperty({ description: 'Delivery timeframe', enum: ShippingDeliveryTimeframe })
+  @ApiProperty({
+    description: 'Delivery timeframe',
+    enum: ShippingDeliveryTimeframe,
+  })
   @IsEnum(ShippingDeliveryTimeframe)
   deliveryTimeframe!: ShippingDeliveryTimeframe;
 
@@ -47,7 +54,10 @@ export class CreateShippingRequestDto {
   @IsEnum(ShippingWeight)
   weight!: ShippingWeight;
 
-  @ApiPropertyOptional({ description: 'Remove original packaging', default: false })
+  @ApiPropertyOptional({
+    description: 'Remove original packaging',
+    default: false,
+  })
   @IsBoolean()
   @IsOptional()
   @Transform(({ value }) => {
@@ -62,4 +72,9 @@ export class CreateShippingRequestDto {
   @Type(() => Number)
   @IsNumber()
   travelerReward!: number;
+
+  @ApiPropertyOptional({ description: 'Reward currency', enum: Currency })
+  @IsEnum(Currency)
+  @IsOptional()
+  rewardCurrency: Currency;
 }
