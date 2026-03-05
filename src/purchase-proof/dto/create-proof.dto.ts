@@ -1,8 +1,20 @@
-import { IsOptional, IsString, IsNumber } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsArray } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+
+export class PurchaseProofFilesDto {
+  @IsOptional()
+  @IsArray()
+  receipt: Express.Multer.File[];
+
+  @IsOptional()
+  @IsArray()
+  photos: Express.Multer.File[];
+}
 
 export class CreateProofDto {
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @ApiPropertyOptional({ type: Number, description: 'Total amount on receipt' })
   total?: number;

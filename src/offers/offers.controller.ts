@@ -8,6 +8,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,6 +18,7 @@ import {
   ApiResponse,
   ApiBody,
   ApiParam,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { I18nLang } from 'nestjs-i18n';
 import { OffersService } from './offers.service';
@@ -24,13 +27,22 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from 'generated/prisma';
 import { CreateOfferDto, CancelOfferDto } from './dto/create-offer.dto';
 import { CreateFeedbackDto } from '../shopping-request/dto/create-feedback.dto';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import {
+  CreateProofDto,
+  PurchaseProofFilesDto,
+} from 'src/purchase-proof/dto/create-proof.dto';
+import { PurchaseProofService } from 'src/purchase-proof/purchase-proof.service';
 
 @ApiTags('Shopping-offers')
 @Controller('shopping-offers')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('JWT-auth')
 export class OffersController {
-  constructor(private readonly offersService: OffersService) {}
+  constructor(
+    private readonly offersService: OffersService,
+    private readonly proofService: PurchaseProofService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -219,5 +231,49 @@ export class OffersController {
     @I18nLang() lang: string,
   ) {
     return this.offersService.rateTravelerByOfferId(user.id, id, dto, lang);
+  }
+
+  @Post(':offerId/proofs')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'receipt', maxCount: 1 },
+      { name: 'photos', maxCount: 5 },
+    ]),
+  )
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Upload purchase proof (receipt + photos) for an offer',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description:
+      'Receipt (single) and product photos (multiple) along with optional metadata',
+    schema: {
+      type: 'object',
+      properties: {
+        receipt: { type: 'string', format: 'binary' },
+        photos: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+        total: { type: 'number' },
+        currency: { type: 'string' },
+        storeName: { type: 'string' },
+        purchaseDate: { type: 'string' },
+        notes: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Proof uploaded successfully' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  async uploadProof(
+    @Param('offerId') offerId: string,
+    @UploadedFiles()
+    files: PurchaseProofFilesDto,
+    @Body() body: CreateProofDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.proofService.createProof(offerId, user.id, files, body);
   }
 }

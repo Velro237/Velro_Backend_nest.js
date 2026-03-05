@@ -6,12 +6,11 @@ import {
   UseInterceptors,
   UploadedFiles,
   Body,
-  Req,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PurchaseProofService } from './purchase-proof.service';
-import { CreateProofDto } from './dto/create-proof.dto';
+import { CreateProofDto, PurchaseProofFilesDto } from './dto/create-proof.dto';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -20,6 +19,8 @@ import {
   ApiOperation,
   ApiResponse,
 } from '@nestjs/swagger';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { User } from 'generated/prisma';
 
 @ApiTags('Purchase Proofs')
 @Controller('offers')
@@ -63,11 +64,10 @@ export class PurchaseProofController {
   async uploadProof(
     @Param('offerId') offerId: string,
     @UploadedFiles()
-    files: { receipt?: Express.Multer.File[]; photos?: Express.Multer.File[] },
+    files: PurchaseProofFilesDto,
     @Body() body: CreateProofDto,
-    @Req() req: any,
+    @CurrentUser() user: User,
   ) {
-    const user = req.user;
-    return this.proofService.createProof(offerId, user.sub, files, body);
+    return this.proofService.createProof(offerId, user.id, files, body);
   }
 }
