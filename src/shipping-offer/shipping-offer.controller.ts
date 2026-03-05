@@ -9,6 +9,7 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -24,6 +25,7 @@ import { CreateShippingOfferDto } from './dto/create-shipping-offer.dto';
 import { WithdrawOfferDto } from './dto/withdraw-offer.dto';
 import { User } from 'generated/prisma';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { GetUserShippingOffersQueryDto } from './dto/get-shipping-offers-query.dto';
 
 @ApiTags('Shipping Offers')
 @Controller('shipping-offers')
@@ -226,9 +228,11 @@ export class ShippingOfferController {
       },
     },
   })
-  async getMyOffers(@Request() req) {
-    const userId = req.user.id;
-    return this.shippingOfferService.getMyOffers(userId);
+  async getMyOffers(
+    @CurrentUser() user: User,
+    @Query() query: GetUserShippingOffersQueryDto,
+  ) {
+    return this.shippingOfferService.getMyOffers(user.id, query);
   }
 
   @Get(':id')
