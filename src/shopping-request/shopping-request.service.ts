@@ -408,6 +408,7 @@ export class ShoppingRequestService {
               username: true,
               firstName: true,
               lastName: true,
+              picture: true,
             },
           },
           _count: {
@@ -464,6 +465,7 @@ export class ShoppingRequestService {
           username: true,
           firstName: true,
           lastName: true,
+          picture: true,
         },
       },
       _count: { select: { offers: true } },

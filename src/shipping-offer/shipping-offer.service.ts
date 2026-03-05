@@ -263,6 +263,9 @@ export class ShippingOfferService {
                   id: true,
                   email: true,
                   name: true,
+                  firstName: true,
+                  lastName: true,
+                  picture: true,
                 },
               },
             },
@@ -277,8 +280,13 @@ export class ShippingOfferService {
       }),
     ]);
 
+    const travelerIds = Array.from(new Set(data.map((o) => o.traveler_id)));
+
+    const stats = await this.getTravelersStats(travelerIds);
+
     return {
       data,
+      stats,
       meta: {
         total,
         page,
@@ -689,6 +697,37 @@ export class ShippingOfferService {
       chatId: updated.chat_id,
       rejectedAt: updated.rejected_at,
       createdAt: updated.created_at,
+    };
+  }
+
+  public async getTravelersStats(travelerIds: string[]) {
+    const [avgRatings, tripCounts, kycStatuses] = await Promise.all([
+      this.prisma.rating.groupBy({
+        by: ['receiver_id'],
+        where: { receiver_id: { in: travelerIds } },
+        _avg: { rating: true },
+      }),
+      this.prisma.trip.groupBy({
+        by: ['user_id'],
+        where: { user_id: { in: travelerIds } },
+        _count: { id: true },
+      }),
+      this.prisma.$queryRaw`
+        SELECT k."userId", k."status", k."createdAt"
+        FROM "UserKYC" k
+        INNER JOIN (
+          SELECT "userId", MAX("createdAt") AS "maxCreatedAt"
+          FROM "UserKYC"
+          WHERE "userId" IN (${travelerIds.length ? travelerIds.map((id) => `'${id}'`).join(',') : 'NULL'})
+          GROUP BY "userId"
+        ) latest ON k."userId" = latest."userId" AND k."createdAt" = latest."maxCreatedAt"
+      `,
+    ]);
+
+    return {
+      avgRatings,
+      tripCounts,
+      kycStatuses,
     };
   }
 }
