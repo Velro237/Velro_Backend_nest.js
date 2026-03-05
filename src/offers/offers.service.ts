@@ -19,6 +19,7 @@ import {
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { GetUserShoppingOfferQueryDto } from './dto/get-shopping-offer.dto';
+import { ShippingOfferService } from 'src/shipping-offer/shipping-offer.service';
 
 @Injectable()
 export class OffersService {
@@ -32,6 +33,7 @@ export class OffersService {
     private readonly chatService: ChatService,
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
+    private readonly shippingOfferService: ShippingOfferService,
   ) {}
 
   async create(userId: string, dto: CreateOfferDto, lang: string) {
@@ -256,7 +258,11 @@ export class OffersService {
     };
   }
 
-  async getOffersForRequest(shoppingRequestId: string, userId: string) {
+  async getOffersForRequest(
+    shoppingRequestId: string,
+    userId: string,
+    query: GetUserShoppingOfferQueryDto,
+  ) {
     // Ensure request exists and belongs to user
     const request = await this.prisma.shoppingRequest.findUnique({
       where: { id: shoppingRequestId },
@@ -269,29 +275,61 @@ export class OffersService {
       throw new ForbiddenException({ code: 'NOT_REQUEST_OWNER' });
     }
 
-    const offers = await this.prisma.offer.findMany({
-      where: { shopping_request_id: shoppingRequestId },
-      include: {
-        traveler: { select: { id: true, username: true, picture: true } },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+    const { page = 1, limit = 10, status } = query;
+    const skip = (page - 1) * limit;
 
-    return offers.map((o) => ({
-      id: o.id,
-      shoppingRequestId: o.shopping_request_id,
-      travelerId: o.traveler_id,
-      traveler: o.traveler,
-      requestVersion: o.request_version,
-      rewardAmount: o.reward_amount,
-      rewardCurrency: o.reward_currency,
-      additionalFees: o.additional_fees,
-      message: o.message,
-      travelDate: o.travel_date,
-      status: o.status,
-      chatId: o.chat_id, // Include chat ID for client
-      createdAt: o.created_at,
-    }));
+    const [data, total] = await Promise.all([
+      this.prisma.offer.findMany({
+        where: { shopping_request_id: shoppingRequestId, status },
+        include: {
+          traveler: {
+            select: {
+              id: true,
+              username: true,
+              picture: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          shopping_request: {
+            include: {
+              products: true,
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                  firstName: true,
+                  lastName: true,
+                  picture: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.offer.count({
+        where: { shopping_request_id: shoppingRequestId, status },
+      }),
+    ]);
+
+    const travelerIds = Array.from(new Set(data.map((o) => o.traveler_id)));
+
+    const stats =
+      await this.shippingOfferService.getTravelersStats(travelerIds);
+
+    return {
+      data,
+      stats,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**
@@ -326,7 +364,20 @@ export class OffersService {
     const offers = await this.prisma.offer.findMany({
       include: {
         traveler: { select: { id: true, username: true, picture: true } },
-        shopping_request: { select: { id: true, user_id: true, status: true } },
+        shopping_request: {
+          include: {
+            products: true,
+            user: {
+              select: {
+                id: true,
+                username: true,
+                firstName: true,
+                lastName: true,
+                picture: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { created_at: 'desc' },
     });
@@ -353,7 +404,20 @@ export class OffersService {
       where: { id: offerId },
       include: {
         traveler: { select: { id: true, username: true, picture: true } },
-        shopping_request: { select: { id: true, user_id: true } },
+        shopping_request: {
+          include: {
+            products: true,
+            user: {
+              select: {
+                id: true,
+                username: true,
+                firstName: true,
+                lastName: true,
+                picture: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -397,11 +461,16 @@ export class OffersService {
         where: { traveler_id: userId, status },
         include: {
           shopping_request: {
-            select: {
-              id: true,
-              deliver_to: true,
-              product_price: true,
-              status: true,
+            include: {
+              products: true,
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
             },
           },
         },

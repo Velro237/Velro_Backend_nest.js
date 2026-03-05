@@ -42,6 +42,7 @@ import {
   GetUserShoppingRequestsQueryDto,
 } from './dto/get-shopping-requests-query.dto';
 import { GetShoppingRequestQueryDto } from './dto/get-shopping-request-query.dto';
+import { GetUserShoppingOfferQueryDto } from 'src/offers/dto/get-shopping-offer.dto';
 
 @ApiTags('shopping-request')
 @ApiExtraModels(CreateShoppingRequestDto, CreateManualShoppingRequestDto)
@@ -651,7 +652,8 @@ export class ShoppingRequestController {
   async getOffersForRequest(
     @Param('id') id: string,
     @CurrentUser() user: User,
+    @Query() query: GetUserShoppingOfferQueryDto,
   ) {
-    return this.offersService.getOffersForRequest(id, user.id);
+    return this.offersService.getOffersForRequest(id, user.id, query);
   }
 }
