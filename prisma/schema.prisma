@@ -668,6 +668,7 @@ model ShippingRequest {
   weight              ShippingWeight
   packaging           Boolean                   @default(false)
   traveler_reward     Decimal
+  reward_currency     Currency?                 @default(XAF)
   status              ShippingRequestStatus     @default(PUBLISHED)
   created_at          DateTime                  @default(now())
   updated_at          DateTime                  @updatedAt

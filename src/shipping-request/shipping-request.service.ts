@@ -57,6 +57,7 @@ export class ShippingRequestService {
         weight: dto.weight,
         packaging: dto.packaging ?? false,
         traveler_reward: dto.travelerReward,
+        reward_currency: dto.rewardCurrency,
         status: ShippingRequestStatus.PUBLISHED,
       },
     });
@@ -237,6 +238,8 @@ export class ShippingRequestService {
     if (dto.packaging !== undefined) data.packaging = dto.packaging;
     if (dto.travelerReward !== undefined)
       data.traveler_reward = dto.travelerReward;
+    if (dto.rewardCurrency !== undefined)
+      data.reward_currency = dto.rewardCurrency;
 
     if (file) {
       const maxSize = 5 * 1024 * 1024;
