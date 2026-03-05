@@ -692,6 +692,7 @@ model ShippingOffer {
   shipping_request_id String
   traveler_id         String
   reward_amount       Decimal
+  reward_currency     Currency?       @default(XAF)
   travel_date         DateTime?
   message             String?
   chat_id             String?         @unique

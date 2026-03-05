@@ -176,11 +176,15 @@ export class ShippingOfferController {
     },
   })
   async getOffersForRequest(
-    @Request() req,
+    @CurrentUser() user: User,
     @Param('requestId') requestId: string,
+    @Query() query: GetUserShippingOffersQueryDto,
   ) {
-    const userId = req.user.id;
-    return this.shippingOfferService.getOffersForRequest(requestId, userId);
+    return this.shippingOfferService.getOffersForRequest(
+      requestId,
+      user.id,
+      query,
+    );
   }
 
   @Get('my-offers')
@@ -615,8 +619,7 @@ export class ShippingOfferController {
       },
     },
   })
-  async getChat(@Request() req, @Param('id') id: string) {
-    const userId = req.user.id;
-    return this.shippingOfferService.getChatForOffer(id, userId);
+  async getChat(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.shippingOfferService.getChatForOffer(id, user.id);
   }
 }

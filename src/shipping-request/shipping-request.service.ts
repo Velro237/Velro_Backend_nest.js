@@ -96,6 +96,11 @@ export class ShippingRequestService {
               lastName: true,
             },
           },
+          _count: {
+            select: {
+              offers: true,
+            },
+          },
         },
       }),
       this.prisma.shippingRequest.count({ where }),
@@ -137,6 +142,11 @@ export class ShippingRequestService {
               lastName: true,
             },
           },
+          _count: {
+            select: {
+              offers: true,
+            },
+          },
         },
       }),
       this.prisma.shippingRequest.count({ where }),
@@ -163,6 +173,11 @@ export class ShippingRequestService {
             username: true,
             firstName: true,
             lastName: true,
+          },
+        },
+        _count: {
+          select: {
+            offers: true,
           },
         },
       },
