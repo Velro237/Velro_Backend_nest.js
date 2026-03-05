@@ -18,6 +18,7 @@ import {
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { WithdrawOfferDto } from './dto/withdraw-offer.dto';
+import { GetUserShippingOffersQueryDto } from './dto/get-shipping-offers-query.dto';
 
 @Injectable()
 export class ShippingOfferService {
@@ -328,34 +329,42 @@ export class ShippingOfferService {
     };
   }
 
-  async getMyOffers(userId: string) {
-    const offers = await this.prisma.shippingOffer.findMany({
-      where: { traveler_id: userId },
-      include: {
-        shipping_request: {
-          select: {
-            id: true,
-            from: true,
-            to: true,
-            traveler_reward: true,
-            status: true,
+  async getMyOffers(userId: string, query: GetUserShippingOffersQueryDto) {
+    const { page = 1, limit = 10, status } = query;
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.shippingOffer.findMany({
+        where: { traveler_id: userId, status },
+        include: {
+          shipping_request: {
+            select: {
+              id: true,
+              from: true,
+              to: true,
+              traveler_reward: true,
+              status: true,
+            },
           },
         },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.shippingOffer.count({
+        where: { traveler_id: userId, status },
+      }),
+    ]);
 
-    return offers.map((o) => ({
-      id: o.id,
-      shippingRequestId: o.shipping_request_id,
-      shippingRequest: o.shipping_request,
-      rewardAmount: o.reward_amount,
-      message: o.message,
-      travelDate: o.travel_date,
-      status: o.status,
-      chatId: o.chat_id,
-      createdAt: o.created_at,
-    }));
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**

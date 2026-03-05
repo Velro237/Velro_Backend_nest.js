@@ -10,6 +10,7 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -33,6 +34,7 @@ import {
   PurchaseProofFilesDto,
 } from 'src/purchase-proof/dto/create-proof.dto';
 import { PurchaseProofService } from 'src/purchase-proof/purchase-proof.service';
+import { GetUserShoppingOfferQueryDto } from './dto/get-shopping-offer.dto';
 
 @ApiTags('Shopping-offers')
 @Controller('shopping-offers')
@@ -82,8 +84,11 @@ export class OffersController {
     status: 200,
     description: 'List of offers created by the authenticated traveler',
   })
-  async getMine(@CurrentUser() user: User) {
-    return this.offersService.getMyOffers(user.id);
+  async getMine(
+    @CurrentUser() user: User,
+    @Query() query: GetUserShoppingOfferQueryDto,
+  ) {
+    return this.offersService.getMyOffers(user.id, query);
   }
 
   @Get()

@@ -18,6 +18,7 @@ import {
 } from 'generated/prisma';
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
+import { GetUserShoppingOfferQueryDto } from './dto/get-shopping-offer.dto';
 
 @Injectable()
 export class OffersService {
@@ -387,36 +388,41 @@ export class OffersService {
     };
   }
 
-  async getMyOffers(userId: string) {
-    const offers = await this.prisma.offer.findMany({
-      where: { traveler_id: userId },
-      include: {
-        shopping_request: {
-          select: {
-            id: true,
-            deliver_to: true,
-            product_price: true,
-            status: true,
+  async getMyOffers(userId: string, query: GetUserShoppingOfferQueryDto) {
+    const { page = 1, limit = 10, status } = query;
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.offer.findMany({
+        where: { traveler_id: userId, status },
+        include: {
+          shopping_request: {
+            select: {
+              id: true,
+              deliver_to: true,
+              product_price: true,
+              status: true,
+            },
           },
         },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.offer.count({
+        where: { traveler_id: userId, status },
+      }),
+    ]);
 
-    return offers.map((o) => ({
-      id: o.id,
-      shoppingRequestId: o.shopping_request_id,
-      shoppingRequest: o.shopping_request,
-      requestVersion: o.request_version,
-      rewardAmount: o.reward_amount,
-      rewardCurrency: o.reward_currency,
-      additionalFees: o.additional_fees,
-      message: o.message,
-      travelDate: o.travel_date,
-      status: o.status,
-      chatId: o.chat_id, // Include chat ID for client
-      createdAt: o.created_at,
-    }));
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async cancelOffer(offerId: string, userId: string, dto: { reason?: string }) {
