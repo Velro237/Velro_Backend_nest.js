@@ -176,6 +176,7 @@ export class ShippingOfferService {
         shipping_request_id: dto.requestId,
         traveler_id: userId,
         reward_amount: new Decimal(dto.rewardAmount),
+        reward_currency: dto.rewardCurrency,
         travel_date: deliverBy,
         message: dto.message || null,
         status: 'PENDING',
@@ -229,7 +230,11 @@ export class ShippingOfferService {
     };
   }
 
-  async getOffersForRequest(shippingRequestId: string, userId: string) {
+  async getOffersForRequest(
+    shippingRequestId: string,
+    userId: string,
+    query: GetUserShippingOffersQueryDto,
+  ) {
     // Ensure request exists and belongs to user
     const request = await this.prisma.shippingRequest.findUnique({
       where: { id: shippingRequestId },
@@ -243,26 +248,44 @@ export class ShippingOfferService {
       throw new ForbiddenException({ code: 'NOT_REQUEST_OWNER' });
     }
 
-    const offers = await this.prisma.shippingOffer.findMany({
-      where: { shipping_request_id: shippingRequestId },
-      include: {
-        traveler: { select: { id: true, username: true, picture: true } },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+    const { page = 1, limit = 10, status } = query;
+    const skip = (page - 1) * limit;
 
-    return offers.map((o) => ({
-      id: o.id,
-      shippingRequestId: o.shipping_request_id,
-      travelerId: o.traveler_id,
-      traveler: o.traveler,
-      rewardAmount: o.reward_amount,
-      message: o.message,
-      travelDate: o.travel_date,
-      status: o.status,
-      chatId: o.chat_id,
-      createdAt: o.created_at,
-    }));
+    const [data, total] = await Promise.all([
+      this.prisma.shippingOffer.findMany({
+        where: { shipping_request_id: shippingRequestId, status },
+        include: {
+          traveler: { select: { id: true, username: true, picture: true } },
+          shipping_request: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.shippingOffer.count({
+        where: { shipping_request_id: shippingRequestId, status },
+      }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**
@@ -297,7 +320,20 @@ export class ShippingOfferService {
       where: { id: offerId },
       include: {
         traveler: { select: { id: true, username: true, picture: true } },
-        shipping_request: { select: { id: true, user_id: true } },
+        shipping_request: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                firstName: true,
+                lastName: true,
+                picture: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -312,21 +348,7 @@ export class ShippingOfferService {
       throw new ForbiddenException({ code: 'NOT_AUTHORIZED_TO_VIEW_OFFER' });
     }
 
-    return {
-      id: offer.id,
-      shippingRequestId: offer.shipping_request_id,
-      travelerId: offer.traveler_id,
-      traveler: offer.traveler,
-      rewardAmount: offer.reward_amount,
-      message: offer.message,
-      travelDate: offer.travel_date,
-      status: offer.status,
-      chatId: offer.chat_id,
-      createdAt: offer.created_at,
-      acceptedAt: offer.accepted_at,
-      rejectedAt: offer.rejected_at,
-      cancelledAt: offer.cancelled_at,
-    };
+    return offer;
   }
 
   async getMyOffers(userId: string, query: GetUserShippingOffersQueryDto) {
@@ -338,12 +360,17 @@ export class ShippingOfferService {
         where: { traveler_id: userId, status },
         include: {
           shipping_request: {
-            select: {
-              id: true,
-              from: true,
-              to: true,
-              traveler_reward: true,
-              status: true,
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  firstName: true,
+                  lastName: true,
+                  picture: true,
+                },
+              },
             },
           },
         },
