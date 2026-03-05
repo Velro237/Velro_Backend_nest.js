@@ -17,6 +17,7 @@ import {
 } from 'generated/prisma';
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
+import { WithdrawOfferDto } from './dto/withdraw-offer.dto';
 
 @Injectable()
 export class ShippingOfferService {
@@ -357,7 +358,16 @@ export class ShippingOfferService {
     }));
   }
 
-  async cancelOffer(offerId: string, userId: string) {
+  /**
+   * Withdraw an offer created by the traveler. This follows the same rules
+   * as `cancelOffer` (traveler can cancel pending offers). Kept as a separate
+   * method for clarity and to match controller routes.
+   */
+  async withdrawOffer(offerId: string, userId: string, dto: WithdrawOfferDto) {
+    return this.cancelOffer(offerId, userId, dto);
+  }
+
+  async cancelOffer(offerId: string, userId: string, dto: WithdrawOfferDto) {
     const offer = await this.prisma.shippingOffer.findUnique({
       where: { id: offerId },
       include: { shipping_request: { select: { user_id: true } } },
@@ -390,12 +400,13 @@ export class ShippingOfferService {
           status: 'CANCELLED',
           offerId: offer.id,
           cancelledAt: new Date().toISOString(),
+          reason: dto.reason,
         };
 
         await this.chatGateway.sendMessageProgrammatically({
           chatId: offer.chat_id,
           senderId: userId,
-          content: `Offer Cancelled - The traveler cancelled their shipping offer.`,
+          content: `Offer Cancelled - The traveler cancelled their shipping offer${dto.reason ? ': ' + dto.reason : ''}.`,
           type: PrismaMessageType.SHIPPING,
           messageData: cancellationMessage,
         });
