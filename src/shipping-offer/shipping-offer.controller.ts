@@ -15,10 +15,15 @@ import {
   ApiOperation,
   ApiTags,
   ApiResponse,
+  ApiParam,
+  ApiBody,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ShippingOfferService } from './shipping-offer.service';
 import { CreateShippingOfferDto } from './dto/create-shipping-offer.dto';
+import { WithdrawOfferDto } from './dto/withdraw-offer.dto';
+import { User } from 'generated/prisma';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 
 @ApiTags('Shipping Offers')
 @Controller('shipping-offers')
@@ -441,8 +446,24 @@ export class ShippingOfferController {
     return this.shippingOfferService.rejectOffer(id, userId);
   }
 
+  @Post(':id/withdraw')
+  @ApiOperation({
+    summary: 'Withdraw an offer (traveler) — remove a pending offer',
+  })
+  @ApiParam({ name: 'id', description: 'Offer ID' })
+  @ApiBody({ type: WithdrawOfferDto })
+  @ApiResponse({ status: 200, description: 'Offer withdrawn successfully' })
+  async withdraw(
+    @Param('id') id: string,
+    @Body() dto: WithdrawOfferDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.shippingOfferService.withdrawOffer(id, user.id, dto);
+  }
+
   @Patch(':id/cancel')
   @HttpCode(HttpStatus.OK)
+  @ApiBody({ type: WithdrawOfferDto })
   @ApiOperation({ summary: 'Cancel an offer (traveler only)' })
   @ApiResponse({
     status: 200,
@@ -514,9 +535,12 @@ export class ShippingOfferController {
       },
     },
   })
-  async cancelOffer(@Request() req, @Param('id') id: string) {
-    const userId = req.user.id;
-    return this.shippingOfferService.cancelOffer(id, userId);
+  async cancelOffer(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() dto: WithdrawOfferDto,
+  ) {
+    return this.shippingOfferService.cancelOffer(id, user.id, dto);
   }
 
   @Get(':id/chat')
