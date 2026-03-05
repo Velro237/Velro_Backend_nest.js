@@ -37,7 +37,10 @@ import {
   CreateManualShoppingRequestDto,
 } from './dto/create-shopping-request.dto';
 import { UpdateShoppingRequestDto } from './dto/update-shopping-request.dto';
-import { GetShoppingRequestsQueryDto } from './dto/get-shopping-requests-query.dto';
+import {
+  GetShoppingRequestsQueryDto,
+  GetUserShoppingRequestsQueryDto,
+} from './dto/get-shopping-requests-query.dto';
 import { GetShoppingRequestQueryDto } from './dto/get-shopping-request-query.dto';
 
 @ApiTags('shopping-request')
@@ -438,6 +441,62 @@ export class ShoppingRequestController {
     @I18nLang() lang: string,
   ) {
     return this.shoppingRequestService.update(user.id, id, dto, lang);
+  }
+
+  @Get('/my')
+  @ApiOperation({
+    summary: 'Get my shopping requests',
+    description: 'Returns all shopping requests for the current user.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Shopping requests retrieved successfully',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: 'Unauthorized',
+        error: 'Unauthorized',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Not authorized to view this request',
+    schema: {
+      example: { statusCode: 403, message: 'Forbidden', error: 'Forbidden' },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Shopping request not found',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: { code: 'SHOPPING_REQUEST_NOT_FOUND' },
+        error: 'Not Found',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+    schema: {
+      example: {
+        statusCode: 500,
+        message: 'Internal server error',
+        error: 'Internal Server Error',
+      },
+    },
+  })
+  getUserShoppingRequests(
+    @CurrentUser() user: User,
+    @Query() query: GetUserShoppingRequestsQueryDto,
+  ) {
+    return this.shoppingRequestService.getUserShoppingRequests(user.id, query);
   }
 
   @Get(':id')

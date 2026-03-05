@@ -15,10 +15,12 @@ import {
   CreateManualShoppingRequestDto,
 } from './dto/create-shopping-request.dto';
 import { UpdateShoppingRequestDto } from './dto/update-shopping-request.dto';
-import { GetShoppingRequestsQueryDto } from './dto/get-shopping-requests-query.dto';
+import {
+  GetShoppingRequestsQueryDto,
+  GetUserShoppingRequestsQueryDto,
+} from './dto/get-shopping-requests-query.dto';
 import {
   ShoppingRequestStatus,
-  DeliveryTimeframe,
   Currency,
   RequestSource,
   ProductSource,
@@ -430,6 +432,18 @@ export class ShoppingRequestService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async getUserShoppingRequests(
+    userId: string,
+    query: GetUserShoppingRequestsQueryDto,
+  ) {
+    return this.getRequests(userId, {
+      page: query.page ?? 1,
+      limit: query.limit ?? 10,
+      type: 'my_requests',
+      status: query.status,
+    });
   }
 
   /**

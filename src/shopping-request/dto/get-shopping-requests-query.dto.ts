@@ -10,6 +10,7 @@ import {
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ShoppingRequestStatus } from 'generated/prisma';
+import { PaginationQueryDto } from 'src/wallet/dto/wallet.dto';
 
 export class GetShoppingRequestsQueryDto {
   @ApiPropertyOptional({
@@ -65,4 +66,14 @@ export class GetShoppingRequestsQueryDto {
   @IsOptional()
   @IsEnum(['my_requests', 'available'])
   type?: 'my_requests' | 'available';
+}
+
+export class GetUserShoppingRequestsQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({
+    description: 'Filter by status',
+    enum: ShoppingRequestStatus,
+  })
+  @IsEnum(ShoppingRequestStatus)
+  @IsOptional()
+  status?: ShoppingRequestStatus;
 }
