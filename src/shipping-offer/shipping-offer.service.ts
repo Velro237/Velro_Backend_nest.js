@@ -712,16 +712,16 @@ export class ShippingOfferService {
         where: { user_id: { in: travelerIds } },
         _count: { id: true },
       }),
-      this.prisma.$queryRaw`
+      this.prisma.$queryRawUnsafe(`
         SELECT k."userId", k."status", k."createdAt"
         FROM "UserKYC" k
         INNER JOIN (
           SELECT "userId", MAX("createdAt") AS "maxCreatedAt"
           FROM "UserKYC"
-          WHERE "userId" IN (${travelerIds.length ? travelerIds.map((id) => `'${id}'`).join(',') : 'NULL'})
+          WHERE "userId" IN (${travelerIds.length > 0 ? travelerIds.map((id) => `'${id}'`).join(',') : 'NULL'})
           GROUP BY "userId"
         ) latest ON k."userId" = latest."userId" AND k."createdAt" = latest."maxCreatedAt"
-      `,
+      `),
     ]);
 
     return {
