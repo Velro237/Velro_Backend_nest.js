@@ -1418,6 +1418,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           select: {
             departure: true,
             destination: true,
+            departure_date: true,
             user_id: true,
             notes: true,
             user: {
@@ -1446,6 +1447,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           : 'CHAT_MESSAGE';
 
       const chatUrl = this.notificationService.getAppUrl(`/chat/${chatId}`);
+      const departureDate = trip?.departure_date || null;
+      const departureLocation =
+        (trip?.departure as any)?.city || (trip?.departure as any)?.country || null;
+      const destinationLocation =
+        (trip?.destination as any)?.city ||
+        (trip?.destination as any)?.country ||
+        null;
+      const routeText =
+        departureLocation && destinationLocation
+          ? `${departureLocation} -> ${destinationLocation}`
+          : null;
 
       // Send notifications to each other member (excluding sender)
       for (const member of otherMembers) {
@@ -1511,7 +1523,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 departureLoc?.address || departureLoc?.city || 'Departure';
               const arrivalName =
                 arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
-              const routeText = `${departureName} → ${arrivalName}`;
+              const routeText = `${departureName} -> ${arrivalName}`;
               const tripUserName =
                 trip.user_id === senderId
                   ? trip.user?.name || trip.user?.email || 'Driver'
@@ -1589,7 +1601,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 departureLoc?.address || departureLoc?.city || 'Departure';
               const arrivalName =
                 arrivalLoc?.address || arrivalLoc?.city || 'Arrival';
-              const routeText = `${departureName} → ${arrivalName}`;
+              const routeText = `${departureName} -> ${arrivalName}`;
               notificationData.trip_id = chat.trip_id;
               notificationData.route = routeText;
             }
@@ -1618,57 +1630,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           }
 
           if (user.email_notification && user.email) {
-            const subtitle =
-              normalizedUserLang === 'fr'
-                ? 'Vous avez recu un nouveau message sur Velro.'
-                : 'You received a new message on Velro.';
-            const ctaLabel =
-              normalizedUserLang === 'fr' ? 'Ouvrir Velro' : 'Open Velro';
-            const contextItems = [
-              {
-                label:
-                  normalizedUserLang === 'fr' ? 'Identifiant du chat' : 'Chat ID',
-                value: chatId,
-              },
-            ];
-
-            if (notificationData.route) {
-              contextItems.push({
-                label: normalizedUserLang === 'fr' ? 'Trajet' : 'Route',
-                value: String(notificationData.route),
+            const emailContent =
+              this.notificationService.buildNewMessageEmailContent({
+                lang: normalizedUserLang,
+                userName: user.name || user.email,
+                senderName: sender.name || sender.email,
+                route: notificationData.route
+                  ? String(notificationData.route)
+                  : routeText,
+                departureDate,
+                message: messageContent,
+                appUrl: chatUrl,
+                requestId: chat?.request?.id || null,
+                requestStatus: chat?.request?.status
+                  ? String(chat.request.status)
+                  : null,
               });
-            }
-
-            if (chat?.request?.id) {
-              contextItems.push({
-                label:
-                  normalizedUserLang === 'fr'
-                    ? 'Identifiant de la demande'
-                    : 'Request ID',
-                value: chat.request.id,
-              });
-
-              if (chat.request.status) {
-                contextItems.push({
-                  label: normalizedUserLang === 'fr' ? 'Statut' : 'Status',
-                  value: String(chat.request.status),
-                });
-              }
-            }
 
             await this.notificationService.sendEmail(
               {
                 to: user.email,
-                subject: notificationTitle,
-                text: messageContent,
-                html: this.notificationService.buildVelroEmailTemplate({
-                  title: notificationTitle,
-                  subtitle,
-                  message: messageContent,
-                  ctaLabel,
-                  ctaUrl: chatUrl,
-                  contextItems,
-                }),
+                subject: emailContent.subject,
+                text: emailContent.text,
+                html: emailContent.html,
               },
               normalizedUserLang,
             );

@@ -53,6 +53,12 @@ interface VelroEmailTemplateParams {
   contextItems?: VelroEmailContextItem[];
 }
 
+interface VelroEmailContent {
+  subject: string;
+  text: string;
+  html: string;
+}
+
 @Injectable()
 export class NotificationService {
   private expo = new Expo();
@@ -88,11 +94,21 @@ export class NotificationService {
 
   public getAppUrl(path?: string): string {
     const base = (
-      this.configService.get<string>('APP_URL') || 'https://velro.app'
+      this.configService.get<string>('APP_URL') || 'https://velro.net'
     ).replace(/\/+$/, '');
     if (!path) return base;
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
     return `${base}${normalizedPath}`;
+  }
+
+  private formatDateForEmail(
+    value: Date | string | null | undefined,
+    lang: string = 'en',
+  ): string {
+    if (!value) return 'N/A';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US');
   }
 
   public buildVelroEmailTemplate(params: VelroEmailTemplateParams): string {
@@ -108,11 +124,11 @@ export class NotificationService {
     const contextSection =
       params.contextItems && params.contextItems.length > 0
         ? `
-          <div style="margin: 18px 0 0 0; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; background: #fafafa;">
+          <div style="margin: 20px 0 0 0; border: 1px solid #dbe7ff; border-radius: 12px; padding: 14px; background: #f7faff;">
             ${params.contextItems
               .map(
                 (item) => `
-              <p style="margin: 0 0 8px 0; font-size: 13px; color: #334155;">
+              <p style="margin: 0 0 8px 0; font-size: 13px; color: #1e3a8a;">
                 <strong>${this.escapeHtml(item.label)}:</strong> ${this.escapeHtml(item.value)}
               </p>
             `,
@@ -123,26 +139,324 @@ export class NotificationService {
         : '';
 
     return `
-      <div style="background:#f3f4f6; padding: 24px; font-family: Arial, sans-serif;">
-        <div style="max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #e5e7eb;">
-          <div style="background:#0f172a; color:#ffffff; padding: 16px 20px;">
-            <h1 style="margin:0; font-size:20px; font-weight:700;">Velro</h1>
+      <div style="background:#eef4ff; padding: 28px; font-family: Arial, Helvetica, sans-serif;">
+        <div style="max-width: 640px; margin: 0 auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #dbe7ff;">
+          <div style="background: linear-gradient(135deg, #0b5fff 0%, #0a47cc 100%); color:#ffffff; padding: 18px 22px;">
+            <h1 style="margin:0; font-size:22px; font-weight:700; letter-spacing:0.2px;">Velro</h1>
           </div>
-          <div style="padding: 22px 20px;">
-            <h2 style="margin:0 0 8px 0; color:#111827; font-size:20px;">${safeTitle}</h2>
-            <p style="margin:0 0 14px 0; color:#475569; font-size:14px;">${safeSubtitle}</p>
-            <p style="margin:0; color:#1f2937; font-size:15px; line-height:1.55;">${safeMessage}</p>
+          <div style="padding: 24px 22px;">
+            <h2 style="margin:0 0 8px 0; color:#0b3ea8; font-size:21px;">${safeTitle}</h2>
+            <p style="margin:0 0 14px 0; color:#334155; font-size:14px; line-height:1.5;">${safeSubtitle}</p>
+            <p style="margin:0; color:#0f172a; font-size:15px; line-height:1.6;">${safeMessage}</p>
             ${contextSection}
-            <div style="margin-top: 20px;">
-              <a href="${safeCtaUrl}" style="display:inline-block; background:#0f172a; color:#ffffff; text-decoration:none; padding:10px 16px; border-radius:8px; font-size:14px; font-weight:600;">
+            <div style="margin-top: 22px;">
+              <a href="${safeCtaUrl}" style="display:inline-block; background:#0b5fff; color:#ffffff; text-decoration:none; padding:11px 18px; border-radius:8px; font-size:14px; font-weight:600;">
                 ${safeCtaLabel}
               </a>
             </div>
-            <p style="margin:16px 0 0 0; color:#94a3b8; font-size:12px;">If the button doesn't work, open: ${safeCtaUrl}</p>
+            <p style="margin:14px 0 0 0; color:#64748b; font-size:12px;">Velro - ${safeCtaUrl}</p>
           </div>
         </div>
       </div>
     `;
+  }
+
+  public buildNewMessageEmailContent(params: {
+    lang: string;
+    userName: string;
+    senderName: string;
+    route?: string | null;
+    departureDate?: Date | string | null;
+    message: string;
+    appUrl: string;
+    requestId?: string | null;
+    requestStatus?: string | null;
+  }): VelroEmailContent {
+    const lang = this.normalizeLanguage(params.lang);
+    const route = params.route || 'N/A';
+    const departureDate = this.formatDateForEmail(params.departureDate, lang);
+    const requestId = params.requestId || null;
+    const requestStatus = params.requestStatus || null;
+
+    if (lang === 'fr') {
+      const subject = 'Nouveau message sur Velro';
+      const text = [
+        `Bonjour ${params.userName},`,
+        '',
+        `Vous avez recu un nouveau message de ${params.senderName} concernant un voyage sur Velro.`,
+        '',
+        'Details du voyage',
+        `Trajet: ${route}`,
+        `Date de depart: ${departureDate}`,
+        ...(requestId
+          ? [
+              '',
+              'Details de la demande',
+              `ID de la demande: ${requestId}`,
+              ...(requestStatus ? [`Statut actuel: ${requestStatus}`] : []),
+            ]
+          : []),
+        '',
+        'Message',
+        params.message,
+        '',
+        'Connectez-vous a votre compte Velro pour lire le message et repondre.',
+        '',
+        'Velro',
+        params.appUrl,
+      ].join('\n');
+
+      const html = this.buildVelroEmailTemplate({
+        title: subject,
+        subtitle: `Vous avez recu un nouveau message de ${params.senderName}.`,
+        message: params.message,
+        ctaLabel: 'Ouvrir Velro',
+        ctaUrl: params.appUrl,
+        contextItems: [
+          { label: 'Trajet', value: route },
+          { label: 'Date de depart', value: departureDate },
+          ...(requestId ? [{ label: 'ID de la demande', value: requestId }] : []),
+          ...(requestStatus
+            ? [{ label: 'Statut actuel', value: requestStatus }]
+            : []),
+        ],
+      });
+
+      return { subject, text, html };
+    }
+
+    const subject = 'New message on Velro';
+    const text = [
+      `Hello ${params.userName},`,
+      '',
+      `You have received a new message from ${params.senderName} regarding a trip on Velro.`,
+      '',
+      'Trip details',
+      `Route: ${route}`,
+      `Departure date: ${departureDate}`,
+      ...(requestId
+        ? [
+            '',
+            'Request details',
+            `Request ID: ${requestId}`,
+            ...(requestStatus ? [`Current status: ${requestStatus}`] : []),
+          ]
+        : []),
+      '',
+      'Message',
+      params.message,
+      '',
+      'Log in to your Velro account to read the message and reply.',
+      '',
+      'Velro',
+      params.appUrl,
+    ].join('\n');
+
+    const html = this.buildVelroEmailTemplate({
+      title: subject,
+      subtitle: `You received a new message from ${params.senderName}.`,
+      message: params.message,
+      ctaLabel: 'Open Velro',
+      ctaUrl: params.appUrl,
+      contextItems: [
+        { label: 'Route', value: route },
+        { label: 'Departure date', value: departureDate },
+        ...(requestId ? [{ label: 'Request ID', value: requestId }] : []),
+        ...(requestStatus ? [{ label: 'Current status', value: requestStatus }] : []),
+      ],
+    });
+
+    return { subject, text, html };
+  }
+
+  public buildNewTripRequestEmailContent(params: {
+    lang: string;
+    userName: string;
+    senderName: string;
+    route?: string | null;
+    departureDate?: Date | string | null;
+    weightKg?: number | null;
+    itemType?: string | null;
+    appUrl: string;
+  }): VelroEmailContent {
+    const lang = this.normalizeLanguage(params.lang);
+    const route = params.route || 'N/A';
+    const departureDate = this.formatDateForEmail(params.departureDate, lang);
+    const weight =
+      typeof params.weightKg === 'number' && Number.isFinite(params.weightKg)
+        ? params.weightKg
+        : 0;
+    const itemType = params.itemType || 'Package';
+
+    if (lang === 'fr') {
+      const subject = 'Nouvelle demande de livraison sur votre voyage Velro';
+      const text = [
+        `Bonjour ${params.userName},`,
+        '',
+        'Vous avez recu une nouvelle demande de livraison pour votre voyage sur Velro.',
+        '',
+        'Details du voyage',
+        `Trajet: ${route}`,
+        `Date de depart: ${departureDate}`,
+        '',
+        'Details de la demande',
+        `Expediteur: ${params.senderName}`,
+        `Poids demande: ${weight} kg`,
+        `Type d article: ${itemType}`,
+        '',
+        'Connectez-vous a votre compte Velro pour consulter la demande et decider de l accepter ou la refuser.',
+        '',
+        'Velro',
+        params.appUrl,
+      ].join('\n');
+
+      const html = this.buildVelroEmailTemplate({
+        title: subject,
+        subtitle: `Vous avez recu une nouvelle demande de ${params.senderName}.`,
+        message:
+          'Connectez-vous a votre compte Velro pour consulter la demande et decider de l accepter ou la refuser.',
+        ctaLabel: 'Ouvrir Velro',
+        ctaUrl: params.appUrl,
+        contextItems: [
+          { label: 'Trajet', value: route },
+          { label: 'Date de depart', value: departureDate },
+          { label: 'Expediteur', value: params.senderName },
+          { label: 'Poids demande', value: `${weight} kg` },
+          { label: 'Type d article', value: itemType },
+        ],
+      });
+
+      return { subject, text, html };
+    }
+
+    const subject = 'New delivery request on your Velro trip';
+    const text = [
+      `Hello ${params.userName},`,
+      '',
+      'You received a new delivery request for your trip on Velro.',
+      '',
+      'Trip details',
+      `Route: ${route}`,
+      `Departure date: ${departureDate}`,
+      '',
+      'Request details',
+      `Sender: ${params.senderName}`,
+      `Weight requested: ${weight} kg`,
+      `Item type: ${itemType}`,
+      '',
+      'Please log in to your Velro account to review the request and decide whether to accept or decline it.',
+      '',
+      'Velro',
+      params.appUrl,
+    ].join('\n');
+
+    const html = this.buildVelroEmailTemplate({
+      title: subject,
+      subtitle: `You received a new request from ${params.senderName}.`,
+      message:
+        'Please log in to your Velro account to review the request and decide whether to accept or decline it.',
+      ctaLabel: 'Open Velro',
+      ctaUrl: params.appUrl,
+      contextItems: [
+        { label: 'Route', value: route },
+        { label: 'Departure date', value: departureDate },
+        { label: 'Sender', value: params.senderName },
+        { label: 'Weight requested', value: `${weight} kg` },
+        { label: 'Item type', value: itemType },
+      ],
+    });
+
+    return { subject, text, html };
+  }
+
+  public buildRequestStatusEmailContent(params: {
+    lang: string;
+    userName: string;
+    route?: string | null;
+    departureDate?: Date | string | null;
+    requestId?: string | null;
+    status?: string | null;
+    appUrl: string;
+  }): VelroEmailContent {
+    const lang = this.normalizeLanguage(params.lang);
+    const route = params.route || 'N/A';
+    const departureDate = this.formatDateForEmail(params.departureDate, lang);
+    const requestId = params.requestId || 'N/A';
+    const status = params.status || 'UPDATED';
+
+    if (lang === 'fr') {
+      const subject = 'Mise a jour du statut de la demande sur Velro';
+      const text = [
+        `Bonjour ${params.userName},`,
+        '',
+        'Le statut de votre demande sur Velro a ete mis a jour.',
+        '',
+        'Details du voyage',
+        `Trajet: ${route}`,
+        `Date de depart: ${departureDate}`,
+        '',
+        'Details de la demande',
+        `ID de la demande: ${requestId}`,
+        `Nouveau statut: ${status}`,
+        '',
+        'Connectez-vous a votre compte Velro pour voir tous les details.',
+        '',
+        'Velro',
+        params.appUrl,
+      ].join('\n');
+
+      const html = this.buildVelroEmailTemplate({
+        title: subject,
+        subtitle: 'Le statut de votre demande a change.',
+        message: 'Connectez-vous a votre compte Velro pour voir tous les details.',
+        ctaLabel: 'Ouvrir Velro',
+        ctaUrl: params.appUrl,
+        contextItems: [
+          { label: 'Trajet', value: route },
+          { label: 'Date de depart', value: departureDate },
+          { label: 'ID de la demande', value: requestId },
+          { label: 'Nouveau statut', value: status },
+        ],
+      });
+
+      return { subject, text, html };
+    }
+
+    const subject = 'Trip request status updated on Velro';
+    const text = [
+      `Hello ${params.userName},`,
+      '',
+      'The status of your request on Velro has been updated.',
+      '',
+      'Trip details',
+      `Route: ${route}`,
+      `Departure date: ${departureDate}`,
+      '',
+      'Request details',
+      `Request ID: ${requestId}`,
+      `Current status: ${status}`,
+      '',
+      'Please log in to your Velro account to view all details.',
+      '',
+      'Velro',
+      params.appUrl,
+    ].join('\n');
+
+    const html = this.buildVelroEmailTemplate({
+      title: subject,
+      subtitle: 'The status of your request has changed.',
+      message: 'Please log in to your Velro account to view all details.',
+      ctaLabel: 'Open Velro',
+      ctaUrl: params.appUrl,
+      contextItems: [
+        { label: 'Route', value: route },
+        { label: 'Departure date', value: departureDate },
+        { label: 'Request ID', value: requestId },
+        { label: 'Current status', value: status },
+      ],
+    });
+
+    return { subject, text, html };
   }
 
   async createNotification(
