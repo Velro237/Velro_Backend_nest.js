@@ -1379,9 +1379,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Send push notification to other chat members when a message is sent
+   * Send push/email notifications to other chat members when a message is sent.
    * This method is designed to be non-blocking and should be called without await
-   * to ensure chat functionality is not delayed by notification failures
+   * to ensure chat functionality is not delayed by notification failures.
    */
   private async sendPushNotificationToChatMembers(
     chatId: string,
@@ -1439,21 +1439,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           ? 'SUPPORT'
           : 'CHAT_MESSAGE';
 
-      // Send push notification to each other member (excluding sender)
+      // Send notifications to each other member (excluding sender)
       for (const member of otherMembers) {
         try {
-          // Get user's language and push_notification preference for push notification
+          // Get user notification preferences
           const user = await this.prisma.user.findUnique({
             where: { id: member.user_id },
             select: {
               id: true,
+              email: true,
               name: true,
               lang: true,
+              email_notification: true,
               push_notification: true,
             },
           });
 
-          if (!user || !user.push_notification) continue;
+          if (!user) continue;
 
           // Get user's language preference and normalize it
           const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';
@@ -1585,26 +1587,38 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             }
           }
 
-          // Send push notification using notification service method
-          // This is non-blocking - sendPushNotificationToUser handles missing device_id gracefully
-          // and doesn't throw errors, so we can await safely without blocking the flow
-          await this.notificationService
-            .sendPushNotificationToUser(
-              member.user_id,
-              notificationTitle,
-              messageContent,
-              notificationData,
-              normalizedUserLang,
-            )
-            .catch((error) => {
-              // Extra safety: catch any unexpected errors (though sendPushNotificationToUser shouldn't throw)
-              this.logError(
-                error instanceof Error ? error : new Error(String(error)),
+          if (user.push_notification) {
+            // Send push notification using notification service method
+            // This is non-blocking - sendPushNotificationToUser handles missing device_id gracefully
+            await this.notificationService
+              .sendPushNotificationToUser(
                 member.user_id,
-                'sendPushNotificationToChatMembers - sendPushNotificationToUser',
-                { chatId, senderId },
-              );
-            });
+                notificationTitle,
+                messageContent,
+                notificationData,
+                normalizedUserLang,
+              )
+              .catch((error) => {
+                // Extra safety: catch any unexpected errors (though sendPushNotificationToUser shouldn't throw)
+                this.logError(
+                  error instanceof Error ? error : new Error(String(error)),
+                  member.user_id,
+                  'sendPushNotificationToChatMembers - sendPushNotificationToUser',
+                  { chatId, senderId },
+                );
+              });
+          }
+
+          if (user.email_notification && user.email) {
+            await this.notificationService.sendEmail(
+              {
+                to: user.email,
+                subject: notificationTitle,
+                text: messageContent,
+              },
+              normalizedUserLang,
+            );
+          }
         } catch (error) {
           // Log error but don't fail the message creation
           await this.logError(

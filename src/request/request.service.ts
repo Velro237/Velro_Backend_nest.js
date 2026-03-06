@@ -2211,6 +2211,7 @@ export class RequestService {
           notificationMessage,
           requestData,
           notificationRecipient?.device_id,
+          true,
         );
       } catch (notificationError) {
         console.error('Failed to send notification:', notificationError);
@@ -2479,7 +2480,7 @@ export class RequestService {
   }
 
   /**
-   * Private helper method to create notification and send push notification for request events
+   * Private helper method to create notification and send push/email notifications for request events
    */
   private async createRequestNotification(
     recipientUserId: string,
@@ -2487,19 +2488,24 @@ export class RequestService {
     message: string,
     requestData: any,
     deviceId?: string,
+    sendEmail: boolean = false,
   ): Promise<void> {
     try {
-      // Get recipient user's language preference, push_notification, and normalize it
+      // Get recipient user preferences and normalize language
       const recipient = await this.prisma.user.findUnique({
         where: { id: recipientUserId },
-        select: { id: true, lang: true, push_notification: true },
+        select: {
+          id: true,
+          email: true,
+          lang: true,
+          email_notification: true,
+          push_notification: true,
+        },
       });
       const recipientLangRaw = recipient?.lang || 'en';
-      // Normalize language to ensure it matches i18n format (lowercase)
       const recipientLang = recipientLangRaw
         ? recipientLangRaw.toLowerCase().trim()
         : 'en';
-      // Ensure it's a valid language ('en' or 'fr'), default to 'en'
       const normalizedRecipientLang = recipientLang === 'fr' ? 'fr' : 'en';
 
       // Extract trip_id and request_id from requestData
@@ -2530,7 +2536,7 @@ export class RequestService {
         normalizedRecipientLang,
       );
 
-      // Send push notification if user has device_id and push_notification enabled (with user's language)
+      // Send push notification if user has device_id and push_notification enabled
       if (deviceId && recipient?.push_notification) {
         await this.notificationService.sendPushNotification(
           {
@@ -2538,6 +2544,18 @@ export class RequestService {
             title,
             body: message,
             data: enrichedRequestData,
+          },
+          normalizedRecipientLang,
+        );
+      }
+
+      // Send email notification for status updates when enabled by caller
+      if (sendEmail && recipient?.email_notification && recipient?.email) {
+        await this.notificationService.sendEmail(
+          {
+            to: recipient.email,
+            subject: title,
+            text: message,
           },
           normalizedRecipientLang,
         );

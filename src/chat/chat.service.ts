@@ -4053,9 +4053,9 @@ export class ChatService {
   }
 
   /**
-   * Send push notification to other chat members when a message is sent
+   * Send push/email notifications to other chat members when a message is sent.
    * This method is designed to be non-blocking and should be called without await
-   * to ensure chat functionality is not delayed by notification failures
+   * to ensure chat functionality is not delayed by notification failures.
    */
   private async sendPushNotificationToChatMembers(
     chatId: string,
@@ -4089,22 +4089,24 @@ export class ChatService {
           ? 'SUPPORT'
           : 'CHAT_MESSAGE';
 
-      // Send push notification to each other member
+      // Send notifications to each other member
       for (const member of otherMembers) {
         try {
-          // Get user's device_id, language, and push_notification preference for push notification
+          // Get user notification preferences
           const user = await this.prisma.user.findUnique({
             where: { id: member.user_id },
             select: {
               id: true,
+              email: true,
               device_id: true,
               name: true,
               lang: true,
+              email_notification: true,
               push_notification: true,
             },
           });
 
-          if (!user || !user.device_id || !user.push_notification) continue;
+          if (!user) continue;
 
           // Get user's language preference and normalize it
           const userLang = user.lang ? user.lang.toLowerCase().trim() : 'en';
@@ -4150,26 +4152,39 @@ export class ChatService {
           // Send message content directly in body (no translation)
           const notificationBody = messageContent;
 
-          // Send push notification with user's language
-          await this.notificationService.sendPushNotification(
-            {
-              deviceId: user.device_id,
-              title: notificationTitle,
-              body: notificationBody,
-              data: {
-                chatId,
-                messageId: message.id,
-                senderId: sender.id,
-                senderName: sender.name || sender.email,
-                type: notificationType,
+          if (user.push_notification && user.device_id) {
+            // Send push notification with user's language
+            await this.notificationService.sendPushNotification(
+              {
+                deviceId: user.device_id,
+                title: notificationTitle,
+                body: notificationBody,
+                data: {
+                  chatId,
+                  messageId: message.id,
+                  senderId: sender.id,
+                  senderName: sender.name || sender.email,
+                  type: notificationType,
+                },
               },
-            },
-            normalizedUserLang,
-          );
+              normalizedUserLang,
+            );
+          }
+
+          if (user.email_notification && user.email) {
+            await this.notificationService.sendEmail(
+              {
+                to: user.email,
+                subject: notificationTitle,
+                text: notificationBody,
+              },
+              normalizedUserLang,
+            );
+          }
         } catch (error) {
           // Log error but don't fail the message creation
           console.error(
-            `Failed to send push notification to user ${member.user_id}:`,
+            `Failed to send chat notification to user ${member.user_id}:`,
             error,
           );
         }
@@ -4177,7 +4192,7 @@ export class ChatService {
     } catch (error) {
       // Log error but don't fail the message creation
       console.error(
-        `Failed to send push notifications for chat ${chatId}:`,
+        `Failed to send chat notifications for chat ${chatId}:`,
         error,
       );
     }
