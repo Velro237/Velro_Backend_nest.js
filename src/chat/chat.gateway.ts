@@ -1401,6 +1401,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         select: {
           type: true,
           trip_id: true,
+          request: {
+            select: {
+              id: true,
+              status: true,
+            },
+          },
         },
       });
 
@@ -1438,6 +1444,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         chat?.type === 'SUPPORT' && sender.role === 'ADMIN'
           ? 'SUPPORT'
           : 'CHAT_MESSAGE';
+
+      const chatUrl = this.notificationService.getAppUrl(`/chat/${chatId}`);
 
       // Send notifications to each other member (excluding sender)
       for (const member of otherMembers) {
@@ -1610,11 +1618,57 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           }
 
           if (user.email_notification && user.email) {
+            const subtitle =
+              normalizedUserLang === 'fr'
+                ? 'Vous avez recu un nouveau message sur Velro.'
+                : 'You received a new message on Velro.';
+            const ctaLabel =
+              normalizedUserLang === 'fr' ? 'Ouvrir Velro' : 'Open Velro';
+            const contextItems = [
+              {
+                label:
+                  normalizedUserLang === 'fr' ? 'Identifiant du chat' : 'Chat ID',
+                value: chatId,
+              },
+            ];
+
+            if (notificationData.route) {
+              contextItems.push({
+                label: normalizedUserLang === 'fr' ? 'Trajet' : 'Route',
+                value: String(notificationData.route),
+              });
+            }
+
+            if (chat?.request?.id) {
+              contextItems.push({
+                label:
+                  normalizedUserLang === 'fr'
+                    ? 'Identifiant de la demande'
+                    : 'Request ID',
+                value: chat.request.id,
+              });
+
+              if (chat.request.status) {
+                contextItems.push({
+                  label: normalizedUserLang === 'fr' ? 'Statut' : 'Status',
+                  value: String(chat.request.status),
+                });
+              }
+            }
+
             await this.notificationService.sendEmail(
               {
                 to: user.email,
                 subject: notificationTitle,
                 text: messageContent,
+                html: this.notificationService.buildVelroEmailTemplate({
+                  title: notificationTitle,
+                  subtitle,
+                  message: messageContent,
+                  ctaLabel,
+                  ctaUrl: chatUrl,
+                  contextItems,
+                }),
               },
               normalizedUserLang,
             );
