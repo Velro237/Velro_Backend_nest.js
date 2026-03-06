@@ -14,12 +14,47 @@ import { Decimal } from 'generated/prisma/runtime/library';
 import {
   ShippingRequestStatus,
   MessageType as PrismaMessageType,
+  ShippingOffer,
+  KYCStatus,
+  Offer,
 } from 'generated/prisma';
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { WithdrawOfferDto } from './dto/withdraw-offer.dto';
 import { GetUserShippingOffersQueryDto } from './dto/get-shipping-offers-query.dto';
 import { PaymentService } from '../payment/payment.service';
+
+type AvgRating = {
+  _avg: {
+    rating: number;
+  };
+  receiver_id: string;
+};
+
+type TripCount = {
+  _count: {
+    id: number;
+  };
+  user_id: string;
+};
+
+type TravelerKYCStatus = {
+  userId: string;
+  status: KYCStatus;
+  createdAt: string;
+};
+
+type TravelerStatsRaw = {
+  avgRatings: AvgRating[];
+  tripCounts: TripCount[];
+  kycStatuses: TravelerKYCStatus[];
+};
+
+type TravelerStats = {
+  avgRating: number;
+  totalTrips: number;
+  kycStatus: KYCStatus;
+};
 
 @Injectable()
 export class ShippingOfferService {
@@ -287,9 +322,10 @@ export class ShippingOfferService {
 
     const stats = await this.getTravelersStats(travelerIds);
 
+    const dataWithStats = this.applyStatsToData(data, stats);
+
     return {
-      data,
-      stats,
+      data: dataWithStats,
       meta: {
         total,
         page,
@@ -773,7 +809,9 @@ export class ShippingOfferService {
     };
   }
 
-  public async getTravelersStats(travelerIds: string[]) {
+  public async getTravelersStats(
+    travelerIds: string[],
+  ): Promise<TravelerStatsRaw> {
     const [avgRatings, tripCounts, kycStatuses] = await Promise.all([
       this.prisma.rating.groupBy({
         by: ['receiver_id'],
@@ -800,7 +838,45 @@ export class ShippingOfferService {
     return {
       avgRatings,
       tripCounts,
-      kycStatuses,
+      kycStatuses: kycStatuses as TravelerKYCStatus[],
     };
+  }
+
+  applyStatsToData(
+    data: ShippingOffer[] | Offer[],
+    { avgRatings, tripCounts, kycStatuses }: TravelerStatsRaw,
+  ) {
+    const travelerStats = new Map<string, TravelerStats>();
+
+    avgRatings.forEach((rating) => {
+      travelerStats.set(rating.receiver_id, {
+        avgRating: rating._avg.rating,
+        totalTrips: 0,
+        kycStatus: null,
+      });
+    });
+
+    tripCounts.forEach((trip) => {
+      const stats = travelerStats.get(trip.user_id);
+      if (stats) {
+        stats.totalTrips = trip._count.id;
+      }
+    });
+
+    kycStatuses.forEach((kyc) => {
+      const stats = travelerStats.get(kyc.userId);
+      if (stats) {
+        stats.kycStatus = kyc.status;
+      }
+    });
+
+    return data.map((item) => ({
+      ...item,
+      stats: travelerStats.get(item.traveler_id) || {
+        avgRating: 0,
+        totalTrips: 0,
+        kycStatus: null,
+      },
+    }));
   }
 }
