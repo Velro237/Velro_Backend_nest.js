@@ -860,6 +860,8 @@ export class RequestService {
           notificationMessage,
           requestData,
           tripOwner?.device_id,
+          true,
+          'NEW_TRIP_REQUEST',
         );
       } catch (notificationError) {
         console.error(
@@ -2212,6 +2214,7 @@ export class RequestService {
           requestData,
           notificationRecipient?.device_id,
           true,
+          'REQUEST_STATUS_UPDATE',
         );
       } catch (notificationError) {
         console.error('Failed to send notification:', notificationError);
@@ -2489,6 +2492,8 @@ export class RequestService {
     requestData: any,
     deviceId?: string,
     sendEmail: boolean = false,
+    emailTemplateType: 'NEW_TRIP_REQUEST' | 'REQUEST_STATUS_UPDATE' =
+      'NEW_TRIP_REQUEST',
   ): Promise<void> {
     try {
       // Get recipient user preferences and normalize language
@@ -2497,6 +2502,7 @@ export class RequestService {
         select: {
           id: true,
           email: true,
+          name: true,
           lang: true,
           email_notification: true,
           push_notification: true,
@@ -2549,56 +2555,72 @@ export class RequestService {
         );
       }
 
-      // Send email notification for status updates when enabled by caller
+      // Send email notification when enabled by caller
       if (sendEmail && recipient?.email_notification && recipient?.email) {
         const requestUrl = requestId
           ? this.notificationService.getAppUrl(`/requests/${requestId}`)
           : this.notificationService.getAppUrl('/requests');
-        const subtitle =
-          normalizedRecipientLang === 'fr'
-            ? 'Le statut de votre demande a ete mis a jour.'
-            : 'Your request status has been updated.';
-        const ctaLabel =
-          normalizedRecipientLang === 'fr' ? 'Ouvrir Velro' : 'Open Velro';
-        const contextItems: Array<{ label: string; value: string }> = [];
 
-        if (requestId) {
-          contextItems.push({
-            label:
-              normalizedRecipientLang === 'fr'
-                ? 'Identifiant de la demande'
-                : 'Request ID',
-            value: requestId,
+        const departureLocation =
+          (requestData?.trip?.departure as any)?.city ||
+          (requestData?.trip?.departure as any)?.country ||
+          null;
+        const destinationLocation =
+          (requestData?.trip?.destination as any)?.city ||
+          (requestData?.trip?.destination as any)?.country ||
+          null;
+        const route =
+          departureLocation && destinationLocation
+            ? `${departureLocation} -> ${destinationLocation}`
+            : null;
+        const departureDate = requestData?.trip?.departure_date || null;
+
+        let emailContent;
+        if (emailTemplateType === 'NEW_TRIP_REQUEST') {
+          const senderName =
+            requestData?.user?.name || requestData?.user?.email || 'A user';
+          const weightKg = Array.isArray(requestData?.request_items)
+            ? requestData.request_items.reduce(
+                (sum: number, item: any) => sum + (Number(item?.quantity) || 0),
+                0,
+              )
+            : 0;
+          const itemType = Array.isArray(requestData?.request_items)
+            ? requestData.request_items
+                .map((item: any) => item?.trip_item?.name)
+                .filter((name: string | null | undefined) => !!name)
+                .slice(0, 3)
+                .join(', ')
+            : '';
+
+          emailContent = this.notificationService.buildNewTripRequestEmailContent({
+            lang: normalizedRecipientLang,
+            userName: recipient.name || recipient.email,
+            senderName,
+            route,
+            departureDate,
+            weightKg,
+            itemType: itemType || 'Package',
+            appUrl: requestUrl,
           });
-        }
-
-        if (tripId) {
-          contextItems.push({
-            label: normalizedRecipientLang === 'fr' ? 'Identifiant du voyage' : 'Trip ID',
-            value: String(tripId),
-          });
-        }
-
-        if (requestData?.status) {
-          contextItems.push({
-            label: normalizedRecipientLang === 'fr' ? 'Statut' : 'Status',
-            value: String(requestData.status),
+        } else {
+          emailContent = this.notificationService.buildRequestStatusEmailContent({
+            lang: normalizedRecipientLang,
+            userName: recipient.name || recipient.email,
+            route,
+            departureDate,
+            requestId,
+            status: requestData?.status ? String(requestData.status) : null,
+            appUrl: requestUrl,
           });
         }
 
         await this.notificationService.sendEmail(
           {
             to: recipient.email,
-            subject: title,
-            text: message,
-            html: this.notificationService.buildVelroEmailTemplate({
-              title,
-              subtitle,
-              message,
-              ctaLabel,
-              ctaUrl: requestUrl,
-              contextItems,
-            }),
+            subject: emailContent.subject,
+            text: emailContent.text,
+            html: emailContent.html,
           },
           normalizedRecipientLang,
         );

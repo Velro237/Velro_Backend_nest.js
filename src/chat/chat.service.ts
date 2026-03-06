@@ -4078,6 +4078,7 @@ export class ChatService {
             select: {
               departure: true,
               destination: true,
+              departure_date: true,
             },
           },
           request: {
@@ -4115,6 +4116,7 @@ export class ChatService {
         departureLocation && destinationLocation
           ? `${departureLocation} -> ${destinationLocation}`
           : null;
+      const departureDate = chat?.trip?.departure_date || null;
       const chatUrl = this.notificationService.getAppUrl(`/chat/${chatId}`);
 
       // Send notifications to each other member
@@ -4200,57 +4202,27 @@ export class ChatService {
           }
 
           if (user.email_notification && user.email) {
-            const subtitle =
-              normalizedUserLang === 'fr'
-                ? 'Vous avez recu un nouveau message sur Velro.'
-                : 'You received a new message on Velro.';
-            const ctaLabel =
-              normalizedUserLang === 'fr' ? 'Ouvrir Velro' : 'Open Velro';
-            const contextItems = [
-              {
-                label:
-                  normalizedUserLang === 'fr' ? 'Identifiant du chat' : 'Chat ID',
-                value: chatId,
-              },
-            ];
-
-            if (routeText) {
-              contextItems.push({
-                label: normalizedUserLang === 'fr' ? 'Trajet' : 'Route',
-                value: routeText,
+            const emailContent =
+              this.notificationService.buildNewMessageEmailContent({
+                lang: normalizedUserLang,
+                userName: user.name || user.email,
+                senderName: sender.name || sender.email,
+                route: routeText,
+                departureDate,
+                message: notificationBody,
+                appUrl: chatUrl,
+                requestId: chat?.request?.id || null,
+                requestStatus: chat?.request?.status
+                  ? String(chat.request.status)
+                  : null,
               });
-            }
-
-            if (chat?.request?.id) {
-              contextItems.push({
-                label:
-                  normalizedUserLang === 'fr'
-                    ? 'Identifiant de la demande'
-                    : 'Request ID',
-                value: chat.request.id,
-              });
-
-              if (chat.request.status) {
-                contextItems.push({
-                  label: normalizedUserLang === 'fr' ? 'Statut' : 'Status',
-                  value: String(chat.request.status),
-                });
-              }
-            }
 
             await this.notificationService.sendEmail(
               {
                 to: user.email,
-                subject: notificationTitle,
-                text: notificationBody,
-                html: this.notificationService.buildVelroEmailTemplate({
-                  title: notificationTitle,
-                  subtitle,
-                  message: notificationBody,
-                  ctaLabel,
-                  ctaUrl: chatUrl,
-                  contextItems,
-                }),
+                subject: emailContent.subject,
+                text: emailContent.text,
+                html: emailContent.html,
               },
               normalizedUserLang,
             );
