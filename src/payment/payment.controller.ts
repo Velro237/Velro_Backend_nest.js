@@ -721,6 +721,7 @@ export class PaymentController {
     return this.bankTransferService.initBankTransferPayment(
       dto.orderId,
       req.user.id,
+      dto.orderType,
     );
   }
 

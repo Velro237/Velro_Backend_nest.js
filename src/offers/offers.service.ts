@@ -20,6 +20,7 @@ import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { GetUserShoppingOfferQueryDto } from './dto/get-shopping-offer.dto';
 import { ShippingOfferService } from 'src/shipping-offer/shipping-offer.service';
+import { PaymentService } from '../payment/payment.service';
 
 @Injectable()
 export class OffersService {
@@ -34,6 +35,8 @@ export class OffersService {
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
     private readonly shippingOfferService: ShippingOfferService,
+    @Inject(forwardRef(() => PaymentService))
+    private readonly paymentService: PaymentService,
   ) {}
 
   async create(userId: string, dto: CreateOfferDto, lang: string) {
@@ -897,7 +900,7 @@ export class OffersService {
   async cancelByOwner(
     offerId: string,
     userId: string,
-    dto: { reason?: string },
+    _dto: { reason?: string },
   ) {
     const offer = await this.prisma.offer.findUnique({
       where: { id: offerId },
@@ -911,7 +914,6 @@ export class OffersService {
       throw new ForbiddenException({ code: 'NOT_REQUEST_OWNER' });
     }
 
-    // Only allow cancelling accepted offers by owner
     if (offer.status !== 'ACCEPTED') {
       throw new BadRequestException({
         code: 'CANNOT_CANCEL_OFFER',
@@ -919,10 +921,30 @@ export class OffersService {
       });
     }
 
+    // If payment was successful, trigger refund before cancelling
+    if (offer.payment_intent_id && offer.payment_status === 'SUCCEEDED') {
+      try {
+        await this.paymentService.refundOfferPayment(offer.payment_intent_id);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to refund offer ${offerId}: ${(error as Error)?.message}`,
+        );
+        throw new BadRequestException({
+          code: 'REFUND_FAILED',
+          message:
+            'Cannot cancel offer: refund failed. Please try again or contact support.',
+        });
+      }
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const u = await tx.offer.update({
         where: { id: offerId },
-        data: { status: 'CANCELLED', cancelled_at: new Date() },
+        data: {
+          status: 'CANCELLED',
+          cancelled_at: new Date(),
+          payment_status: offer.payment_intent_id ? 'REFUNDED' : undefined,
+        },
       });
       await tx.shoppingRequest.update({
         where: { id: offer.shopping_request_id },

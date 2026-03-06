@@ -551,6 +551,27 @@ export class ShippingOfferController {
     return this.shippingOfferService.cancelOffer(id, user.id, dto);
   }
 
+  @Patch(':id/cancel-by-owner')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cancel an accepted offer (request owner)' })
+  @ApiResponse({ status: 200, description: 'Offer cancelled successfully' })
+  @ApiResponse({
+    status: 400,
+    description: 'Offer not in valid state for cancellation',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Not the request owner',
+  })
+  @ApiResponse({ status: 404, description: 'Offer not found' })
+  async cancelByOwner(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() dto: WithdrawOfferDto,
+  ) {
+    return this.shippingOfferService.cancelByOwner(id, user.id, dto);
+  }
+
   @Get(':id/chat')
   @ApiOperation({ summary: 'Get chat for a shipping offer' })
   @ApiResponse({

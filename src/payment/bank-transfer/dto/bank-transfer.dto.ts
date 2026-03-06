@@ -1,5 +1,14 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNumber, IsEnum, Min, IsUUID } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsEnum,
+  Min,
+  IsUUID,
+  IsIn,
+} from 'class-validator';
+import { OrderType } from '../../dto/create-payment-intent.dto';
 
 export class CreateBankTransferPaymentDto {
   @ApiProperty({
@@ -8,6 +17,16 @@ export class CreateBankTransferPaymentDto {
   })
   @IsUUID()
   orderId: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Type of order being paid for. Defaults to "trip" for backward compatibility.',
+    example: 'trip',
+    enum: ['trip', 'shopping_offer', 'shipping_offer'],
+  })
+  @IsOptional()
+  @IsIn(['trip', 'shopping_offer', 'shipping_offer'])
+  orderType?: OrderType;
 }
 
 export class FundingInstructionsResponseDto {
@@ -82,7 +101,8 @@ export class BankTransferInitResponseDto {
 
   @ApiProperty({
     description: 'Ephemeral key secret for Stripe customer',
-    example: 'ek_test_YWNjdF8xR3VQb1hKbE1pWExYaW5YQ3dITlB4WlJPeU5jU3pRbm9lSnp3d09TbUtxT3VfT3VBY01oVEZicHRKcHduMEhDWjZGMUZ2VURrdW4tV2F4SFlvbk5sYV93c25TUUhvbE5ZdE5yT3M=',
+    example:
+      'ek_test_YWNjdF8xR3VQb1hKbE1pWExYaW5YQ3dITlB4WlJPeU5jU3pRbm9lSnp3d09TbUtxT3VfT3VBY01oVEZicHRKcHduMEhDWjZGMUZ2VURrdW4tV2F4SFlvbk5sYV93c25TUUhvbE5ZdE5yT3M=',
   })
   ephemeralKeySecret: string;
 
@@ -119,7 +139,8 @@ export class ReconcilePaymentDto {
   paymentIntentId: string;
 
   @ApiProperty({
-    description: 'Amount to reconcile (optional, defaults to full PaymentIntent amount)',
+    description:
+      'Amount to reconcile (optional, defaults to full PaymentIntent amount)',
     example: 100.0,
     required: false,
   })
@@ -157,7 +178,14 @@ export class CustomerBalanceTransactionDto {
   @ApiProperty({
     description: 'Transaction type',
     example: 'funding',
-    enum: ['funding', 'applied_to_payment', 'unapplied_from_payment', 'refunded_from_payment', 'return_cancelled', 'return_initiated'],
+    enum: [
+      'funding',
+      'applied_to_payment',
+      'unapplied_from_payment',
+      'refunded_from_payment',
+      'return_cancelled',
+      'return_initiated',
+    ],
   })
   type: string;
 
@@ -186,5 +214,3 @@ export class CustomerBalanceTransactionDto {
   })
   created: number;
 }
-
-

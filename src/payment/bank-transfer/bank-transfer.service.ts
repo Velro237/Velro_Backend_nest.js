@@ -16,7 +16,8 @@ import {
   FundingInstructionsResponseDto,
 } from './dto/bank-transfer.dto';
 
-type BankTransferType = Stripe.PaymentIntentCreateParams.PaymentMethodOptions.CustomerBalance.BankTransfer.Type;
+type BankTransferType =
+  Stripe.PaymentIntentCreateParams.PaymentMethodOptions.CustomerBalance.BankTransfer.Type;
 
 @Injectable()
 export class BankTransferService {
@@ -32,87 +33,45 @@ export class BankTransferService {
   async initBankTransferPayment(
     orderId: string,
     senderId: string,
+    orderType: string = 'trip',
+  ): Promise<BankTransferInitResponseDto> {
+    if (orderType === 'shopping_offer') {
+      return this.initBankTransferForShoppingOffer(orderId, senderId);
+    }
+    if (orderType === 'shipping_offer') {
+      return this.initBankTransferForShippingOffer(orderId, senderId);
+    }
+    return this.initBankTransferForTrip(orderId, senderId);
+  }
+
+  private async initBankTransferForTrip(
+    orderId: string,
+    senderId: string,
   ): Promise<BankTransferInitResponseDto> {
     try {
-      this.logger.log(`Initializing bank transfer payment for order ${orderId}`);
+      this.logger.log(
+        `Initializing bank transfer payment for trip order ${orderId}`,
+      );
 
       const order = await this.prisma.tripRequest.findUnique({
         where: { id: orderId },
-        include: {
-          trip: {
-            include: {
-              user: true,
-            },
-          },
-          user: true,
-        },
+        include: { trip: { include: { user: true } }, user: true },
       });
 
-      if (!order) {
-        throw new NotFoundException('Order not found');
-      }
-
-      if (order.user_id !== senderId) {
+      if (!order) throw new NotFoundException('Order not found');
+      if (order.user_id !== senderId)
         throw new ForbiddenException('You can only pay for your own orders');
-      }
 
-      // Re-use existing PaymentIntent if it already exists
       if (order.payment_intent_id) {
-        const existingIntent = await this.stripeService.getPaymentIntent(
+        const existing = await this.handleExistingBankTransferIntent(
           order.payment_intent_id,
+          () =>
+            this.prisma.tripRequest.update({
+              where: { id: orderId },
+              data: { payment_intent_id: null },
+            }),
         );
-
-        // Check if existing intent is a card payment (not bank transfer) - incompatible with bank transfer
-        // When user switches from Card to Bank Transfer, we need to cancel and create new PaymentIntent
-        if (!existingIntent.payment_method_types.includes('customer_balance')) {
-          this.logger.log(
-            `Existing PaymentIntent ${order.payment_intent_id} is card type, canceling to create bank transfer payment`,
-          );
-
-          // Cancel the card PaymentIntent
-          try {
-            await this.stripeService.cancelPaymentIntent(order.payment_intent_id);
-            this.logger.log(`Canceled card PaymentIntent: ${order.payment_intent_id}`);
-          } catch (cancelError) {
-            this.logger.warn(`Could not cancel old PaymentIntent: ${cancelError.message}`);
-            // Continue anyway - we'll create a new one
-          }
-
-          // Clear the payment_intent_id so we create a new bank transfer one below
-          await this.prisma.tripRequest.update({
-            where: { id: orderId },
-            data: { payment_intent_id: null },
-          });
-
-          // Fall through to create new bank transfer PaymentIntent
-        } else {
-          // Return existing bank transfer intent
-          const customerId = existingIntent.customer as string;
-          if (!customerId) {
-            throw new BadRequestException(
-              'Existing bank transfer payment does not have a customer associated',
-            );
-          }
-
-          const fundingInstructions = await this.retrieveFundingInstructions(
-            customerId,
-            existingIntent.currency.toUpperCase(),
-          );
-
-          const ephemeralKey = await this.stripeService.createEphemeralKey(
-            customerId,
-          );
-
-          return {
-            clientSecret: existingIntent.client_secret,
-            paymentIntentId: existingIntent.id,
-            amount: existingIntent.amount / 100,
-            currency: existingIntent.currency.toUpperCase(),
-            customerId,
-            ephemeralKeySecret: ephemeralKey.secret,
-            fundingInstructions,
-          };
-        }
+        if (existing) return existing;
       }
 
       const {
@@ -125,100 +84,357 @@ export class BankTransferService {
         travelerId,
       } = await this.calculateBankTransferAmounts(order);
 
-      const stripe = this.stripeService.getStripeInstance();
-
-      // Create or retrieve customer
-      let customer: Stripe.Customer;
-      try {
-        const existingCustomers = await stripe.customers.list({
-          email: order.user.email,
-          limit: 1,
-        });
-
-        if (existingCustomers.data.length > 0) {
-          customer = existingCustomers.data[0];
-          this.logger.log(`Using existing customer: ${customer.id}`);
-        } else {
-          customer = await this.stripeService.createCustomer({
-            email: order.user.email,
-            name: order.user.name || undefined,
-            metadata: {
-              userId: senderId,
-              userRole: order.user.role,
-            },
-          });
-        }
-      } catch (error) {
-        this.logger.error('Failed to create/get customer for bank transfer:', error);
-        throw new BadRequestException('Failed to create customer for bank transfer');
-      }
-
-      const bankTransferType = this.getBankTransferType(currency);
-      const bankTransferOptions = this.buildBankTransferOptions(currency);
-
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(senderTotal * 100),
-        currency: currency.toLowerCase(),
-        customer: customer.id,
-        payment_method_types: ['customer_balance'],
-        payment_method_options: {
-          customer_balance: {
-            funding_type: 'bank_transfer',
-            bank_transfer: {
-              type: bankTransferType,
-              ...bankTransferOptions,
-            },
-          },
-        },
-        metadata: {
-          orderId,
-          travelerId,
-          travelerPrice: travelerPrice.toFixed(2),
-          platformFee: platformFee.toFixed(2),
-          senderTotal: senderTotal.toFixed(2),
-          ...(requestCurrency !== currency
-            ? {
-                requestCurrency,
-                requestAmount: requestCost.toFixed(2),
-                paymentCurrency: currency,
-                paymentAmount: senderTotal.toFixed(2),
-              }
-            : {}),
-          paymentMethod: 'bank_transfer',
-        },
-        transfer_group: orderId,
-      });
+      const result = await this.createBankTransferPaymentIntent(
+        orderId,
+        senderId,
+        order.user,
+        travelerId,
+        senderTotal,
+        travelerPrice,
+        platformFee,
+        currency,
+        requestCurrency,
+        requestCost,
+        'trip',
+      );
 
       await this.prisma.tripRequest.update({
         where: { id: orderId },
         data: {
-          payment_intent_id: paymentIntent.id,
+          payment_intent_id: result.paymentIntentId,
           payment_status: PaymentStatus.PROCESSING,
         },
       });
 
-      const ephemeralKey = await this.stripeService.createEphemeralKey(
-        customer.id,
-      );
-
-      const fundingInstructions = await this.retrieveFundingInstructions(
-        customer.id,
-        currency,
-      );
-
-      return {
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
-        amount: senderTotal,
-        currency,
-        customerId: customer.id,
-        ephemeralKeySecret: ephemeralKey.secret,
-        fundingInstructions,
-      };
+      return result;
     } catch (error) {
       this.logger.error('Failed to initialize bank transfer payment:', error);
       throw error;
     }
+  }
+
+  private async initBankTransferForShoppingOffer(
+    orderId: string,
+    senderId: string,
+  ): Promise<BankTransferInitResponseDto> {
+    try {
+      this.logger.log(
+        `Initializing bank transfer for shopping offer ${orderId}`,
+      );
+
+      const offer = await this.prisma.offer.findUnique({
+        where: { id: orderId },
+        include: {
+          shopping_request: { include: { user: true } },
+          traveler: true,
+        },
+      });
+
+      if (!offer) throw new NotFoundException('Shopping offer not found');
+      if (offer.shopping_request.user_id !== senderId)
+        throw new ForbiddenException(
+          'You can only pay for your own shopping requests',
+        );
+      if (offer.status !== 'ACCEPTED')
+        throw new BadRequestException('Only accepted offers can be paid');
+
+      if (offer.payment_intent_id) {
+        const existing = await this.handleExistingBankTransferIntent(
+          offer.payment_intent_id,
+          () =>
+            this.prisma.offer.update({
+              where: { id: orderId },
+              data: { payment_intent_id: null },
+            }),
+        );
+        if (existing) return existing;
+      }
+
+      const productPrice = Number(offer.shopping_request.product_price || 0);
+      const additionalFees = Number(offer.additional_fees || 0);
+      const rewardAmount = Number(offer.reward_amount || 0);
+      const baseAmount = productPrice + additionalFees + rewardAmount;
+      const rewardCurrency = (offer.reward_currency || 'XAF').toUpperCase();
+
+      let travelerPrice: number;
+      let currency: string;
+      if (rewardCurrency === 'XAF') {
+        const conversion = this.currencyService.convertCurrency(
+          baseAmount,
+          'XAF',
+          'EUR',
+        );
+        travelerPrice = conversion.convertedAmount;
+        currency = 'EUR';
+      } else {
+        travelerPrice = baseAmount;
+        currency = rewardCurrency;
+      }
+
+      const platformFee = this.calculatePlatformCommission(travelerPrice);
+      const senderTotal = travelerPrice + platformFee;
+
+      const result = await this.createBankTransferPaymentIntent(
+        orderId,
+        senderId,
+        offer.shopping_request.user,
+        offer.traveler_id,
+        senderTotal,
+        travelerPrice,
+        platformFee,
+        currency,
+        rewardCurrency,
+        baseAmount,
+        'shopping_offer',
+      );
+
+      await this.prisma.offer.update({
+        where: { id: orderId },
+        data: {
+          payment_intent_id: result.paymentIntentId,
+          payment_status: PaymentStatus.PROCESSING,
+        },
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        'Failed to initialize bank transfer for shopping offer:',
+        error,
+      );
+      throw error;
+    }
+  }
+
+  private async initBankTransferForShippingOffer(
+    orderId: string,
+    senderId: string,
+  ): Promise<BankTransferInitResponseDto> {
+    try {
+      this.logger.log(
+        `Initializing bank transfer for shipping offer ${orderId}`,
+      );
+
+      const offer = await this.prisma.shippingOffer.findUnique({
+        where: { id: orderId },
+        include: {
+          shipping_request: { include: { user: true } },
+          traveler: true,
+        },
+      });
+
+      if (!offer) throw new NotFoundException('Shipping offer not found');
+      if (offer.shipping_request.user_id !== senderId)
+        throw new ForbiddenException(
+          'You can only pay for your own shipping requests',
+        );
+      if (offer.status !== 'ACCEPTED')
+        throw new BadRequestException('Only accepted offers can be paid');
+
+      if (offer.payment_intent_id) {
+        const existing = await this.handleExistingBankTransferIntent(
+          offer.payment_intent_id,
+          () =>
+            this.prisma.shippingOffer.update({
+              where: { id: orderId },
+              data: { payment_intent_id: null },
+            }),
+        );
+        if (existing) return existing;
+      }
+
+      const rewardAmount = Number(offer.reward_amount || 0);
+      const rewardCurrency = (offer.reward_currency || 'XAF').toUpperCase();
+
+      let travelerPrice: number;
+      let currency: string;
+      if (rewardCurrency === 'XAF') {
+        const conversion = this.currencyService.convertCurrency(
+          rewardAmount,
+          'XAF',
+          'EUR',
+        );
+        travelerPrice = conversion.convertedAmount;
+        currency = 'EUR';
+      } else {
+        travelerPrice = rewardAmount;
+        currency = rewardCurrency;
+      }
+
+      const platformFee = this.calculatePlatformCommission(travelerPrice);
+      const senderTotal = travelerPrice + platformFee;
+
+      const result = await this.createBankTransferPaymentIntent(
+        orderId,
+        senderId,
+        offer.shipping_request.user,
+        offer.traveler_id,
+        senderTotal,
+        travelerPrice,
+        platformFee,
+        currency,
+        rewardCurrency,
+        rewardAmount,
+        'shipping_offer',
+      );
+
+      await this.prisma.shippingOffer.update({
+        where: { id: orderId },
+        data: {
+          payment_intent_id: result.paymentIntentId,
+          payment_status: PaymentStatus.PROCESSING,
+        },
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        'Failed to initialize bank transfer for shipping offer:',
+        error,
+      );
+      throw error;
+    }
+  }
+
+  private async handleExistingBankTransferIntent(
+    paymentIntentId: string,
+    clearFn: () => Promise<any>,
+  ): Promise<BankTransferInitResponseDto | null> {
+    const existingIntent =
+      await this.stripeService.getPaymentIntent(paymentIntentId);
+
+    if (!existingIntent.payment_method_types.includes('customer_balance')) {
+      try {
+        await this.stripeService.cancelPaymentIntent(paymentIntentId);
+      } catch (cancelError) {
+        this.logger.warn(
+          `Could not cancel old PaymentIntent: ${cancelError.message}`,
+        );
+      }
+      await clearFn();
+      return null;
+    }
+
+    if (existingIntent.status === 'succeeded') {
+      throw new BadRequestException('This order has already been paid');
+    }
+
+    const customerId = existingIntent.customer as string;
+    if (!customerId) {
+      throw new BadRequestException(
+        'Existing bank transfer payment does not have a customer associated',
+      );
+    }
+
+    const fundingInstructions = await this.retrieveFundingInstructions(
+      customerId,
+      existingIntent.currency.toUpperCase(),
+    );
+    const ephemeralKey =
+      await this.stripeService.createEphemeralKey(customerId);
+
+    return {
+      clientSecret: existingIntent.client_secret,
+      paymentIntentId: existingIntent.id,
+      amount: existingIntent.amount / 100,
+      currency: existingIntent.currency.toUpperCase(),
+      customerId,
+      ephemeralKeySecret: ephemeralKey.secret,
+      fundingInstructions,
+    };
+  }
+
+  private async createBankTransferPaymentIntent(
+    orderId: string,
+    senderId: string,
+    senderUser: any,
+    travelerId: string,
+    senderTotal: number,
+    travelerPrice: number,
+    platformFee: number,
+    currency: string,
+    requestCurrency: string,
+    requestCost: number,
+    orderType: string,
+  ): Promise<BankTransferInitResponseDto> {
+    const stripe = this.stripeService.getStripeInstance();
+
+    let customer: Stripe.Customer;
+    try {
+      const existingCustomers = await stripe.customers.list({
+        email: senderUser.email,
+        limit: 1,
+      });
+      if (existingCustomers.data.length > 0) {
+        customer = existingCustomers.data[0];
+      } else {
+        customer = await this.stripeService.createCustomer({
+          email: senderUser.email,
+          name: senderUser.name || undefined,
+          metadata: { userId: senderId, userRole: senderUser.role },
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        'Failed to create/get customer for bank transfer:',
+        error,
+      );
+      throw new BadRequestException(
+        'Failed to create customer for bank transfer',
+      );
+    }
+
+    const bankTransferType = this.getBankTransferType(currency);
+    const bankTransferOptions = this.buildBankTransferOptions(currency);
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(senderTotal * 100),
+      currency: currency.toLowerCase(),
+      customer: customer.id,
+      payment_method_types: ['customer_balance'],
+      payment_method_options: {
+        customer_balance: {
+          funding_type: 'bank_transfer',
+          bank_transfer: { type: bankTransferType, ...bankTransferOptions },
+        },
+      },
+      metadata: {
+        orderId,
+        travelerId,
+        orderType,
+        travelerPrice: travelerPrice.toFixed(2),
+        platformFee: platformFee.toFixed(2),
+        senderTotal: senderTotal.toFixed(2),
+        ...(requestCurrency !== currency
+          ? {
+              requestCurrency,
+              requestAmount: requestCost.toFixed(2),
+              paymentCurrency: currency,
+              paymentAmount: senderTotal.toFixed(2),
+            }
+          : {}),
+        paymentMethod: 'bank_transfer',
+      },
+      transfer_group: orderId,
+    });
+
+    const ephemeralKey = await this.stripeService.createEphemeralKey(
+      customer.id,
+    );
+    const fundingInstructions = await this.retrieveFundingInstructions(
+      customer.id,
+      currency,
+    );
+
+    return {
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      amount: senderTotal,
+      currency,
+      customerId: customer.id,
+      ephemeralKeySecret: ephemeralKey.secret,
+      fundingInstructions,
+    };
   }
 
   private async calculateBankTransferAmounts(order: any) {
@@ -308,10 +524,7 @@ export class BankTransferService {
         account_holder_name: iban.account_holder_name,
       },
       currency: fi.currency,
-      type:
-        bankTransfer.type ??
-        financialAddress.type ??
-        'bank_transfer',
+      type: bankTransfer.type ?? financialAddress.type ?? 'bank_transfer',
       reference: bankTransfer.reference,
     };
   }
@@ -369,14 +582,12 @@ export class BankTransferService {
       }
 
       // Get funding instructions from Stripe
-      const fundingInstructions = await stripe.customers.createFundingInstructions(
-        customerId,
-        {
+      const fundingInstructions =
+        await stripe.customers.createFundingInstructions(customerId, {
           bank_transfer: bankTransferConfig,
           currency: currency.toLowerCase(),
           funding_type: 'bank_transfer',
-        },
-      );
+        });
 
       this.logger.log(
         `Funding instructions retrieved for customer ${customerId}`,
@@ -406,9 +617,8 @@ export class BankTransferService {
       const stripe = this.stripeService.getStripeInstance();
 
       // Get the PaymentIntent
-      const paymentIntent = await stripe.paymentIntents.retrieve(
-        paymentIntentId,
-      );
+      const paymentIntent =
+        await stripe.paymentIntents.retrieve(paymentIntentId);
 
       if (!paymentIntent) {
         throw new NotFoundException('PaymentIntent not found');
@@ -426,7 +636,8 @@ export class BankTransferService {
       }
 
       // Get customer's cash balance
-      const cashBalance = await stripe.customers.retrieveCashBalance(customerId);
+      const cashBalance =
+        await stripe.customers.retrieveCashBalance(customerId);
 
       // Check if customer has sufficient balance
       const currencyKey = paymentIntent.currency.toLowerCase();
@@ -467,13 +678,12 @@ export class BankTransferService {
   /**
    * Get customer balance for a customer
    */
-  async getCustomerBalance(
-    customerId: string,
-  ): Promise<any> {
+  async getCustomerBalance(customerId: string): Promise<any> {
     try {
       const stripe = this.stripeService.getStripeInstance();
 
-      const cashBalance = await stripe.customers.retrieveCashBalance(customerId);
+      const cashBalance =
+        await stripe.customers.retrieveCashBalance(customerId);
 
       return cashBalance;
     } catch (error) {
@@ -539,7 +749,7 @@ export class BankTransferService {
 
         // Find pending PaymentIntent for this customer
         const stripe = this.stripeService.getStripeInstance();
-        
+
         // Search for incomplete PaymentIntents for this customer
         const paymentIntents = await stripe.paymentIntents.list({
           customer: customerId,
@@ -612,4 +822,3 @@ export class BankTransferService {
     return currencyToType[currency.toLowerCase()] || 'us_bank_transfer';
   }
 }
-
