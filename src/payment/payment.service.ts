@@ -250,9 +250,26 @@ export class PaymentService {
   // ============================================
 
   /**
-   * Create a PaymentIntent for sender to pay for order
+   * Create a PaymentIntent for sender to pay for order.
+   * Supports trip (default), shopping_offer, and shipping_offer order types.
    */
   async createPaymentIntent(
+    dto: CreatePaymentIntentDto,
+    senderId: string,
+  ): Promise<PaymentIntentResponseDto> {
+    const orderType = dto.orderType || 'trip';
+
+    if (orderType === 'shopping_offer') {
+      return this.createPaymentIntentForShoppingOffer(dto, senderId);
+    }
+    if (orderType === 'shipping_offer') {
+      return this.createPaymentIntentForShippingOffer(dto, senderId);
+    }
+
+    return this.createPaymentIntentForTrip(dto, senderId);
+  }
+
+  private async createPaymentIntentForTrip(
     dto: CreatePaymentIntentDto,
     senderId: string,
   ): Promise<PaymentIntentResponseDto> {
@@ -261,16 +278,15 @@ export class PaymentService {
         `Creating payment for order ${dto.orderId} by sender ${senderId}`,
       );
 
-      // Verify order exists and is valid
       const order = await this.prisma.tripRequest.findUnique({
         where: { id: dto.orderId },
         include: {
           trip: {
             include: {
-              user: true, // Traveler
+              user: true,
             },
           },
-          user: true, // Sender
+          user: true,
         },
       });
 
@@ -278,14 +294,11 @@ export class PaymentService {
         throw new NotFoundException('Order not found');
       }
 
-      // Verify sender owns this order
       if (order.user_id !== senderId) {
         throw new BadRequestException('You can only pay for your own orders');
       }
 
-      // Check if payment already exists
       if (order.payment_intent_id) {
-        // Retrieve existing payment intent
         const existingIntent = await this.stripeService.getPaymentIntent(
           order.payment_intent_id,
         );
@@ -294,114 +307,52 @@ export class PaymentService {
           throw new BadRequestException('This order has already been paid');
         }
 
-        // Check if existing intent is a bank transfer (customer_balance) - incompatible with card payment
-        // When user switches from Bank Transfer to Card, we need to cancel and create new PaymentIntent
         if (existingIntent.payment_method_types?.includes('customer_balance')) {
           this.logger.log(
             `Existing PaymentIntent ${order.payment_intent_id} is bank transfer type, canceling to create card payment`,
           );
 
-          // Cancel the bank transfer PaymentIntent (it's in requires_action state waiting for bank transfer)
           try {
-            await this.stripeService.cancelPaymentIntent(order.payment_intent_id);
-            this.logger.log(`Canceled bank transfer PaymentIntent: ${order.payment_intent_id}`);
+            await this.stripeService.cancelPaymentIntent(
+              order.payment_intent_id,
+            );
+            this.logger.log(
+              `Canceled bank transfer PaymentIntent: ${order.payment_intent_id}`,
+            );
           } catch (cancelError) {
-            this.logger.warn(`Could not cancel old PaymentIntent: ${cancelError.message}`);
-            // Continue anyway - we'll create a new one
+            this.logger.warn(
+              `Could not cancel old PaymentIntent: ${cancelError.message}`,
+            );
           }
 
-          // Clear the payment_intent_id so we create a new card-compatible one below
           await this.prisma.tripRequest.update({
             where: { id: dto.orderId },
             data: { payment_intent_id: null },
           });
-
-          // Fall through to create new PaymentIntent for card payment
         } else {
-          // Return existing card-compatible intent if still pending
-          // For existing intents, we need to create customer and ephemeral key too
-          let customer;
-          try {
-            // Try to find existing customer by email
-            const existingCustomers = await this.stripeService
-              .getStripeInstance()
-              .customers.list({
-                email: order.user.email,
-                limit: 1,
-              });
-
-            if (existingCustomers.data.length > 0) {
-              customer = existingCustomers.data[0];
-              this.logger.log(`Using existing customer: ${customer.id}`);
-            } else {
-              // Create new customer
-              customer = await this.stripeService.createCustomer({
-                email: order.user.email,
-                name: order.user.name || undefined,
-                metadata: {
-                  userId: senderId,
-                  userRole: order.user.role,
-                },
-              });
-            }
-          } catch (error) {
-            this.logger.error(
-              'Failed to create/get customer for existing intent:',
-              error,
-            );
-            throw new BadRequestException(
-              'Failed to create customer for payment',
-            );
-          }
-
-          // Create ephemeral key for the customer
-          let ephemeralKey;
-          try {
-            ephemeralKey = await this.stripeService.createEphemeralKey(
-              customer.id,
-            );
-          } catch (error) {
-            this.logger.error(
-              'Failed to create ephemeral key for existing intent:',
-              error,
-            );
-            throw new BadRequestException(
-              'Failed to create ephemeral key for payment',
-            );
-          }
-
-          return {
-            clientSecret: existingIntent.id,
-            paymentIntentId: existingIntent.client_secret,
-            amount: existingIntent.amount / 100,
-            currency: existingIntent.currency.toUpperCase(),
-            ephemeralKeySecret: ephemeralKey.secret,
-            customerId: customer.id,
-          };
+          return this.returnExistingIntent(
+            existingIntent,
+            order.user.email,
+            senderId,
+            order.user,
+          );
         }
       }
 
-      // SECURITY: Calculate amount from order (backend is source of truth)
-      // Get traveler ID from order
       const travelerId = order.trip.user_id;
 
-      // IMPORTANT: Use trip currency for Stripe payment (USD/EUR/CAD)
-      // The request cost is stored in user's currency (XAF), but Stripe should charge in trip currency
       const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
       const requestCurrency = (order.currency || 'XAF').toUpperCase();
 
-      // Get traveler price from request (may be in XAF)
       const requestCost = Number(order.cost || 0);
       if (requestCost <= 0) {
         throw new BadRequestException('Invalid order price');
       }
 
-      // Convert request cost back to trip currency if needed
       let travelerPrice: number;
       let currency: string;
 
       if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
-        // Request cost is in XAF, convert back to trip currency (USD/EUR/CAD)
         const conversion = this.currencyService.convertCurrency(
           requestCost,
           'XAF',
@@ -414,11 +365,9 @@ export class PaymentService {
           `Currency conversion for Stripe: ${requestCost} ${requestCurrency} = ${travelerPrice} ${currency} (rate: ${conversion.exchangeRate})`,
         );
       } else if (requestCurrency !== 'XAF') {
-        // Request is already in trip currency, use it directly
         travelerPrice = requestCost;
         currency = requestCurrency;
       } else {
-        // Both are XAF, convert to EUR for Stripe
         const conversion = this.currencyService.convertCurrency(
           requestCost,
           'XAF',
@@ -432,14 +381,8 @@ export class PaymentService {
         );
       }
 
-      // Calculate platform fee in trip currency (client spec: 7% + €1, min €1.99)
       const platformFee = this.calculatePlatformCommission(travelerPrice);
-
-      // Calculate total sender pays in trip currency
       const senderTotal = travelerPrice + platformFee;
-
-      // Validate currency is supported by Stripe (let Stripe handle validation)
-      // Stripe will throw an error if currency is not supported
 
       this.logger.log(
         `Payment breakdown - Traveler gets: ${currency}${travelerPrice.toFixed(2)}, ` +
@@ -447,21 +390,19 @@ export class PaymentService {
           `Sender pays: ${currency}${senderTotal.toFixed(2)}`,
       );
 
-      // Create new PaymentIntent with CALCULATED amount (secure)
       const metadata: Record<string, string> = {
         senderId,
         travelerId: travelerId,
+        orderType: 'trip',
         travelerPrice: travelerPrice.toFixed(2),
         platformFee: platformFee.toFixed(2),
         senderTotal: senderTotal.toFixed(2),
       };
 
-      // Optionally attach payer deviceId so we can send a direct push notification on success
       if (dto.deviceId) {
         metadata.payerDeviceId = dto.deviceId;
       }
 
-      // Add conversion info if request currency differs from payment currency
       if (requestCurrency !== currency) {
         metadata.requestCurrency = requestCurrency;
         metadata.requestAmount = requestCost.toFixed(2);
@@ -477,15 +418,11 @@ export class PaymentService {
         metadata,
       });
 
-      // Update order with payment information
-      // Note: We keep the request currency in the database (XAF), but store payment currency separately if different
       await this.prisma.tripRequest.update({
         where: { id: dto.orderId },
         data: {
           payment_intent_id: paymentIntent.id,
           payment_status: PaymentStatus.PROCESSING,
-          // Don't update request currency - it should remain in user's currency (XAF)
-          // The payment currency is stored in Stripe PaymentIntent metadata
         },
       });
 
@@ -493,429 +430,870 @@ export class PaymentService {
         `PaymentIntent created successfully: ${paymentIntent.id}`,
       );
 
-      // Create or get customer for the sender
-      let customer;
-      try {
-        // Try to find existing customer by email
-        const existingCustomers = await this.stripeService
-          .getStripeInstance()
-          .customers.list({
-            email: order.user.email,
-            limit: 1,
-          });
-
-        if (existingCustomers.data.length > 0) {
-          customer = existingCustomers.data[0];
-          this.logger.log(`Using existing customer: ${customer.id}`);
-        } else {
-          // Create new customer
-          customer = await this.stripeService.createCustomer({
-            email: order.user.email,
-            name: order.user.name || undefined,
-            metadata: {
-              userId: senderId,
-              userRole: order.user.role,
-            },
-          });
-        }
-      } catch (error) {
-        this.logger.error('Failed to create/get customer:', error);
-        throw new BadRequestException('Failed to create customer for payment');
-      }
-
-      // Create ephemeral key for the customer
-      let ephemeralKey;
-      try {
-        ephemeralKey = await this.stripeService.createEphemeralKey(customer.id);
-      } catch (error) {
-        this.logger.error('Failed to create ephemeral key:', error);
-        throw new BadRequestException(
-          'Failed to create ephemeral key for payment',
-        );
-      }
-
-      return {
-        clientSecret: paymentIntent.id,
-        paymentIntentId: paymentIntent.client_secret,
-        amount: senderTotal,
-        currency: currency,
-        ephemeralKeySecret: ephemeralKey.secret,
-        customerId: customer.id,
-      };
+      return this.buildPaymentIntentResponse(
+        paymentIntent,
+        senderTotal,
+        currency,
+        order.user.email,
+        senderId,
+        order.user,
+      );
     } catch (error) {
       this.logger.error('Failed to create payment intent:', error);
       throw error;
     }
   }
 
+  private async createPaymentIntentForShoppingOffer(
+    dto: CreatePaymentIntentDto,
+    senderId: string,
+  ): Promise<PaymentIntentResponseDto> {
+    try {
+      this.logger.log(
+        `Creating shopping offer payment for offer ${dto.orderId} by sender ${senderId}`,
+      );
+
+      const offer = await this.prisma.offer.findUnique({
+        where: { id: dto.orderId },
+        include: {
+          shopping_request: {
+            include: { user: true },
+          },
+          traveler: true,
+        },
+      });
+
+      if (!offer) {
+        throw new NotFoundException('Shopping offer not found');
+      }
+
+      if (offer.shopping_request.user_id !== senderId) {
+        throw new BadRequestException(
+          'You can only pay for your own shopping requests',
+        );
+      }
+
+      if (offer.status !== 'ACCEPTED') {
+        throw new BadRequestException('Only accepted offers can be paid');
+      }
+
+      if (offer.payment_intent_id) {
+        const existingIntent = await this.stripeService.getPaymentIntent(
+          offer.payment_intent_id,
+        );
+        if (existingIntent.status === 'succeeded') {
+          throw new BadRequestException('This offer has already been paid');
+        }
+        if (existingIntent.payment_method_types?.includes('customer_balance')) {
+          try {
+            await this.stripeService.cancelPaymentIntent(
+              offer.payment_intent_id,
+            );
+          } catch (cancelError) {
+            this.logger.warn(
+              `Could not cancel old PaymentIntent: ${cancelError.message}`,
+            );
+          }
+          await this.prisma.offer.update({
+            where: { id: dto.orderId },
+            data: { payment_intent_id: null },
+          });
+        } else {
+          return this.returnExistingIntent(
+            existingIntent,
+            offer.shopping_request.user.email,
+            senderId,
+            offer.shopping_request.user,
+          );
+        }
+      }
+
+      const productPrice = Number(offer.shopping_request.product_price || 0);
+      const additionalFees = Number(offer.additional_fees || 0);
+      const rewardAmount = Number(offer.reward_amount || 0);
+      const baseAmount = productPrice + additionalFees + rewardAmount;
+
+      if (baseAmount <= 0) {
+        throw new BadRequestException('Invalid offer amount');
+      }
+
+      const rewardCurrency = (offer.reward_currency || 'XAF').toUpperCase();
+      let travelerPrice: number;
+      let currency: string;
+
+      if (rewardCurrency === 'XAF') {
+        const conversion = this.currencyService.convertCurrency(
+          baseAmount,
+          'XAF',
+          'EUR',
+        );
+        travelerPrice = conversion.convertedAmount;
+        currency = 'EUR';
+      } else {
+        travelerPrice = baseAmount;
+        currency = rewardCurrency;
+      }
+
+      const platformFee = this.calculatePlatformCommission(travelerPrice);
+      const senderTotal = travelerPrice + platformFee;
+
+      this.logger.log(
+        `Shopping offer payment breakdown - Base: ${currency}${travelerPrice.toFixed(2)}, ` +
+          `Platform fee: ${currency}${platformFee.toFixed(2)}, ` +
+          `Sender pays: ${currency}${senderTotal.toFixed(2)}`,
+      );
+
+      const metadata: Record<string, string> = {
+        senderId,
+        travelerId: offer.traveler_id,
+        orderType: 'shopping_offer',
+        offerId: offer.id,
+        shoppingRequestId: offer.shopping_request_id,
+        travelerPrice: travelerPrice.toFixed(2),
+        platformFee: platformFee.toFixed(2),
+        senderTotal: senderTotal.toFixed(2),
+      };
+
+      if (dto.deviceId) {
+        metadata.payerDeviceId = dto.deviceId;
+      }
+
+      const paymentIntent = await this.stripeService.createPaymentIntent({
+        amount: senderTotal,
+        currency,
+        orderId: dto.orderId,
+        travelerId: offer.traveler_id,
+        metadata,
+      });
+
+      await this.prisma.offer.update({
+        where: { id: dto.orderId },
+        data: {
+          payment_intent_id: paymentIntent.id,
+          payment_status: PaymentStatus.PROCESSING,
+        },
+      });
+
+      this.logger.log(
+        `Shopping offer PaymentIntent created: ${paymentIntent.id}`,
+      );
+
+      return this.buildPaymentIntentResponse(
+        paymentIntent,
+        senderTotal,
+        currency,
+        offer.shopping_request.user.email,
+        senderId,
+        offer.shopping_request.user,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to create shopping offer payment intent:',
+        error,
+      );
+      throw error;
+    }
+  }
+
+  private async createPaymentIntentForShippingOffer(
+    dto: CreatePaymentIntentDto,
+    senderId: string,
+  ): Promise<PaymentIntentResponseDto> {
+    try {
+      this.logger.log(
+        `Creating shipping offer payment for offer ${dto.orderId} by sender ${senderId}`,
+      );
+
+      const offer = await this.prisma.shippingOffer.findUnique({
+        where: { id: dto.orderId },
+        include: {
+          shipping_request: {
+            include: { user: true },
+          },
+          traveler: true,
+        },
+      });
+
+      if (!offer) {
+        throw new NotFoundException('Shipping offer not found');
+      }
+
+      if (offer.shipping_request.user_id !== senderId) {
+        throw new BadRequestException(
+          'You can only pay for your own shipping requests',
+        );
+      }
+
+      if (offer.status !== 'ACCEPTED') {
+        throw new BadRequestException('Only accepted offers can be paid');
+      }
+
+      if (offer.payment_intent_id) {
+        const existingIntent = await this.stripeService.getPaymentIntent(
+          offer.payment_intent_id,
+        );
+        if (existingIntent.status === 'succeeded') {
+          throw new BadRequestException('This offer has already been paid');
+        }
+        if (existingIntent.payment_method_types?.includes('customer_balance')) {
+          try {
+            await this.stripeService.cancelPaymentIntent(
+              offer.payment_intent_id,
+            );
+          } catch (cancelError) {
+            this.logger.warn(
+              `Could not cancel old PaymentIntent: ${cancelError.message}`,
+            );
+          }
+          await this.prisma.shippingOffer.update({
+            where: { id: dto.orderId },
+            data: { payment_intent_id: null },
+          });
+        } else {
+          return this.returnExistingIntent(
+            existingIntent,
+            offer.shipping_request.user.email,
+            senderId,
+            offer.shipping_request.user,
+          );
+        }
+      }
+
+      const rewardAmount = Number(offer.reward_amount || 0);
+      if (rewardAmount <= 0) {
+        throw new BadRequestException('Invalid offer amount');
+      }
+
+      const rewardCurrency = (offer.reward_currency || 'XAF').toUpperCase();
+      let travelerPrice: number;
+      let currency: string;
+
+      if (rewardCurrency === 'XAF') {
+        const conversion = this.currencyService.convertCurrency(
+          rewardAmount,
+          'XAF',
+          'EUR',
+        );
+        travelerPrice = conversion.convertedAmount;
+        currency = 'EUR';
+      } else {
+        travelerPrice = rewardAmount;
+        currency = rewardCurrency;
+      }
+
+      const platformFee = this.calculatePlatformCommission(travelerPrice);
+      const senderTotal = travelerPrice + platformFee;
+
+      this.logger.log(
+        `Shipping offer payment breakdown - Reward: ${currency}${travelerPrice.toFixed(2)}, ` +
+          `Platform fee: ${currency}${platformFee.toFixed(2)}, ` +
+          `Sender pays: ${currency}${senderTotal.toFixed(2)}`,
+      );
+
+      const metadata: Record<string, string> = {
+        senderId,
+        travelerId: offer.traveler_id,
+        orderType: 'shipping_offer',
+        shippingOfferId: offer.id,
+        shippingRequestId: offer.shipping_request_id,
+        travelerPrice: travelerPrice.toFixed(2),
+        platformFee: platformFee.toFixed(2),
+        senderTotal: senderTotal.toFixed(2),
+      };
+
+      if (dto.deviceId) {
+        metadata.payerDeviceId = dto.deviceId;
+      }
+
+      const paymentIntent = await this.stripeService.createPaymentIntent({
+        amount: senderTotal,
+        currency,
+        orderId: dto.orderId,
+        travelerId: offer.traveler_id,
+        metadata,
+      });
+
+      await this.prisma.shippingOffer.update({
+        where: { id: dto.orderId },
+        data: {
+          payment_intent_id: paymentIntent.id,
+          payment_status: PaymentStatus.PROCESSING,
+        },
+      });
+
+      this.logger.log(
+        `Shipping offer PaymentIntent created: ${paymentIntent.id}`,
+      );
+
+      return this.buildPaymentIntentResponse(
+        paymentIntent,
+        senderTotal,
+        currency,
+        offer.shipping_request.user.email,
+        senderId,
+        offer.shipping_request.user,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to create shipping offer payment intent:',
+        error,
+      );
+      throw error;
+    }
+  }
+
+  private async returnExistingIntent(
+    existingIntent: any,
+    email: string,
+    senderId: string,
+    user: any,
+  ): Promise<PaymentIntentResponseDto> {
+    const { customer, ephemeralKey } = await this.getOrCreateCustomerAndKey(
+      email,
+      senderId,
+      user,
+    );
+    return {
+      clientSecret: existingIntent.id,
+      paymentIntentId: existingIntent.client_secret,
+      amount: existingIntent.amount / 100,
+      currency: existingIntent.currency.toUpperCase(),
+      ephemeralKeySecret: ephemeralKey.secret,
+      customerId: customer.id,
+    };
+  }
+
+  private async buildPaymentIntentResponse(
+    paymentIntent: any,
+    amount: number,
+    currency: string,
+    email: string,
+    senderId: string,
+    user: any,
+  ): Promise<PaymentIntentResponseDto> {
+    const { customer, ephemeralKey } = await this.getOrCreateCustomerAndKey(
+      email,
+      senderId,
+      user,
+    );
+    return {
+      clientSecret: paymentIntent.id,
+      paymentIntentId: paymentIntent.client_secret,
+      amount,
+      currency,
+      ephemeralKeySecret: ephemeralKey.secret,
+      customerId: customer.id,
+    };
+  }
+
+  private async getOrCreateCustomerAndKey(
+    email: string,
+    senderId: string,
+    user: any,
+  ): Promise<{ customer: any; ephemeralKey: any }> {
+    let customer;
+    try {
+      const existingCustomers = await this.stripeService
+        .getStripeInstance()
+        .customers.list({ email, limit: 1 });
+
+      if (existingCustomers.data.length > 0) {
+        customer = existingCustomers.data[0];
+      } else {
+        customer = await this.stripeService.createCustomer({
+          email,
+          name: user.name || undefined,
+          metadata: { userId: senderId, userRole: user.role },
+        });
+      }
+    } catch (error) {
+      this.logger.error('Failed to create/get customer:', error);
+      throw new BadRequestException('Failed to create customer for payment');
+    }
+
+    let ephemeralKey;
+    try {
+      ephemeralKey = await this.stripeService.createEphemeralKey(customer.id);
+    } catch (error) {
+      this.logger.error('Failed to create ephemeral key:', error);
+      throw new BadRequestException(
+        'Failed to create ephemeral key for payment',
+      );
+    }
+
+    return { customer, ephemeralKey };
+  }
+
   /**
-   * Handle successful payment (called by webhook)
+   * Handle successful payment (called by webhook).
+   * Resolves the order by payment_intent_id across TripRequest, Offer, ShippingOffer.
    */
   async handlePaymentSuccess(paymentIntentId: string): Promise<void> {
     try {
       this.logger.log(`Handling successful payment: ${paymentIntentId}`);
 
-      // Find order by payment intent
-      const order = await this.prisma.tripRequest.findUnique({
-        where: { payment_intent_id: paymentIntentId },
-        include: {
-          trip: {
-            include: {
-              user: true, // Traveler
-            },
-          },
-        },
-      });
-
-      if (!order) {
-        this.logger.warn(
-          `Order not found for PaymentIntent: ${paymentIntentId}`,
-        );
-        return;
-      }
-
-      // IMPORTANT: Get actual payment currency and amount from Stripe PaymentIntent
-      // The order.currency may be XAF (stored), but payment was made in trip currency (USD/EUR/CAD)
       const paymentIntent =
         await this.stripeService.getPaymentIntent(paymentIntentId);
-      const paymentCurrency = paymentIntent.currency.toUpperCase();
-      const totalPaid = paymentIntent.amount / 100; // Convert from cents
+      const orderType = (paymentIntent.metadata as any)?.orderType || 'trip';
 
-      // Get traveler price from PaymentIntent metadata (if available) or calculate from total
-      let travelerPrice: number;
-      if (paymentIntent.metadata?.travelerPrice) {
-        travelerPrice = Number(paymentIntent.metadata.travelerPrice);
-      } else {
-        // Fallback: Calculate traveler price from total paid - platform fee
-        // This should match what was calculated during payment creation
-        const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
-        const requestCurrency = (order.currency || 'XAF').toUpperCase();
-        const requestCost = Number(order.cost || 0);
-
-        // Convert request cost back to trip currency (same logic as createPaymentIntent)
-        if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
-          const conversion = this.currencyService.convertCurrency(
-            requestCost,
-            'XAF',
-            tripCurrency,
-          );
-          travelerPrice = conversion.convertedAmount;
-        } else {
-          travelerPrice = requestCost;
-        }
-      }
-
-      // IDEMPOTENCY: Check if payment already processed
-      const isAlreadyProcessed =
-        order.payment_status === PaymentStatus.SUCCEEDED;
-
-      // Optional: device token of the payer if it was provided when creating the PaymentIntent
-      const payerDeviceId: string | null =
-        (paymentIntent.metadata as any)?.payerDeviceId ||
-        (paymentIntent.metadata as any)?.deviceId ||
-        null;
-
-      // Get traveler's language preference
-      const traveler = await this.prisma.user.findUnique({
-        where: { id: order.trip.user_id },
-        select: { lang: true, device_id: true },
-      });
-      const travelerLang = traveler?.lang || 'en';
-
-      // Notification data
-      const notificationTitle = 'Payment Received';
-      const notificationMessage = `You've received a payment of ${paymentCurrency} ${travelerPrice.toFixed(2)} for your trip. The funds are on hold until delivery is confirmed.`;
-      const notificationData = {
-        type: 'payment_received',
-        order_id: order.id,
-        trip_id: order.trip_id,
-        amount: travelerPrice,
-        currency: paymentCurrency,
-      };
-
-      if (isAlreadyProcessed) {
-        this.logger.log(`Payment already processed for order ${order.id}`);
-
-        // Still create in-app notification and send push notification even if payment was already processed
-        // (in case notification wasn't sent before or user now has device_id)
-        try {
-          // Create in-app notification (always)
-          await this.notificationService.createNotification(
-            {
-              user_id: order.trip.user_id,
-              title: notificationTitle,
-              message: notificationMessage,
-              type: NotificationType.REQUEST,
-              trip_id: order.trip_id,
-              request_id: order.id,
-              data: notificationData,
-            },
-            travelerLang,
-          );
-
-          // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
-          await this.notificationService.sendPushNotificationToUser(
-            order.trip.user_id,
-            notificationTitle,
-            notificationMessage,
-            notificationData,
-            travelerLang,
-          );
-
-          // Additionally, notify the payer via explicit device token if it was attached to the PaymentIntent
-          if (payerDeviceId) {
-            try {
-              const payer = await this.prisma.user.findUnique({
-                where: { id: order.user_id },
-                select: { lang: true, push_notification: true },
-              });
-
-              // Only send if user has push_notification enabled
-              if (payer?.push_notification) {
-                const payerLang = payer?.lang || 'en';
-
-                const payerTitle = await this.i18n.translate(
-                  'translation.notification.payment.success.title',
-                  {
-                    lang: payerLang,
-                    defaultValue: 'Payment Successful',
-                  },
-                );
-                const payerMessage = await this.i18n.translate(
-                  'translation.notification.payment.success.message',
-                  {
-                    lang: payerLang,
-                    defaultValue:
-                      'Your payment has been successfully processed',
-                  },
-                );
-
-                await this.notificationService.sendPushNotification(
-                  {
-                    deviceId: payerDeviceId,
-                    title: payerTitle,
-                    body: payerMessage,
-                    data: {
-                      type: 'payment_success',
-                      order_id: order.id,
-                      trip_id: order.trip_id,
-                      amount: totalPaid,
-                      currency: paymentCurrency,
-                    },
-                  },
-                  payerLang,
-                );
-              }
-            } catch (error) {
-              this.logger.warn(
-                `Failed to send payment success push to payer (already processed) via deviceId: ${error.message}`,
-              );
-            }
-          }
-        } catch (error) {
-          this.logger.warn(
-            `Failed to create/send notification for already processed payment: ${error.message}`,
-          );
-          // Don't fail the operation if notification fails
-        }
-
-        return;
-      }
-
-      // Update payment status only
-      await this.prisma.tripRequest.update({
-        where: { id: order.id },
-        data: {
-          payment_status: PaymentStatus.SUCCEEDED,
-          paid_at: new Date(),
-        },
-      });
-
-      // Use the proper endpoint to change status to CONFIRMED
-      // For payment success, we use the sender ID since they initiated the payment
-      // Pass from_app: true to allow automatic status change from payment flow
-      await this.requestService.changeRequestStatus(
-        order.id,
-        'CONFIRMED',
-        order.user_id, // sender ID (who made the payment)
-        'en',
-        true, // from_app: true - this is a system call from payment flow
-      );
-
-      // Wallet should already exist from user registration - find it or throw error
-      const wallet = await this.prisma.wallet.findUnique({
-        where: { userId: order.trip.user_id },
-      });
-
-      if (!wallet) {
-        this.logger.error(
-          `Wallet not found for traveler ${order.trip.user_id} during payment success. ` +
-            `This should not happen - wallet should be created at user registration.`,
+      if (orderType === 'shopping_offer') {
+        return this.handleShoppingOfferPaymentSuccess(
+          paymentIntentId,
+          paymentIntent,
         );
-        throw new NotFoundException(
-          `Traveler wallet not found. This indicates a data integrity issue.`,
+      }
+      if (orderType === 'shipping_offer') {
+        return this.handleShippingOfferPaymentSuccess(
+          paymentIntentId,
+          paymentIntent,
         );
       }
 
-      const pendingEarnings = travelerPrice;
-
-      // Update wallet currency to match the payment currency if it's the first payment
-      if (wallet.currency !== paymentCurrency) {
-        await this.prisma.wallet.update({
-          where: { id: wallet.id },
-          data: { currency: paymentCurrency },
-        });
-      }
-
-      // Log the breakdown for tracking
-      let stripeFee = 0;
-      try {
-        stripeFee = await this.stripeService.getStripeFee(paymentIntentId);
-      } catch (error) {
-        this.logger.warn(
-          `Could not retrieve Stripe fee for ${paymentIntentId}: ${error.message}`,
-        );
-        // Continue without Stripe fee in logs - payment still succeeds
-      }
-
-      const platformCommission =
-        this.calculatePlatformCommission(travelerPrice);
-
-      this.logger.log(
-        `Payment breakdown - Traveler gets: ${paymentCurrency}${travelerPrice}, Platform fee: ${paymentCurrency}${platformCommission}, Stripe fee: ${paymentCurrency}${stripeFee}`,
-      );
-
-      // Validate earnings
-      if (isNaN(pendingEarnings) || pendingEarnings <= 0) {
-        throw new Error(`Invalid traveler price: ${pendingEarnings}`);
-      }
-
-      // Get the appropriate currency columns for the payment currency
-      const currencyColumns = this.getCurrencyColumns(paymentCurrency);
-
-      // Add to pending balance using currency-specific column
-      await this.prisma.wallet.update({
-        where: { id: wallet.id },
-        data: {
-          [currencyColumns.hold]: {
-            increment: Number(pendingEarnings),
-          },
-        },
-      });
-
-      // Get current balance for the specific currency
-      const currentBalance = Number(wallet[currencyColumns.hold] || 0);
-
-      // Create transaction record
-      await this.prisma.transaction.create({
-        data: {
-          userId: order.trip.user_id,
-          wallet_id: wallet.id,
-          type: 'CREDIT',
-          source: 'TRIP_EARNING',
-          amount_requested: travelerPrice,
-          fee_applied: stripeFee + platformCommission,
-          amount_paid: pendingEarnings,
-          currency: paymentCurrency, // Use the actual payment currency
-          request_id: order.id,
-          status: 'ONHOLD',
-          provider: 'STRIPE',
-          description: `Earnings from order ${order.id} (pending delivery)`,
-          balance_after: currentBalance + pendingEarnings,
-          metadata: {
-            orderId: order.id,
-            stripeFee,
-            platformCommission,
-            paymentCurrency,
-          },
-        },
-      });
-
-      this.logger.log(`Payment processed successfully for order ${order.id}`);
-
-      // Create in-app notification and send push notification to traveler about payment
-      try {
-        // Create in-app notification (always)
-        await this.notificationService.createNotification(
-          {
-            user_id: order.trip.user_id,
-            title: notificationTitle,
-            message: notificationMessage,
-            type: NotificationType.REQUEST,
-            trip_id: order.trip_id,
-            request_id: order.id,
-            data: notificationData,
-          },
-          travelerLang,
-        );
-
-        // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
-        await this.notificationService.sendPushNotificationToUser(
-          order.trip.user_id,
-          notificationTitle,
-          notificationMessage,
-          notificationData,
-          travelerLang,
-        );
-
-        // Additionally, notify the payer via explicit device token if it was attached to the PaymentIntent
-        if (payerDeviceId) {
-          try {
-            const payer = await this.prisma.user.findUnique({
-              where: { id: order.user_id },
-              select: { lang: true, push_notification: true },
-            });
-
-            // Only send if user has push_notification enabled
-            if (payer?.push_notification) {
-              const payerLang = payer?.lang || 'en';
-
-              const payerTitle = await this.i18n.translate(
-                'translation.notification.payment.success.title',
-                {
-                  lang: payerLang,
-                  defaultValue: 'Payment Successful',
-                },
-              );
-              const payerMessage = await this.i18n.translate(
-                'translation.notification.payment.success.message',
-                {
-                  lang: payerLang,
-                  defaultValue: 'Your payment has been successfully processed',
-                },
-              );
-
-              await this.notificationService.sendPushNotification(
-                {
-                  deviceId: payerDeviceId,
-                  title: payerTitle,
-                  body: payerMessage,
-                  data: {
-                    type: 'payment_success',
-                    order_id: order.id,
-                    trip_id: order.trip_id,
-                    amount: totalPaid,
-                    currency: paymentCurrency,
-                  },
-                },
-                payerLang,
-              );
-            }
-          } catch (error) {
-            this.logger.warn(
-              `Failed to send payment success push to payer via deviceId: ${error.message}`,
-            );
-          }
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Failed to create/send payment notification: ${error.message}`,
-        );
-        // Don't fail the operation if notification fails
-      }
+      return this.handleTripPaymentSuccess(paymentIntentId, paymentIntent);
     } catch (error) {
       this.logger.error('Failed to handle payment success:', error);
       throw error;
+    }
+  }
+
+  private async handleTripPaymentSuccess(
+    paymentIntentId: string,
+    paymentIntent: any,
+  ): Promise<void> {
+    const order = await this.prisma.tripRequest.findUnique({
+      where: { payment_intent_id: paymentIntentId },
+      include: {
+        trip: { include: { user: true } },
+      },
+    });
+
+    if (!order) {
+      this.logger.warn(`Order not found for PaymentIntent: ${paymentIntentId}`);
+      return;
+    }
+
+    const paymentCurrency = paymentIntent.currency.toUpperCase();
+    const totalPaid = paymentIntent.amount / 100;
+
+    let travelerPrice: number;
+    if (paymentIntent.metadata?.travelerPrice) {
+      travelerPrice = Number(paymentIntent.metadata.travelerPrice);
+    } else {
+      const tripCurrency = (order.trip.currency || 'EUR').toUpperCase();
+      const requestCurrency = (order.currency || 'XAF').toUpperCase();
+      const requestCost = Number(order.cost || 0);
+      if (requestCurrency === 'XAF' && tripCurrency !== 'XAF') {
+        const conversion = this.currencyService.convertCurrency(
+          requestCost,
+          'XAF',
+          tripCurrency,
+        );
+        travelerPrice = conversion.convertedAmount;
+      } else {
+        travelerPrice = requestCost;
+      }
+    }
+
+    if (order.payment_status === PaymentStatus.SUCCEEDED) {
+      this.logger.log(`Payment already processed for order ${order.id}`);
+      await this.sendPaymentNotifications(
+        order.trip.user_id,
+        order.user_id,
+        paymentCurrency,
+        travelerPrice,
+        totalPaid,
+        { order_id: order.id, trip_id: order.trip_id },
+        paymentIntent,
+        'trip',
+      );
+      return;
+    }
+
+    await this.prisma.tripRequest.update({
+      where: { id: order.id },
+      data: { payment_status: PaymentStatus.SUCCEEDED, paid_at: new Date() },
+    });
+
+    await this.requestService.changeRequestStatus(
+      order.id,
+      'CONFIRMED',
+      order.user_id,
+      'en',
+      true,
+    );
+
+    await this.creditTravelerWallet(
+      order.trip.user_id,
+      travelerPrice,
+      paymentCurrency,
+      paymentIntentId,
+      {
+        source: 'TRIP_EARNING' as const,
+        request_id: order.id,
+        description: `Earnings from order ${order.id} (pending delivery)`,
+        orderId: order.id,
+      },
+    );
+
+    this.logger.log(`Payment processed successfully for order ${order.id}`);
+
+    await this.sendPaymentNotifications(
+      order.trip.user_id,
+      order.user_id,
+      paymentCurrency,
+      travelerPrice,
+      totalPaid,
+      { order_id: order.id, trip_id: order.trip_id },
+      paymentIntent,
+      'trip',
+    );
+  }
+
+  private async handleShoppingOfferPaymentSuccess(
+    paymentIntentId: string,
+    paymentIntent: any,
+  ): Promise<void> {
+    const offer = await this.prisma.offer.findUnique({
+      where: { payment_intent_id: paymentIntentId },
+      include: {
+        shopping_request: { include: { user: true } },
+        traveler: true,
+      },
+    });
+
+    if (!offer) {
+      this.logger.warn(
+        `Shopping offer not found for PaymentIntent: ${paymentIntentId}`,
+      );
+      return;
+    }
+
+    const paymentCurrency = paymentIntent.currency.toUpperCase();
+    const totalPaid = paymentIntent.amount / 100;
+    const travelerPrice = Number(
+      paymentIntent.metadata?.travelerPrice || totalPaid,
+    );
+
+    if (offer.payment_status === PaymentStatus.SUCCEEDED) {
+      this.logger.log(
+        `Payment already processed for shopping offer ${offer.id}`,
+      );
+      await this.sendPaymentNotifications(
+        offer.traveler_id,
+        offer.shopping_request.user_id,
+        paymentCurrency,
+        travelerPrice,
+        totalPaid,
+        { offer_id: offer.id, shopping_request_id: offer.shopping_request_id },
+        paymentIntent,
+        'shopping_offer',
+      );
+      return;
+    }
+
+    await this.prisma.offer.update({
+      where: { id: offer.id },
+      data: { payment_status: PaymentStatus.SUCCEEDED, paid_at: new Date() },
+    });
+
+    await this.prisma.shoppingRequest.update({
+      where: { id: offer.shopping_request_id },
+      data: { status: 'PAID', paid_at: new Date() },
+    });
+
+    await this.creditTravelerWallet(
+      offer.traveler_id,
+      travelerPrice,
+      paymentCurrency,
+      paymentIntentId,
+      {
+        source: 'SHOPPING_EARNING' as const,
+        offer_id: offer.id,
+        description: `Earnings from shopping offer ${offer.id} (pending delivery)`,
+        orderId: offer.id,
+      },
+    );
+
+    this.logger.log(`Shopping offer payment processed for offer ${offer.id}`);
+
+    await this.sendPaymentNotifications(
+      offer.traveler_id,
+      offer.shopping_request.user_id,
+      paymentCurrency,
+      travelerPrice,
+      totalPaid,
+      { offer_id: offer.id, shopping_request_id: offer.shopping_request_id },
+      paymentIntent,
+      'shopping_offer',
+    );
+  }
+
+  private async handleShippingOfferPaymentSuccess(
+    paymentIntentId: string,
+    paymentIntent: any,
+  ): Promise<void> {
+    const offer = await this.prisma.shippingOffer.findUnique({
+      where: { payment_intent_id: paymentIntentId },
+      include: {
+        shipping_request: { include: { user: true } },
+        traveler: true,
+      },
+    });
+
+    if (!offer) {
+      this.logger.warn(
+        `Shipping offer not found for PaymentIntent: ${paymentIntentId}`,
+      );
+      return;
+    }
+
+    const paymentCurrency = paymentIntent.currency.toUpperCase();
+    const totalPaid = paymentIntent.amount / 100;
+    const travelerPrice = Number(
+      paymentIntent.metadata?.travelerPrice || totalPaid,
+    );
+
+    if (offer.payment_status === PaymentStatus.SUCCEEDED) {
+      this.logger.log(
+        `Payment already processed for shipping offer ${offer.id}`,
+      );
+      await this.sendPaymentNotifications(
+        offer.traveler_id,
+        offer.shipping_request.user_id,
+        paymentCurrency,
+        travelerPrice,
+        totalPaid,
+        {
+          shipping_offer_id: offer.id,
+          shipping_request_id: offer.shipping_request_id,
+        },
+        paymentIntent,
+        'shipping_offer',
+      );
+      return;
+    }
+
+    await this.prisma.shippingOffer.update({
+      where: { id: offer.id },
+      data: { payment_status: PaymentStatus.SUCCEEDED, paid_at: new Date() },
+    });
+
+    await this.prisma.shippingRequest.update({
+      where: { id: offer.shipping_request_id },
+      data: { status: 'BOOKED' },
+    });
+
+    await this.creditTravelerWallet(
+      offer.traveler_id,
+      travelerPrice,
+      paymentCurrency,
+      paymentIntentId,
+      {
+        source: 'SHIPPING_EARNING' as const,
+        shipping_offer_id: offer.id,
+        description: `Earnings from shipping offer ${offer.id} (pending delivery)`,
+        orderId: offer.id,
+      },
+    );
+
+    this.logger.log(`Shipping offer payment processed for offer ${offer.id}`);
+
+    await this.sendPaymentNotifications(
+      offer.traveler_id,
+      offer.shipping_request.user_id,
+      paymentCurrency,
+      travelerPrice,
+      totalPaid,
+      {
+        shipping_offer_id: offer.id,
+        shipping_request_id: offer.shipping_request_id,
+      },
+      paymentIntent,
+      'shipping_offer',
+    );
+  }
+
+  private async creditTravelerWallet(
+    travelerId: string,
+    travelerPrice: number,
+    paymentCurrency: string,
+    paymentIntentId: string,
+    opts: {
+      source: 'TRIP_EARNING' | 'SHOPPING_EARNING' | 'SHIPPING_EARNING';
+      request_id?: string;
+      offer_id?: string;
+      shipping_offer_id?: string;
+      description: string;
+      orderId: string;
+    },
+  ): Promise<void> {
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: travelerId },
+    });
+
+    if (!wallet) {
+      this.logger.error(`Wallet not found for traveler ${travelerId}`);
+      throw new NotFoundException('Traveler wallet not found.');
+    }
+
+    if (wallet.currency !== paymentCurrency) {
+      await this.prisma.wallet.update({
+        where: { id: wallet.id },
+        data: { currency: paymentCurrency },
+      });
+    }
+
+    let stripeFee = 0;
+    try {
+      stripeFee = await this.stripeService.getStripeFee(paymentIntentId);
+    } catch (error) {
+      this.logger.warn(
+        `Could not retrieve Stripe fee for ${paymentIntentId}: ${error.message}`,
+      );
+    }
+
+    const platformCommission = this.calculatePlatformCommission(travelerPrice);
+    const pendingEarnings = travelerPrice;
+
+    if (isNaN(pendingEarnings) || pendingEarnings <= 0) {
+      throw new Error(`Invalid traveler price: ${pendingEarnings}`);
+    }
+
+    const currencyColumns = this.getCurrencyColumns(paymentCurrency);
+
+    await this.prisma.wallet.update({
+      where: { id: wallet.id },
+      data: { [currencyColumns.hold]: { increment: Number(pendingEarnings) } },
+    });
+
+    const currentBalance = Number(wallet[currencyColumns.hold] || 0);
+
+    await this.prisma.transaction.create({
+      data: {
+        userId: travelerId,
+        wallet_id: wallet.id,
+        type: 'CREDIT',
+        source: opts.source,
+        amount_requested: travelerPrice,
+        fee_applied: stripeFee + platformCommission,
+        amount_paid: pendingEarnings,
+        currency: paymentCurrency,
+        request_id: opts.request_id,
+        offer_id: opts.offer_id,
+        shipping_offer_id: opts.shipping_offer_id,
+        status: 'ONHOLD',
+        provider: 'STRIPE',
+        description: opts.description,
+        balance_after: currentBalance + pendingEarnings,
+        metadata: {
+          orderId: opts.orderId,
+          stripeFee,
+          platformCommission,
+          paymentCurrency,
+        },
+      },
+    });
+  }
+
+  private async sendPaymentNotifications(
+    travelerId: string,
+    payerId: string,
+    paymentCurrency: string,
+    travelerPrice: number,
+    totalPaid: number,
+    dataContext: Record<string, any>,
+    paymentIntent: any,
+    orderType: string,
+  ): Promise<void> {
+    const payerDeviceId: string | null =
+      (paymentIntent.metadata as any)?.payerDeviceId || null;
+
+    const traveler = await this.prisma.user.findUnique({
+      where: { id: travelerId },
+      select: { lang: true },
+    });
+    const travelerLang = traveler?.lang || 'en';
+
+    const typeLabel =
+      orderType === 'shopping_offer'
+        ? 'shopping request'
+        : orderType === 'shipping_offer'
+          ? 'shipping request'
+          : 'trip';
+
+    const notificationTitle = 'Payment Received';
+    const notificationMessage = `You've received a payment of ${paymentCurrency} ${travelerPrice.toFixed(2)} for your ${typeLabel}. The funds are on hold until delivery is confirmed.`;
+    const notificationData = {
+      type: 'payment_received',
+      amount: travelerPrice,
+      currency: paymentCurrency,
+      ...dataContext,
+    };
+
+    try {
+      await this.notificationService.createNotification(
+        {
+          user_id: travelerId,
+          title: notificationTitle,
+          message: notificationMessage,
+          type: NotificationType.REQUEST,
+          data: notificationData,
+        },
+        travelerLang,
+      );
+
+      await this.notificationService.sendPushNotificationToUser(
+        travelerId,
+        notificationTitle,
+        notificationMessage,
+        notificationData,
+        travelerLang,
+      );
+
+      if (payerDeviceId) {
+        try {
+          const payer = await this.prisma.user.findUnique({
+            where: { id: payerId },
+            select: { lang: true, push_notification: true },
+          });
+          if (payer?.push_notification) {
+            const payerLang = payer?.lang || 'en';
+            const payerTitle = await this.i18n.translate(
+              'translation.notification.payment.success.title',
+              { lang: payerLang, defaultValue: 'Payment Successful' },
+            );
+            const payerMessage = await this.i18n.translate(
+              'translation.notification.payment.success.message',
+              {
+                lang: payerLang,
+                defaultValue: 'Your payment has been successfully processed',
+              },
+            );
+            await this.notificationService.sendPushNotification(
+              {
+                deviceId: payerDeviceId,
+                title: payerTitle,
+                body: payerMessage,
+                data: {
+                  type: 'payment_success',
+                  amount: totalPaid,
+                  currency: paymentCurrency,
+                  ...dataContext,
+                },
+              },
+              payerLang,
+            );
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Failed to send payment success push to payer: ${error.message}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to create/send payment notification: ${error.message}`,
+      );
     }
   }
 
@@ -1308,117 +1686,127 @@ export class PaymentService {
   }
 
   /**
-   * Handle refund webhook from Stripe
+   * Handle refund webhook from Stripe.
+   * Resolves across TripRequest, Offer, ShippingOffer.
    */
   async handleRefund(refund: any): Promise<void> {
     try {
       this.logger.log(`Handling refund: ${refund.id}`);
 
-      // Find the related order by payment intent
+      const refundCurrency = refund.currency?.toUpperCase?.() || 'EUR';
+      const refundAmount = refund.amount / 100;
+      const paymentIntentId = refund.payment_intent;
+
+      // Try TripRequest first
       const order = await this.prisma.tripRequest.findFirst({
-        where: { payment_intent_id: refund.payment_intent },
-        include: {
-          trip: {
-            include: {
-              user: true, // Traveler
-            },
-          },
-          user: true, // Sender
-        },
+        where: { payment_intent_id: paymentIntentId },
+        include: { trip: { include: { user: true } }, user: true },
       });
 
-      if (!order) {
-        this.logger.warn(`Order not found for refund ${refund.id}`);
+      if (order) {
+        await this.recordRefundTransaction(
+          order.user_id,
+          refundCurrency,
+          refundAmount,
+          `Refund for order ${order.id}`,
+        );
+
+        await this.prisma.tripRequest.update({
+          where: { id: order.id },
+          data: { payment_status: PaymentStatus.REFUNDED },
+        });
+
+        this.logger.log(`Refund processed for trip order ${order.id}`);
+        await this.sendRefundNotification(
+          order.user_id,
+          refundCurrency,
+          refundAmount,
+          { order_id: order.id, trip_id: order.trip_id },
+        );
         return;
       }
 
-      // Record refund transaction (for tracking purposes)
-      try {
-        const senderWallet = await this.prisma.wallet.findUnique({
-          where: { userId: order.user_id },
+      // Try Shopping Offer
+      const shoppingOffer = await this.prisma.offer.findFirst({
+        where: { payment_intent_id: paymentIntentId },
+        include: { shopping_request: { include: { user: true } } },
+      });
+
+      if (shoppingOffer) {
+        await this.recordRefundTransaction(
+          shoppingOffer.shopping_request.user_id,
+          refundCurrency,
+          refundAmount,
+          `Refund for shopping offer ${shoppingOffer.id}`,
+        );
+
+        await this.prisma.offer.update({
+          where: { id: shoppingOffer.id },
+          data: { payment_status: PaymentStatus.REFUNDED },
         });
 
-        if (senderWallet) {
-          const refundCurrency = refund.currency?.toUpperCase?.() || 'EUR';
-          const balanceAfter = this.getWalletCurrencyBalance(
-            senderWallet,
-            refundCurrency,
-          );
-          await this.prisma.transaction.create({
-            data: {
-              userId: order.user_id, // Sender
-              type: 'CREDIT',
-              amount_requested: refund.amount / 100, // Convert from cents
-              fee_applied: 0,
-              amount_paid: refund.amount / 100,
-              wallet_id: senderWallet.id,
-              currency: refundCurrency,
-              description: `Refund for order ${order.id}`,
-              source: 'REFUND',
-              balance_after: balanceAfter, // No change to wallet balance
-              provider: 'STRIPE',
-            },
-          });
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Could not record refund transaction: ${error.message}`,
+        await this.prisma.shoppingRequest.update({
+          where: { id: shoppingOffer.shopping_request_id },
+          data: { status: 'OFFER_ACCEPTED' },
+        });
+
+        this.logger.log(
+          `Refund processed for shopping offer ${shoppingOffer.id}`,
         );
-        // Continue without failing the refund
-      }
-
-      this.logger.log(`Refund processed for order ${order.id}`);
-
-      // Get sender's language preference and device_id
-      const sender = await this.prisma.user.findUnique({
-        where: { id: order.user_id },
-        select: { lang: true, device_id: true },
-      });
-      const senderLang = sender?.lang || 'en';
-
-      // Notification data
-      const refundCurrency = refund.currency?.toUpperCase?.() || 'EUR';
-      const refundAmount = refund.amount / 100; // Convert from cents
-      const refundTitle = 'Refund Processed';
-      const refundMessage = `Your refund of ${refundCurrency} ${refundAmount.toFixed(2)} has been processed and will be returned to your payment method.`;
-      const refundData = {
-        type: 'refund_processed',
-        order_id: order.id,
-        trip_id: order.trip_id,
-        amount: refundAmount,
-        currency: refundCurrency,
-      };
-
-      // Create in-app notification and send push notification to sender about refund
-      try {
-        // Create in-app notification (always)
-        await this.notificationService.createNotification(
+        await this.sendRefundNotification(
+          shoppingOffer.shopping_request.user_id,
+          refundCurrency,
+          refundAmount,
           {
-            user_id: order.user_id, // sender
-            title: refundTitle,
-            message: refundMessage,
-            type: NotificationType.REQUEST,
-            trip_id: order.trip_id,
-            request_id: order.id,
-            data: refundData,
+            offer_id: shoppingOffer.id,
+            shopping_request_id: shoppingOffer.shopping_request_id,
           },
-          senderLang,
+        );
+        return;
+      }
+
+      // Try Shipping Offer
+      const shippingOffer = await this.prisma.shippingOffer.findFirst({
+        where: { payment_intent_id: paymentIntentId },
+        include: { shipping_request: { include: { user: true } } },
+      });
+
+      if (shippingOffer) {
+        await this.recordRefundTransaction(
+          shippingOffer.shipping_request.user_id,
+          refundCurrency,
+          refundAmount,
+          `Refund for shipping offer ${shippingOffer.id}`,
         );
 
-        // Send push notification (sendPushNotificationToUser handles NULL device_id gracefully)
-        await this.notificationService.sendPushNotificationToUser(
-          order.user_id, // sender
-          refundTitle,
-          refundMessage,
-          refundData,
-          senderLang,
+        await this.prisma.shippingOffer.update({
+          where: { id: shippingOffer.id },
+          data: { payment_status: PaymentStatus.REFUNDED },
+        });
+
+        await this.prisma.shippingRequest.update({
+          where: { id: shippingOffer.shipping_request_id },
+          data: { status: 'OFFER_ACCEPTED' },
+        });
+
+        this.logger.log(
+          `Refund processed for shipping offer ${shippingOffer.id}`,
         );
-      } catch (error) {
-        this.logger.warn(
-          `Failed to create/send refund notification: ${error.message}`,
+        await this.sendRefundNotification(
+          shippingOffer.shipping_request.user_id,
+          refundCurrency,
+          refundAmount,
+          {
+            shipping_offer_id: shippingOffer.id,
+            shipping_request_id: shippingOffer.shipping_request_id,
+          },
         );
-        // Don't fail the operation if notification fails
+        return;
       }
+
+      this.logger.warn(
+        `No order found for refund ${refund.id} (payment_intent: ${paymentIntentId})`,
+      );
     } catch (error) {
       this.logger.error(`Failed to handle refund: ${error.message}`);
       throw error;
@@ -1426,7 +1814,8 @@ export class PaymentService {
   }
 
   /**
-   * Handle PaymentIntent cancellation webhook
+   * Handle PaymentIntent cancellation webhook.
+   * Resolves across TripRequest, Offer, ShippingOffer.
    */
   async handlePaymentCancellation(paymentIntentId: string): Promise<void> {
     try {
@@ -1434,77 +1823,204 @@ export class PaymentService {
         `Handling PaymentIntent cancellation: ${paymentIntentId}`,
       );
 
-      // Find the related order
+      // Try TripRequest
       const order = await this.prisma.tripRequest.findFirst({
         where: { payment_intent_id: paymentIntentId },
-        include: {
-          trip: {
-            include: {
-              user: true, // Traveler
-            },
-          },
-          user: true, // Sender
-        },
+        include: { trip: { include: { user: true } }, user: true },
       });
 
-      if (!order) {
-        this.logger.warn(
-          `Order not found for canceled PaymentIntent ${paymentIntentId}`,
+      if (order) {
+        await this.prisma.tripRequest.update({
+          where: { id: order.id },
+          data: {
+            payment_status: PaymentStatus.FAILED,
+            status: 'CANCELLED',
+            cancelled_at: new Date(),
+          },
+        });
+        await this.recordCancellationTransaction(
+          order.user_id,
+          (order.currency || 'EUR').toUpperCase(),
+          Number(order.cost || 0),
+          `Payment cancelled for order ${order.id}`,
+        );
+        this.logger.log(`Payment cancellation processed for order ${order.id}`);
+        return;
+      }
+
+      // Try Shopping Offer
+      const shoppingOffer = await this.prisma.offer.findFirst({
+        where: { payment_intent_id: paymentIntentId },
+        include: { shopping_request: true },
+      });
+
+      if (shoppingOffer) {
+        await this.prisma.offer.update({
+          where: { id: shoppingOffer.id },
+          data: { payment_status: PaymentStatus.FAILED },
+        });
+        await this.prisma.shoppingRequest.update({
+          where: { id: shoppingOffer.shopping_request_id },
+          data: { status: 'OFFER_ACCEPTED' },
+        });
+        this.logger.log(
+          `Payment cancellation processed for shopping offer ${shoppingOffer.id}`,
         );
         return;
       }
 
-      // Update order status to cancelled
-      await this.prisma.tripRequest.update({
-        where: { id: order.id },
-        data: {
-          payment_status: PaymentStatus.FAILED,
-          status: 'CANCELLED',
-          cancelled_at: new Date(),
-        },
+      // Try Shipping Offer
+      const shippingOffer = await this.prisma.shippingOffer.findFirst({
+        where: { payment_intent_id: paymentIntentId },
+        include: { shipping_request: true },
       });
 
-      // Record cancellation transaction (for tracking purposes)
-      try {
-        const senderWallet = await this.prisma.wallet.findUnique({
-          where: { userId: order.user_id },
+      if (shippingOffer) {
+        await this.prisma.shippingOffer.update({
+          where: { id: shippingOffer.id },
+          data: { payment_status: PaymentStatus.FAILED },
         });
-
-        if (senderWallet) {
-          const cancelCurrency = (order.currency || 'EUR').toUpperCase();
-          const balanceAfter = this.getWalletCurrencyBalance(
-            senderWallet,
-            cancelCurrency,
-          );
-          await this.prisma.transaction.create({
-            data: {
-              userId: order.user_id, // Sender
-              type: 'CREDIT',
-              amount_requested: Number(order.cost || 0),
-              fee_applied: 0,
-              amount_paid: Number(order.cost || 0),
-              wallet_id: senderWallet.id,
-              currency: cancelCurrency,
-              description: `Payment cancelled for order ${order.id}`,
-              source: 'PAYMENT_CANCELLATION',
-              balance_after: balanceAfter, // No change to wallet balance
-              provider: 'STRIPE',
-            },
-          });
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Could not record cancellation transaction: ${error.message}`,
+        await this.prisma.shippingRequest.update({
+          where: { id: shippingOffer.shipping_request_id },
+          data: { status: 'OFFER_ACCEPTED' },
+        });
+        this.logger.log(
+          `Payment cancellation processed for shipping offer ${shippingOffer.id}`,
         );
-        // Continue without failing the cancellation
+        return;
       }
 
-      this.logger.log(`Payment cancellation processed for order ${order.id}`);
+      this.logger.warn(
+        `Order not found for canceled PaymentIntent ${paymentIntentId}`,
+      );
     } catch (error) {
       this.logger.error(
         `Failed to handle payment cancellation: ${error.message}`,
       );
       throw error;
+    }
+  }
+
+  /**
+   * Trigger a refund for a paid shopping or shipping offer (called from offer services).
+   */
+  async refundOfferPayment(paymentIntentId: string): Promise<void> {
+    const paymentIntent =
+      await this.stripeService.getPaymentIntent(paymentIntentId);
+    const amount = paymentIntent.amount / 100;
+    const result = await this.stripeService.processCancellationOrRefund(
+      paymentIntentId,
+      amount,
+    );
+    this.logger.log(
+      `Refund/cancel initiated for PaymentIntent ${paymentIntentId}: ${result.type}`,
+    );
+  }
+
+  private async recordRefundTransaction(
+    userId: string,
+    currency: string,
+    amount: number,
+    description: string,
+  ): Promise<void> {
+    try {
+      const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+      if (wallet) {
+        const balanceAfter = this.getWalletCurrencyBalance(wallet, currency);
+        await this.prisma.transaction.create({
+          data: {
+            userId,
+            type: 'CREDIT',
+            amount_requested: amount,
+            fee_applied: 0,
+            amount_paid: amount,
+            wallet_id: wallet.id,
+            currency,
+            description,
+            source: 'REFUND',
+            balance_after: balanceAfter,
+            provider: 'STRIPE',
+          },
+        });
+      }
+    } catch (error) {
+      this.logger.warn(`Could not record refund transaction: ${error.message}`);
+    }
+  }
+
+  private async recordCancellationTransaction(
+    userId: string,
+    currency: string,
+    amount: number,
+    description: string,
+  ): Promise<void> {
+    try {
+      const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+      if (wallet) {
+        const balanceAfter = this.getWalletCurrencyBalance(wallet, currency);
+        await this.prisma.transaction.create({
+          data: {
+            userId,
+            type: 'CREDIT',
+            amount_requested: amount,
+            fee_applied: 0,
+            amount_paid: amount,
+            wallet_id: wallet.id,
+            currency,
+            description,
+            source: 'PAYMENT_CANCELLATION',
+            balance_after: balanceAfter,
+            provider: 'STRIPE',
+          },
+        });
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not record cancellation transaction: ${error.message}`,
+      );
+    }
+  }
+
+  private async sendRefundNotification(
+    userId: string,
+    currency: string,
+    amount: number,
+    dataContext: Record<string, any>,
+  ): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { lang: true },
+      });
+      const lang = user?.lang || 'en';
+      const title = 'Refund Processed';
+      const message = `Your refund of ${currency} ${amount.toFixed(2)} has been processed and will be returned to your payment method.`;
+      const data = {
+        type: 'refund_processed',
+        amount,
+        currency,
+        ...dataContext,
+      };
+
+      await this.notificationService.createNotification(
+        {
+          user_id: userId,
+          title,
+          message,
+          type: NotificationType.REQUEST,
+          data,
+        },
+        lang,
+      );
+      await this.notificationService.sendPushNotificationToUser(
+        userId,
+        title,
+        message,
+        data,
+        lang,
+      );
+    } catch (error) {
+      this.logger.warn(`Failed to send refund notification: ${error.message}`);
     }
   }
 
@@ -1658,7 +2174,9 @@ export class PaymentService {
       // Calculate refund amount
       const requestCost = Number(request.cost);
       const refundAmount =
-        portion === 'full' ? requestCost : Math.round(requestCost * 0.5 * 100) / 100;
+        portion === 'full'
+          ? requestCost
+          : Math.round(requestCost * 0.5 * 100) / 100;
       const currency = request.currency;
 
       // Get or create wallet for destination user

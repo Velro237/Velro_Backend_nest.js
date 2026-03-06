@@ -19,6 +19,7 @@ import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { WithdrawOfferDto } from './dto/withdraw-offer.dto';
 import { GetUserShippingOffersQueryDto } from './dto/get-shipping-offers-query.dto';
+import { PaymentService } from '../payment/payment.service';
 
 @Injectable()
 export class ShippingOfferService {
@@ -31,6 +32,8 @@ export class ShippingOfferService {
     private readonly chatService: ChatService,
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
+    @Inject(forwardRef(() => PaymentService))
+    private readonly paymentService: PaymentService,
   ) {}
 
   async create(userId: string, dto: CreateShippingOfferDto, lang: string) {
@@ -696,6 +699,76 @@ export class ShippingOfferService {
       status: updated.status,
       chatId: updated.chat_id,
       rejectedAt: updated.rejected_at,
+      createdAt: updated.created_at,
+    };
+  }
+
+  async cancelByOwner(
+    offerId: string,
+    userId: string,
+    _dto: { reason?: string },
+  ) {
+    const offer = await this.prisma.shippingOffer.findUnique({
+      where: { id: offerId },
+      include: { shipping_request: true },
+    });
+
+    if (!offer) {
+      throw new NotFoundException({ code: 'OFFER_NOT_FOUND' });
+    }
+
+    if (offer.shipping_request.user_id !== userId) {
+      throw new ForbiddenException({ code: 'NOT_REQUEST_OWNER' });
+    }
+
+    if (offer.status !== 'ACCEPTED') {
+      throw new BadRequestException({
+        code: 'CANNOT_CANCEL_OFFER',
+        message: 'Only accepted offers can be cancelled by the request owner',
+      });
+    }
+
+    if (offer.payment_intent_id && offer.payment_status === 'SUCCEEDED') {
+      try {
+        await this.paymentService.refundOfferPayment(offer.payment_intent_id);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to refund shipping offer ${offerId}: ${(error as Error)?.message}`,
+        );
+        throw new BadRequestException({
+          code: 'REFUND_FAILED',
+          message:
+            'Cannot cancel offer: refund failed. Please try again or contact support.',
+        });
+      }
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.shippingOffer.update({
+        where: { id: offerId },
+        data: {
+          status: 'CANCELLED',
+          cancelled_at: new Date(),
+          payment_status: offer.payment_intent_id ? 'REFUNDED' : undefined,
+        },
+      });
+      await tx.shippingRequest.update({
+        where: { id: offer.shipping_request_id },
+        data: { status: 'PUBLISHED' },
+      });
+      return u;
+    });
+
+    return {
+      id: updated.id,
+      shippingRequestId: updated.shipping_request_id,
+      travelerId: updated.traveler_id,
+      rewardAmount: updated.reward_amount,
+      message: updated.message,
+      travelDate: updated.travel_date,
+      status: updated.status,
+      chatId: updated.chat_id,
+      cancelledAt: updated.cancelled_at,
       createdAt: updated.created_at,
     };
   }

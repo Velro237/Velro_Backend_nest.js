@@ -586,6 +586,8 @@ model Transaction {
   userId             String
   trip_id            String?
   request_id         String?
+  offer_id           String?
+  shipping_offer_id  String?
   type               TransactionType
   status             TransactionStatus   @default(PENDING)
   reference          String?             @unique
@@ -608,6 +610,8 @@ model Transaction {
   phone_number       String?
   provider_id        String?
   delivery           Delivery?
+  offer              Offer?              @relation(fields: [offer_id], references: [id], onDelete: Cascade)
+  shipping_offer     ShippingOffer?      @relation(fields: [shipping_offer_id], references: [id], onDelete: Cascade)
   request            TripRequest?        @relation(fields: [request_id], references: [id], onDelete: Cascade)
   trip               Trip?               @relation(fields: [trip_id], references: [id], onDelete: Cascade)
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -616,6 +620,8 @@ model Transaction {
   @@index([userId, createdAt])
   @@index([reference])
   @@index([stripe_transfer_id])
+  @@index([offer_id])
+  @@index([shipping_offer_id])
 }
 
 model Otp {
@@ -703,14 +709,19 @@ model ShippingOffer {
   rejected_at         DateTime?
   cancelled_at        DateTime?
   delivered_at        DateTime?
+  payment_intent_id   String?         @unique
+  payment_status      PaymentStatus?
+  paid_at             DateTime?
   chat                Chat?           @relation("ShippingOfferChat", fields: [chat_id], references: [id])
   shipping_request    ShippingRequest @relation(fields: [shipping_request_id], references: [id], onDelete: Cascade)
   traveler            User            @relation("ShippingOffers", fields: [traveler_id], references: [id], onDelete: Cascade)
+  transactions        Transaction[]
 
   @@index([shipping_request_id])
   @@index([traveler_id])
   @@index([status])
   @@index([chat_id])
+  @@index([payment_intent_id])
 }
 
 model Product {
@@ -796,16 +807,21 @@ model Offer {
   rejected_at         DateTime?
   cancelled_at        DateTime?
   chat_id             String?         @unique
+  payment_intent_id   String?         @unique
+  payment_status      PaymentStatus?
+  paid_at             DateTime?
   chat                Chat?           @relation("OfferChat", fields: [chat_id], references: [id])
   shopping_request    ShoppingRequest @relation(fields: [shopping_request_id], references: [id], onDelete: Cascade)
   traveler            User            @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
   purchase_proofs     PurchaseProof[]
+  transactions        Transaction[]
 
   @@index([shopping_request_id])
   @@index([traveler_id])
   @@index([status])
   @@index([request_version])
   @@index([chat_id])
+  @@index([payment_intent_id])
 }
 
 model DeliveryTracking {
@@ -1008,6 +1024,8 @@ enum TransactionSource {
   REFUND
   COMMISSION
   TRIP_EARNING
+  SHOPPING_EARNING
+  SHIPPING_EARNING
   FEE
   CANCELLATION_COMPENSATION
   VELRO_FEE
