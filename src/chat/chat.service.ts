@@ -4072,7 +4072,21 @@ export class ChatService {
       // Get chat information to check if it's a SUPPORT chat
       const chat = await this.prisma.chat.findUnique({
         where: { id: chatId },
-        select: { type: true },
+        select: {
+          type: true,
+          trip: {
+            select: {
+              departure: true,
+              destination: true,
+            },
+          },
+          request: {
+            select: {
+              id: true,
+              status: true,
+            },
+          },
+        },
       });
 
       // Get sender information for the notification
@@ -4088,6 +4102,20 @@ export class ChatService {
         chat?.type === 'SUPPORT' && sender.role === 'ADMIN'
           ? 'SUPPORT'
           : 'CHAT_MESSAGE';
+
+      const departureLocation =
+        (chat?.trip?.departure as any)?.city ||
+        (chat?.trip?.departure as any)?.country ||
+        null;
+      const destinationLocation =
+        (chat?.trip?.destination as any)?.city ||
+        (chat?.trip?.destination as any)?.country ||
+        null;
+      const routeText =
+        departureLocation && destinationLocation
+          ? `${departureLocation} -> ${destinationLocation}`
+          : null;
+      const chatUrl = this.notificationService.getAppUrl(`/chat/${chatId}`);
 
       // Send notifications to each other member
       for (const member of otherMembers) {
@@ -4172,11 +4200,57 @@ export class ChatService {
           }
 
           if (user.email_notification && user.email) {
+            const subtitle =
+              normalizedUserLang === 'fr'
+                ? 'Vous avez recu un nouveau message sur Velro.'
+                : 'You received a new message on Velro.';
+            const ctaLabel =
+              normalizedUserLang === 'fr' ? 'Ouvrir Velro' : 'Open Velro';
+            const contextItems = [
+              {
+                label:
+                  normalizedUserLang === 'fr' ? 'Identifiant du chat' : 'Chat ID',
+                value: chatId,
+              },
+            ];
+
+            if (routeText) {
+              contextItems.push({
+                label: normalizedUserLang === 'fr' ? 'Trajet' : 'Route',
+                value: routeText,
+              });
+            }
+
+            if (chat?.request?.id) {
+              contextItems.push({
+                label:
+                  normalizedUserLang === 'fr'
+                    ? 'Identifiant de la demande'
+                    : 'Request ID',
+                value: chat.request.id,
+              });
+
+              if (chat.request.status) {
+                contextItems.push({
+                  label: normalizedUserLang === 'fr' ? 'Statut' : 'Status',
+                  value: String(chat.request.status),
+                });
+              }
+            }
+
             await this.notificationService.sendEmail(
               {
                 to: user.email,
                 subject: notificationTitle,
                 text: notificationBody,
+                html: this.notificationService.buildVelroEmailTemplate({
+                  title: notificationTitle,
+                  subtitle,
+                  message: notificationBody,
+                  ctaLabel,
+                  ctaUrl: chatUrl,
+                  contextItems,
+                }),
               },
               normalizedUserLang,
             );

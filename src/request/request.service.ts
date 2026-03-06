@@ -2551,11 +2551,54 @@ export class RequestService {
 
       // Send email notification for status updates when enabled by caller
       if (sendEmail && recipient?.email_notification && recipient?.email) {
+        const requestUrl = requestId
+          ? this.notificationService.getAppUrl(`/requests/${requestId}`)
+          : this.notificationService.getAppUrl('/requests');
+        const subtitle =
+          normalizedRecipientLang === 'fr'
+            ? 'Le statut de votre demande a ete mis a jour.'
+            : 'Your request status has been updated.';
+        const ctaLabel =
+          normalizedRecipientLang === 'fr' ? 'Ouvrir Velro' : 'Open Velro';
+        const contextItems: Array<{ label: string; value: string }> = [];
+
+        if (requestId) {
+          contextItems.push({
+            label:
+              normalizedRecipientLang === 'fr'
+                ? 'Identifiant de la demande'
+                : 'Request ID',
+            value: requestId,
+          });
+        }
+
+        if (tripId) {
+          contextItems.push({
+            label: normalizedRecipientLang === 'fr' ? 'Identifiant du voyage' : 'Trip ID',
+            value: String(tripId),
+          });
+        }
+
+        if (requestData?.status) {
+          contextItems.push({
+            label: normalizedRecipientLang === 'fr' ? 'Statut' : 'Status',
+            value: String(requestData.status),
+          });
+        }
+
         await this.notificationService.sendEmail(
           {
             to: recipient.email,
             subject: title,
             text: message,
+            html: this.notificationService.buildVelroEmailTemplate({
+              title,
+              subtitle,
+              message,
+              ctaLabel,
+              ctaUrl: requestUrl,
+              contextItems,
+            }),
           },
           normalizedRecipientLang,
         );

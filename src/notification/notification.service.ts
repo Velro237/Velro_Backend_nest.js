@@ -39,6 +39,20 @@ import { EmailQueue } from './queues/email.queue';
 import { User } from 'generated/prisma';
 import { ForbiddenException } from '@nestjs/common';
 
+interface VelroEmailContextItem {
+  label: string;
+  value: string;
+}
+
+interface VelroEmailTemplateParams {
+  title: string;
+  subtitle: string;
+  message: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  contextItems?: VelroEmailContextItem[];
+}
+
 @Injectable()
 export class NotificationService {
   private expo = new Expo();
@@ -61,6 +75,74 @@ export class NotificationService {
     const normalized = lang.toLowerCase().trim();
     // Only allow 'en' or 'fr', default to 'en' if invalid
     return normalized === 'fr' ? 'fr' : 'en';
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  public getAppUrl(path?: string): string {
+    const base = (
+      this.configService.get<string>('APP_URL') || 'https://velro.app'
+    ).replace(/\/+$/, '');
+    if (!path) return base;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${base}${normalizedPath}`;
+  }
+
+  public buildVelroEmailTemplate(params: VelroEmailTemplateParams): string {
+    const safeTitle = this.escapeHtml(params.title);
+    const safeSubtitle = this.escapeHtml(params.subtitle);
+    const safeMessage = this.escapeHtml(params.message).replace(
+      /\r?\n/g,
+      '<br/>',
+    );
+    const safeCtaLabel = this.escapeHtml(params.ctaLabel);
+    const safeCtaUrl = this.escapeHtml(params.ctaUrl);
+
+    const contextSection =
+      params.contextItems && params.contextItems.length > 0
+        ? `
+          <div style="margin: 18px 0 0 0; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; background: #fafafa;">
+            ${params.contextItems
+              .map(
+                (item) => `
+              <p style="margin: 0 0 8px 0; font-size: 13px; color: #334155;">
+                <strong>${this.escapeHtml(item.label)}:</strong> ${this.escapeHtml(item.value)}
+              </p>
+            `,
+              )
+              .join('')}
+          </div>
+        `
+        : '';
+
+    return `
+      <div style="background:#f3f4f6; padding: 24px; font-family: Arial, sans-serif;">
+        <div style="max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #e5e7eb;">
+          <div style="background:#0f172a; color:#ffffff; padding: 16px 20px;">
+            <h1 style="margin:0; font-size:20px; font-weight:700;">Velro</h1>
+          </div>
+          <div style="padding: 22px 20px;">
+            <h2 style="margin:0 0 8px 0; color:#111827; font-size:20px;">${safeTitle}</h2>
+            <p style="margin:0 0 14px 0; color:#475569; font-size:14px;">${safeSubtitle}</p>
+            <p style="margin:0; color:#1f2937; font-size:15px; line-height:1.55;">${safeMessage}</p>
+            ${contextSection}
+            <div style="margin-top: 20px;">
+              <a href="${safeCtaUrl}" style="display:inline-block; background:#0f172a; color:#ffffff; text-decoration:none; padding:10px 16px; border-radius:8px; font-size:14px; font-weight:600;">
+                ${safeCtaLabel}
+              </a>
+            </div>
+            <p style="margin:16px 0 0 0; color:#94a3b8; font-size:12px;">If the button doesn't work, open: ${safeCtaUrl}</p>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   async createNotification(
