@@ -323,9 +323,13 @@ export class OffersService {
     const stats =
       await this.shippingOfferService.getTravelersStats(travelerIds);
 
-    return {
+    const dataWithStats = this.shippingOfferService.applyStatsToData(
       data,
       stats,
+    );
+
+    return {
+      data: dataWithStats,
       meta: {
         total,
         page,
@@ -435,24 +439,7 @@ export class OffersService {
       throw new ForbiddenException({ code: 'NOT_AUTHORIZED_TO_VIEW_OFFER' });
     }
 
-    return {
-      id: offer.id,
-      shoppingRequestId: offer.shopping_request_id,
-      travelerId: offer.traveler_id,
-      traveler: offer.traveler,
-      requestVersion: offer.request_version,
-      rewardAmount: offer.reward_amount,
-      rewardCurrency: offer.reward_currency,
-      additionalFees: offer.additional_fees,
-      message: offer.message,
-      travelDate: offer.travel_date,
-      status: offer.status,
-      chatId: offer.chat_id, // Include chat ID for client
-      createdAt: offer.created_at,
-      acceptedAt: offer.accepted_at,
-      rejectedAt: offer.rejected_at,
-      cancelledAt: offer.cancelled_at,
-    };
+    return offer;
   }
 
   async getMyOffers(userId: string, query: GetUserShoppingOfferQueryDto) {
