@@ -7,6 +7,8 @@ import {
   FinancialSummaryForFeatureResponseDto,
   GetFinancialSummaryOfPaymentMethodsQueryDto,
   GetFinancialSummaryOfFeaturesQueryDto,
+  RecentFinancialActivityItemDto,
+  RecentFinancialActivityUserDto,
 } from './financial-summary.dto';
 
 export {
@@ -18,4 +20,6 @@ export {
   FinancialSummaryForFeatureResponseDto,
   GetFinancialSummaryOfPaymentMethodsQueryDto,
   GetFinancialSummaryOfFeaturesQueryDto,
+  RecentFinancialActivityItemDto,
+  RecentFinancialActivityUserDto,
 };

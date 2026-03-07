@@ -15,6 +15,7 @@ import {
   GetFinancialSummaryOfPaymentMethodsQueryDto,
 } from './dto';
 import { AdminGuard } from 'src/auth/guards/admin.guard';
+import { RecentFinancialActivityItemDto } from './dto/financial-summary.dto';
 
 @Controller('financial')
 @ApiTags('Dashboard - Financial')
@@ -70,5 +71,20 @@ export class FinancialController {
     @Query() query: GetFinancialSummaryOfFeaturesQueryDto,
   ): Promise<FinancialSummaryForFeatureResponseDto> {
     return this.financialService.getFinancialSummaryOfFeatures(query);
+  }
+
+  @Get('recent-activities')
+  @ApiOperation({
+    summary: 'Get recent financial activities',
+    description:
+      'Get recent financial activities. Returns an array of aggregated data. To be placed in the 4th row, 1st card.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Recent financial activities retrieved successfully',
+    type: [RecentFinancialActivityItemDto],
+  })
+  getRecentFinancialActivities(): Promise<RecentFinancialActivityItemDto[]> {
+    return this.financialService.getRecentFinancialActivities();
   }
 }

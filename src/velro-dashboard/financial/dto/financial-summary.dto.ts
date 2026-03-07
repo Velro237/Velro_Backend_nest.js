@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsEnum, IsNumber, IsOptional, Max, Min } from 'class-validator';
-import { Currency } from 'generated/prisma';
+import { Currency, TransactionType } from 'generated/prisma';
+import { Decimal } from 'generated/prisma/runtime/library';
 
 export class FinancialSummaryItemDto {
   @ApiProperty()
@@ -85,3 +86,41 @@ export class GetFinancialSummaryOfPaymentMethodsQueryDto {
 }
 
 export class GetFinancialSummaryOfFeaturesQueryDto extends GetFinancialSummaryOfPaymentMethodsQueryDto {}
+
+export class RecentFinancialActivityUserDto {
+  @ApiProperty()
+  id: string;
+  @ApiProperty()
+  name: string;
+  @ApiProperty()
+  email: string;
+  @ApiProperty()
+  picture: string;
+  @ApiProperty()
+  firstName: string;
+  @ApiProperty()
+  lastName: string;
+}
+
+export class RecentFinancialActivityItemDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  user: RecentFinancialActivityUserDto;
+
+  @ApiProperty()
+  type: TransactionType;
+
+  @ApiProperty()
+  amount_requested: Decimal;
+
+  @ApiProperty()
+  amount_paid: Decimal;
+
+  @ApiProperty({ enum: Currency })
+  currency: Currency;
+
+  @ApiProperty({ type: Date })
+  createdAt: Date;
+}

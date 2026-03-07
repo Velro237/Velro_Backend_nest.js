@@ -12,6 +12,7 @@ import {
   FinancialSummaryOfPaymentMethodItemDto,
   GetFinancialSummaryOfFeaturesQueryDto,
   GetFinancialSummaryOfPaymentMethodsQueryDto,
+  RecentFinancialActivityItemDto,
 } from './dto/financial-summary.dto';
 
 const METRICS = [
@@ -157,6 +158,38 @@ export class FinancialService {
       orange: toItem('orange'),
       paypal: toItem('paypal'),
     };
+  }
+
+  async getRecentFinancialActivities(): Promise<
+    RecentFinancialActivityItemDto[]
+  > {
+    const activities = await this.prisma.transaction.findMany({
+      select: {
+        id: true,
+        type: true,
+        amount_requested: true,
+        amount_paid: true,
+        currency: true,
+        createdAt: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            picture: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    return activities.map((item) => ({
+      ...item,
+      currency: item.currency as Currency,
+    }));
   }
 
   private dayRange(days: number): { startKey: string; endKey: string } {
