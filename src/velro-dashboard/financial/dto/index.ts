@@ -9,6 +9,7 @@ import {
   GetFinancialSummaryOfFeaturesQueryDto,
   RecentFinancialActivityItemDto,
   RecentFinancialActivityUserDto,
+  GetTransactionDetailsQueryDto,
 } from './financial-summary.dto';
 
 export {
@@ -22,4 +23,5 @@ export {
   GetFinancialSummaryOfFeaturesQueryDto,
   RecentFinancialActivityItemDto,
   RecentFinancialActivityUserDto,
+  GetTransactionDetailsQueryDto,
 };

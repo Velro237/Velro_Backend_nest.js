@@ -161,12 +161,7 @@ export class PaymentController {
     @Body() cashoutDto: MobilemoneyCashoutDto,
     @I18nLang() lang: string,
   ): Promise<MobilemoneyCashoutResponseDto> {
-    return this.mobilemoneyService.makeWithdrawal(
-      user.id,
-      cashoutDto.requestId,
-      cashoutDto.withdrawalNumberId,
-      lang,
-    );
+    return this.mobilemoneyService.makeWithdrawal(user.id, cashoutDto, lang);
   }
 
   @Post('mobilemoney/deposit')

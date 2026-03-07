@@ -1031,6 +1031,8 @@ enum TransactionSource {
   VELRO_FEE
   PAYMENT_CANCELLATION
   TRIP_PAYMENT
+  SHOPPING_PAYMENT
+  SHIPPING_PAYMENT
 }
 
 enum TransactionStatus {

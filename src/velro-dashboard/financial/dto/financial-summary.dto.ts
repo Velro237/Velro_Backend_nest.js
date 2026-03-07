@@ -1,8 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsNumber, IsOptional, Max, Min } from 'class-validator';
-import { Currency, TransactionType } from 'generated/prisma';
+import {
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import { Currency, TransactionStatus, TransactionType } from 'generated/prisma';
 import { Decimal } from 'generated/prisma/runtime/library';
+import { PaginationQueryDto } from 'src/wallet/dto/wallet.dto';
 
 export class FinancialSummaryItemDto {
   @ApiProperty()
@@ -132,4 +140,23 @@ export class QuickActionStatsResponseDto {
   onHold: number;
   @ApiProperty()
   disputes: number;
+}
+
+export class GetTransactionDetailsQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  search: string;
+  @ApiPropertyOptional({ enum: TransactionType })
+  @IsEnum(TransactionType)
+  @IsOptional()
+  type: TransactionType;
+  @ApiPropertyOptional({ enum: TransactionStatus })
+  @IsEnum(TransactionStatus)
+  @IsOptional()
+  status: TransactionStatus;
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  service: string; // TODO: Allow per-service transactions, currently no-ops
 }

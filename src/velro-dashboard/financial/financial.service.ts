@@ -9,6 +9,7 @@ import {
   Currency,
   FinancialSummaryRollup,
   PaymentStatus,
+  Prisma,
   TransactionStatus,
 } from 'generated/prisma/client';
 import {
@@ -17,6 +18,7 @@ import {
   FinancialSummaryOfPaymentMethodItemDto,
   GetFinancialSummaryOfFeaturesQueryDto,
   GetFinancialSummaryOfPaymentMethodsQueryDto,
+  GetTransactionDetailsQueryDto,
   QuickActionStatsResponseDto,
   RecentFinancialActivityItemDto,
 } from './dto/financial-summary.dto';
@@ -227,6 +229,72 @@ export class FinancialService {
       pending,
       onHold,
       disputes: shoppingOfferDisputes + shippingOfferDisputes + tripDisputes,
+    };
+  }
+
+  async getTransactionDetails(query: GetTransactionDetailsQueryDto) {
+    const { page, limit, search, type, status } = query;
+    const skip = (page - 1) * limit;
+    const where: Prisma.TransactionWhereInput = {};
+    if (search) {
+      where.OR = [
+        { reference: { contains: search, mode: 'insensitive' } },
+        { id: { contains: search, mode: 'insensitive' } },
+        { user: { name: { contains: search, mode: 'insensitive' } } },
+        {
+          wallet: { user: { name: { contains: search, mode: 'insensitive' } } },
+        },
+      ];
+    }
+
+    if (type) {
+      where.type = type;
+    }
+    if (status) {
+      where.status = status;
+    }
+    // if (service) {
+    //   where.service = service;
+    // }
+    const [data, total] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              picture: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          wallet: {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  picture: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
 

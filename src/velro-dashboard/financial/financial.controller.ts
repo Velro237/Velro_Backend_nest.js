@@ -16,6 +16,7 @@ import {
 } from './dto';
 import { AdminGuard } from 'src/auth/guards/admin.guard';
 import {
+  GetTransactionDetailsQueryDto,
   QuickActionStatsResponseDto,
   RecentFinancialActivityItemDto,
 } from './dto/financial-summary.dto';
@@ -104,5 +105,18 @@ export class FinancialController {
   })
   getQuickActionStats(): Promise<QuickActionStatsResponseDto> {
     return this.financialService.getQuickActionStats();
+  }
+
+  @Get('transaction')
+  @ApiOperation({
+    summary: 'Get transaction details',
+    description: 'Get transaction details.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Transaction details retrieved successfully',
+  })
+  getTransactionDetails(@Query() query: GetTransactionDetailsQueryDto) {
+    return this.financialService.getTransactionDetails(query);
   }
 }
