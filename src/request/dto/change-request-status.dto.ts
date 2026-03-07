@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsUUID } from 'class-validator';
 import { RequestStatus } from 'generated/prisma';
+import { Transform } from 'class-transformer';
 
 export class ChangeRequestStatusDto {
   @ApiProperty({
@@ -14,6 +15,23 @@ export class ChangeRequestStatusDto {
     description: 'New status for the request',
     enum: RequestStatus,
     example: RequestStatus.ACCEPTED,
+  })
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+
+    const normalized = value.trim().toUpperCase();
+    const aliases: Record<string, RequestStatus> = {
+      ACCEPT: RequestStatus.ACCEPTED,
+      APPROVE: RequestStatus.ACCEPTED,
+      APPROVED: RequestStatus.ACCEPTED,
+      REJECT: RequestStatus.DECLINED,
+      REJECTED: RequestStatus.DECLINED,
+      DECLINE: RequestStatus.DECLINED,
+      CONFIRM: RequestStatus.CONFIRMED,
+      SHIPPED: RequestStatus.SENT,
+    };
+
+    return aliases[normalized] || normalized;
   })
   @IsEnum(RequestStatus)
   status: RequestStatus;
