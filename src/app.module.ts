@@ -32,6 +32,8 @@ import { OffersModule } from './offers/offers.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import * as path from 'path';
 import { PurchaseProofModule } from './purchase-proof/purchase-proof.module';
+import { VelroDashboardModule } from './velro-dashboard/velro-dashboard.module';
+import { RouterModule } from '@nestjs/core';
 
 @Module({
   imports: [
@@ -74,6 +76,13 @@ import { PurchaseProofModule } from './purchase-proof/purchase-proof.module';
     ShoppingRequestModule,
     OffersModule,
     PurchaseProofModule,
+    VelroDashboardModule,
+    RouterModule.register([
+      {
+        path: 'dashboard',
+        module: VelroDashboardModule,
+      },
+    ]),
   ],
   controllers: [],
   providers: [LoggerService],

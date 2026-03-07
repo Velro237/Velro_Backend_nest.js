@@ -3,6 +3,8 @@ import {
   Injectable,
   Logger,
   InternalServerErrorException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -11,8 +13,12 @@ import { I18nService } from 'nestjs-i18n';
 import { RequestService } from '../../request/request.service';
 import { CurrencyService } from '../../currency/currency.service';
 import { Currency, TransactionStatus } from 'generated/prisma';
+import { PaymentService } from '../payment.service';
 import { NotificationService } from '../../notification/notification.service';
-import { MobilemoneyCashoutResponseDto } from '../dto/mobilemoney-cashout.dto';
+import {
+  MobilemoneyCashoutDto,
+  MobilemoneyCashoutResponseDto,
+} from '../dto/mobilemoney-cashout.dto';
 import { MobilemoneyDepositResponseDto } from '../dto/mobilemoney-deposit.dto';
 import { MoalaBalanceResponseDto } from '../dto/moala-balance.dto';
 import axios, { AxiosInstance } from 'axios';
@@ -41,6 +47,8 @@ export class MobilemoneyService {
     private readonly requestService: RequestService,
     private readonly currencyService: CurrencyService,
     private readonly notificationService: NotificationService,
+    @Inject(forwardRef(() => PaymentService))
+    private readonly paymentService: PaymentService,
   ) {
     this.baseUri = this.configService.get<string>('MOALA_URL');
     this.appKey = this.configService.get<string>('MOALA_API_KEY');
@@ -323,31 +331,45 @@ export class MobilemoneyService {
   }
 
   /**
-   * Make withdrawal - High-level method with validation
+   * Make withdrawal - High-level method with validation.
+   * Supports trip, shopping_offer, and shipping_offer order types.
    */
   async makeWithdrawal(
     userId: string,
-    requestId: string,
-    withdrawalNumberId: string,
+    dto: MobilemoneyCashoutDto,
     lang: string = 'en',
+  ): Promise<MobilemoneyCashoutResponseDto> {
+    const orderType = dto.orderType || 'trip';
+
+    if (orderType === 'shopping_offer') {
+      return this.makeWithdrawalForShoppingOffer(userId, dto, lang);
+    }
+    if (orderType === 'shipping_offer') {
+      return this.makeWithdrawalForShippingOffer(userId, dto, lang);
+    }
+
+    return this.makeWithdrawalForTrip(userId, dto, lang);
+  }
+
+  private async makeWithdrawalForTrip(
+    userId: string,
+    dto: MobilemoneyCashoutDto,
+    lang: string,
   ): Promise<MobilemoneyCashoutResponseDto> {
     try {
       this.validateConfiguration(lang);
+      const requestId = dto.requestId!;
+      const withdrawalNumberId = dto.withdrawalNumberId;
 
-      // Get trip request with cost
       const request = await this.prisma.tripRequest.findUnique({
         where: { id: requestId },
-        include: {
-          trip: true,
-          user: true,
-        },
+        include: { trip: true, user: true },
       });
 
       if (!request) {
         throw new BadRequestException('Trip request not found');
       }
 
-      // Check if request status is ACCEPTED
       if (request.status !== 'ACCEPTED') {
         const message = await this.i18n.translate(
           'translation.payment.mobilemoney.requestNotAccepted',
@@ -360,7 +382,6 @@ export class MobilemoneyService {
         throw new BadRequestException(message);
       }
 
-      // Check if the user making withdrawal is the request owner
       if (request.user_id !== userId) {
         const message = await this.i18n.translate(
           'translation.payment.mobilemoney.unauthorizedWithdrawal',
@@ -376,83 +397,11 @@ export class MobilemoneyService {
         throw new BadRequestException('Request cost not found');
       }
 
-      // Use request cost as amount
       const amount = Number(request.cost);
 
-      // Get user and wallet
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        include: { wallet: true },
-      });
+      const { user, withdrawalNumber, carrier, serviceCode } =
+        await this.resolveWithdrawalContext(userId, withdrawalNumberId, lang);
 
-      if (!user) {
-        throw new BadRequestException('User not found');
-      }
-
-      if (!user.wallet) {
-        throw new BadRequestException('User wallet not found');
-      }
-
-      // Check wallet state
-      // if (user.wallet.state === 'BLOCKED') {
-      //   throw new BadRequestException(
-      //     'Wallet is blocked. Cannot process withdrawal.',
-      //   );
-      // }
-
-      // Get withdrawal number
-      const withdrawalNumber = await this.prisma.withdrawalNumber.findUnique({
-        where: { id: withdrawalNumberId },
-      });
-
-      if (!withdrawalNumber) {
-        const message = await this.i18n.translate(
-          'translation.payment.mobilemoney.withdrawalNumberNotFound',
-          {
-            lang,
-            defaultValue: 'Withdrawal number not found',
-          },
-        );
-        throw new BadRequestException(message);
-      }
-
-      // Check if user owns this withdrawal number
-      if (withdrawalNumber.user_id !== userId) {
-        const message = await this.i18n.translate(
-          'translation.payment.mobilemoney.unauthorizedWithdrawalNumber',
-          {
-            lang,
-            defaultValue:
-              'You do not have permission to use this withdrawal number',
-          },
-        );
-        throw new BadRequestException(message);
-      }
-
-      // Get carrier from withdrawal number
-      const carrier =
-        withdrawalNumber.carrier === 'MTN'
-          ? PaymentCarrier.MTN_CM
-          : PaymentCarrier.ORANGE_CM;
-
-      // Get service code for the carrier
-      const serviceCode = this.getServiceCode(
-        carrier,
-        PaymentAction.PAIEMENTMARCHAND,
-      );
-      console.log('serviceCode', serviceCode);
-      if (!serviceCode) {
-        const message = await this.i18n.translate(
-          'translation.payment.mobilemoney.unsupportedCarrier',
-          {
-            lang,
-            defaultValue: 'Carrier not supported for cashout',
-          },
-        );
-        throw new BadRequestException(message);
-      }
-
-      // Convert request cost to XAF using CurrencyService
       let amountInXAF = 0;
       try {
         const conv = this.currencyService.convertCurrency(
@@ -461,7 +410,7 @@ export class MobilemoneyService {
           'XAF',
         );
         amountInXAF = conv.convertedAmount;
-      } catch (convErr) {
+      } catch {
         const message = await this.i18n.translate(
           'translation.payment.mobilemoney.invalidCurrency',
           {
@@ -472,13 +421,8 @@ export class MobilemoneyService {
         throw new BadRequestException(message);
       }
 
-      const feePercent = this.configService.get<number>('VELRO_FEE_PERCENT', 0);
-      const fixedFee = this.configService.get<number>('FIXED_FEE_XAF', 0);
-      const feeApplied = (amountInXAF * feePercent) / 100;
-      const totalFee = +feeApplied + +fixedFee;
-      const amountPaid = +amountInXAF + +totalFee;
+      const { totalFee, amountPaid } = this.computeXafFees(amountInXAF);
 
-      // Execute cashout (generates unique partnerId internally)
       const result = await this.cashout(
         withdrawalNumber.number,
         serviceCode,
@@ -486,11 +430,10 @@ export class MobilemoneyService {
         lang,
       );
 
-      // Create transaction record
       const transaction = await this.prisma.transaction.create({
         data: {
-          userId: userId,
-          wallet_id: user.wallet.id,
+          userId,
+          wallet_id: user.wallet!.id,
           trip_id: request.trip_id,
           request_id: requestId,
           type: 'DEBIT',
@@ -502,7 +445,7 @@ export class MobilemoneyService {
           provider: carrier === PaymentCarrier.MTN_CM ? 'MTN' : 'ORANGE',
           reference: result.partnerId,
           phone_number: withdrawalNumber.number,
-          description: `Mobile Money withdrawal for request ${requestId} to ${withdrawalNumber.number} (${withdrawalNumber.name})`,
+          description: `Mobile Money payment for trip request ${requestId} to ${withdrawalNumber.number} (${withdrawalNumber.name})`,
           status: 'PENDING',
           metadata: {
             ...result,
@@ -513,42 +456,369 @@ export class MobilemoneyService {
         },
       });
 
-      const message = await this.i18n.translate(
-        'translation.payment.mobilemoney.withdrawalInitiated',
-        {
-          lang,
-          defaultValue: 'Withdrawal initiated successfully',
-        },
+      return this.buildCashoutResponse(
+        transaction,
+        withdrawalNumber,
+        carrier,
+        lang,
       );
-
-      return {
-        message,
-        transaction: {
-          transactionId: transaction.id,
-          amount: Number(transaction.amount_requested),
-          phoneNumber: withdrawalNumber.number,
-          carrier: String(carrier),
-          status: transaction.status,
-        },
-      };
     } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof InternalServerErrorException
-      ) {
-        throw error;
+      return this.handleWithdrawalError(error, lang);
+    }
+  }
+
+  private async makeWithdrawalForShoppingOffer(
+    userId: string,
+    dto: MobilemoneyCashoutDto,
+    lang: string,
+  ): Promise<MobilemoneyCashoutResponseDto> {
+    try {
+      this.validateConfiguration(lang);
+      const orderId = dto.orderId!;
+      const withdrawalNumberId = dto.withdrawalNumberId;
+
+      const offer = await this.prisma.offer.findUnique({
+        where: { id: orderId },
+        include: {
+          shopping_request: { include: { user: true } },
+          traveler: true,
+        },
+      });
+
+      if (!offer) {
+        throw new BadRequestException('Shopping offer not found');
       }
 
-      this.logger.error(`Withdrawal error: ${error.message}`, error.stack);
+      if (offer.shopping_request.user_id !== userId) {
+        throw new BadRequestException(
+          'You can only pay for your own shopping requests',
+        );
+      }
+
+      if (offer.status !== 'ACCEPTED') {
+        throw new BadRequestException('Only accepted offers can be paid');
+      }
+
+      if (offer.payment_status === 'SUCCEEDED') {
+        throw new BadRequestException('This offer has already been paid');
+      }
+
+      const productPrice = Number(offer.shopping_request.product_price || 0);
+      const additionalFees = Number(offer.additional_fees || 0);
+      const rewardAmount = Number(offer.reward_amount || 0);
+      const baseAmount = productPrice + additionalFees + rewardAmount;
+
+      if (baseAmount <= 0) {
+        throw new BadRequestException('Invalid offer amount');
+      }
+
+      const rewardCurrency = (offer.reward_currency || 'XAF').toUpperCase();
+
+      let amountInXAF = 0;
+      try {
+        const conv = this.currencyService.convertCurrency(
+          baseAmount,
+          rewardCurrency,
+          'XAF',
+        );
+        amountInXAF = conv.convertedAmount;
+      } catch {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.invalidCurrency',
+          {
+            lang,
+            defaultValue: `Invalid currency or exchange rate not configured for ${rewardCurrency}`,
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      const { totalFee, amountPaid } = this.computeXafFees(amountInXAF);
+      const { user, withdrawalNumber, carrier, serviceCode } =
+        await this.resolveWithdrawalContext(userId, withdrawalNumberId, lang);
+
+      const result = await this.cashout(
+        withdrawalNumber.number,
+        serviceCode,
+        amountPaid,
+        lang,
+      );
+
+      await this.prisma.offer.update({
+        where: { id: orderId },
+        data: { payment_status: 'PROCESSING' as any },
+      });
+
+      const transaction = await this.prisma.transaction.create({
+        data: {
+          userId,
+          wallet_id: user.wallet!.id,
+          offer_id: orderId,
+          type: 'DEBIT',
+          source: 'SHOPPING_PAYMENT',
+          amount_requested: amountInXAF,
+          fee_applied: totalFee,
+          amount_paid: amountPaid,
+          currency: 'XAF',
+          provider: carrier === PaymentCarrier.MTN_CM ? 'MTN' : 'ORANGE',
+          reference: result.partnerId,
+          phone_number: withdrawalNumber.number,
+          description: `Mobile Money payment for shopping offer ${orderId} to ${withdrawalNumber.number} (${withdrawalNumber.name})`,
+          status: 'PENDING',
+          metadata: {
+            ...result,
+            withdrawal_number_id: withdrawalNumberId,
+            withdrawal_number: withdrawalNumber.number,
+            orderType: 'shopping_offer',
+            offerId: orderId,
+            shoppingRequestId: offer.shopping_request_id,
+            travelerId: offer.traveler_id,
+            rewardCurrency,
+            baseAmount,
+          },
+          provider_id: result.partnerId,
+        },
+      });
+
+      return this.buildCashoutResponse(
+        transaction,
+        withdrawalNumber,
+        carrier,
+        lang,
+      );
+    } catch (error) {
+      return this.handleWithdrawalError(error, lang);
+    }
+  }
+
+  private async makeWithdrawalForShippingOffer(
+    userId: string,
+    dto: MobilemoneyCashoutDto,
+    lang: string,
+  ): Promise<MobilemoneyCashoutResponseDto> {
+    try {
+      this.validateConfiguration(lang);
+      const orderId = dto.orderId!;
+      const withdrawalNumberId = dto.withdrawalNumberId;
+
+      const offer = await this.prisma.shippingOffer.findUnique({
+        where: { id: orderId },
+        include: {
+          shipping_request: { include: { user: true } },
+          traveler: true,
+        },
+      });
+
+      if (!offer) {
+        throw new BadRequestException('Shipping offer not found');
+      }
+
+      if (offer.shipping_request.user_id !== userId) {
+        throw new BadRequestException(
+          'You can only pay for your own shipping requests',
+        );
+      }
+
+      if (offer.status !== 'ACCEPTED') {
+        throw new BadRequestException('Only accepted offers can be paid');
+      }
+
+      if (offer.payment_status === 'SUCCEEDED') {
+        throw new BadRequestException('This offer has already been paid');
+      }
+
+      const rewardAmount = Number(offer.reward_amount || 0);
+      if (rewardAmount <= 0) {
+        throw new BadRequestException('Invalid offer amount');
+      }
+
+      const rewardCurrency = (offer.reward_currency || 'XAF').toUpperCase();
+
+      let amountInXAF = 0;
+      try {
+        const conv = this.currencyService.convertCurrency(
+          rewardAmount,
+          rewardCurrency,
+          'XAF',
+        );
+        amountInXAF = conv.convertedAmount;
+      } catch {
+        const message = await this.i18n.translate(
+          'translation.payment.mobilemoney.invalidCurrency',
+          {
+            lang,
+            defaultValue: `Invalid currency or exchange rate not configured for ${rewardCurrency}`,
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
+      const { totalFee, amountPaid } = this.computeXafFees(amountInXAF);
+      const { user, withdrawalNumber, carrier, serviceCode } =
+        await this.resolveWithdrawalContext(userId, withdrawalNumberId, lang);
+
+      const result = await this.cashout(
+        withdrawalNumber.number,
+        serviceCode,
+        amountPaid,
+        lang,
+      );
+
+      await this.prisma.shippingOffer.update({
+        where: { id: orderId },
+        data: { payment_status: 'PROCESSING' as any },
+      });
+
+      const transaction = await this.prisma.transaction.create({
+        data: {
+          userId,
+          wallet_id: user.wallet!.id,
+          shipping_offer_id: orderId,
+          type: 'DEBIT',
+          source: 'SHIPPING_PAYMENT',
+          amount_requested: amountInXAF,
+          fee_applied: totalFee,
+          amount_paid: amountPaid,
+          currency: 'XAF',
+          provider: carrier === PaymentCarrier.MTN_CM ? 'MTN' : 'ORANGE',
+          reference: result.partnerId,
+          phone_number: withdrawalNumber.number,
+          description: `Mobile Money payment for shipping offer ${orderId} to ${withdrawalNumber.number} (${withdrawalNumber.name})`,
+          status: 'PENDING',
+          metadata: {
+            ...result,
+            withdrawal_number_id: withdrawalNumberId,
+            withdrawal_number: withdrawalNumber.number,
+            orderType: 'shipping_offer',
+            shippingOfferId: orderId,
+            shippingRequestId: offer.shipping_request_id,
+            travelerId: offer.traveler_id,
+            rewardCurrency,
+            rewardAmount,
+          },
+          provider_id: result.partnerId,
+        },
+      });
+
+      return this.buildCashoutResponse(
+        transaction,
+        withdrawalNumber,
+        carrier,
+        lang,
+      );
+    } catch (error) {
+      return this.handleWithdrawalError(error, lang);
+    }
+  }
+
+  /**
+   * Resolve withdrawal number, user wallet, carrier, and service code.
+   */
+  private async resolveWithdrawalContext(
+    userId: string,
+    withdrawalNumberId: string,
+    lang: string,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { wallet: true },
+    });
+
+    if (!user) throw new BadRequestException('User not found');
+    if (!user.wallet) throw new BadRequestException('User wallet not found');
+
+    const withdrawalNumber = await this.prisma.withdrawalNumber.findUnique({
+      where: { id: withdrawalNumberId },
+    });
+
+    if (!withdrawalNumber) {
       const message = await this.i18n.translate(
-        'translation.payment.mobilemoney.withdrawalFailed',
+        'translation.payment.mobilemoney.withdrawalNumberNotFound',
+        { lang, defaultValue: 'Withdrawal number not found' },
+      );
+      throw new BadRequestException(message);
+    }
+
+    if (withdrawalNumber.user_id !== userId) {
+      const message = await this.i18n.translate(
+        'translation.payment.mobilemoney.unauthorizedWithdrawalNumber',
         {
           lang,
-          defaultValue: 'Failed to initiate withdrawal',
+          defaultValue:
+            'You do not have permission to use this withdrawal number',
         },
       );
-      throw new InternalServerErrorException(message);
+      throw new BadRequestException(message);
     }
+
+    const carrier =
+      withdrawalNumber.carrier === 'MTN'
+        ? PaymentCarrier.MTN_CM
+        : PaymentCarrier.ORANGE_CM;
+
+    const serviceCode = this.getServiceCode(
+      carrier,
+      PaymentAction.PAIEMENTMARCHAND,
+    );
+    if (!serviceCode) {
+      const message = await this.i18n.translate(
+        'translation.payment.mobilemoney.unsupportedCarrier',
+        { lang, defaultValue: 'Carrier not supported for cashout' },
+      );
+      throw new BadRequestException(message);
+    }
+
+    return { user, withdrawalNumber, carrier, serviceCode };
+  }
+
+  private computeXafFees(amountInXAF: number) {
+    const feePercent = this.configService.get<number>('VELRO_FEE_PERCENT', 0);
+    const fixedFee = this.configService.get<number>('FIXED_FEE_XAF', 0);
+    const feeApplied = (amountInXAF * feePercent) / 100;
+    const totalFee = +feeApplied + +fixedFee;
+    const amountPaid = +amountInXAF + +totalFee;
+    return { totalFee, amountPaid };
+  }
+
+  private async buildCashoutResponse(
+    transaction: any,
+    withdrawalNumber: any,
+    carrier: PaymentCarrier,
+    lang: string,
+  ): Promise<MobilemoneyCashoutResponseDto> {
+    const message = await this.i18n.translate(
+      'translation.payment.mobilemoney.withdrawalInitiated',
+      { lang, defaultValue: 'Withdrawal initiated successfully' },
+    );
+    return {
+      message,
+      transaction: {
+        transactionId: transaction.id,
+        amount: Number(transaction.amount_requested),
+        phoneNumber: withdrawalNumber.number,
+        carrier: String(carrier),
+        status: transaction.status,
+      },
+    };
+  }
+
+  private async handleWithdrawalError(
+    error: any,
+    lang: string,
+  ): Promise<never> {
+    if (
+      error instanceof BadRequestException ||
+      error instanceof InternalServerErrorException
+    ) {
+      throw error;
+    }
+
+    this.logger.error(`Withdrawal error: ${error.message}`, error.stack);
+    const message = await this.i18n.translate(
+      'translation.payment.mobilemoney.withdrawalFailed',
+      { lang, defaultValue: 'Failed to initiate withdrawal' },
+    );
+    throw new InternalServerErrorException(message);
   }
 
   /**
@@ -900,7 +1170,7 @@ export class MobilemoneyService {
         callbackData,
       );
 
-      const { status, amount, partnerId, operatorId, serviceCode, message } =
+      const { status, partnerId, operatorId, serviceCode, message } =
         callbackData;
 
       // Find transaction by provider_id (partnerId)
@@ -920,6 +1190,8 @@ export class MobilemoneyService {
             },
           },
           request: true,
+          offer: true,
+          shipping_offer: true,
         },
       });
 
@@ -993,9 +1265,43 @@ export class MobilemoneyService {
         `Transaction ${transaction.id} status updated to: ${transactionStatus} (from callback status: ${status})`,
       );
 
-      // If payment is received, update request, status and credit the trip creator's wallet
+      // If payment is received, branch by order type
       if (transactionStatus === TransactionStatus.RECEIVED) {
-        // Attach transaction to request and mark payment as succeeded
+        // Shopping offer payment
+        if (transaction.offer_id) {
+          try {
+            await this.paymentService.handleMobileMoneyShoppingOfferPaymentSuccess(
+              transaction.id,
+            );
+            this.logger.log(
+              `Shopping offer payment processed via mobile money for transaction ${transaction.id}`,
+            );
+          } catch (offerErr) {
+            this.logger.error(
+              `Failed to process shopping offer payment: ${(offerErr as Error)?.message || offerErr}`,
+            );
+          }
+          return { success: true, message: 'Callback processed successfully' };
+        }
+
+        // Shipping offer payment
+        if (transaction.shipping_offer_id) {
+          try {
+            await this.paymentService.handleMobileMoneyShippingOfferPaymentSuccess(
+              transaction.id,
+            );
+            this.logger.log(
+              `Shipping offer payment processed via mobile money for transaction ${transaction.id}`,
+            );
+          } catch (offerErr) {
+            this.logger.error(
+              `Failed to process shipping offer payment: ${(offerErr as Error)?.message || offerErr}`,
+            );
+          }
+          return { success: true, message: 'Callback processed successfully' };
+        }
+
+        // Trip payment (existing logic)
         if (transaction.request_id) {
           try {
             await this.prisma.tripRequest.update({
@@ -1012,14 +1318,13 @@ export class MobilemoneyService {
           }
         }
 
-        // Update request status to CONFIRMED using the request service
         if (transaction.request_id) {
           try {
             await this.requestService.changeRequestStatus(
               transaction.request_id,
               'CONFIRMED',
-              transaction.userId, // Use the transaction user ID as the system user
-              'en', // Default language
+              transaction.userId,
+              'en',
               true,
             );
             this.logger.log(
@@ -1029,7 +1334,6 @@ export class MobilemoneyService {
             this.logger.error(
               `Failed to update request status: ${requestStatusError.message}`,
             );
-            // Continue with wallet crediting even if request status update fails
           }
         }
         const tripCreator = transaction.trip?.user;

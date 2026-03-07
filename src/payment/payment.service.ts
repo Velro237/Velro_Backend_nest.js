@@ -1113,7 +1113,213 @@ export class PaymentService {
     );
   }
 
-  private async creditTravelerWallet(
+  // ============================================
+  // Mobile Money offer payment success handlers
+  // ============================================
+
+  async handleMobileMoneyShoppingOfferPaymentSuccess(
+    transactionId: string,
+  ): Promise<void> {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        offer: {
+          include: {
+            shopping_request: { include: { user: true } },
+            traveler: true,
+          },
+        },
+      },
+    });
+
+    if (!transaction?.offer) {
+      this.logger.warn(
+        `Shopping offer not found for mobile money transaction: ${transactionId}`,
+      );
+      return;
+    }
+
+    const offer = transaction.offer;
+
+    if (offer.payment_status === PaymentStatus.SUCCEEDED) {
+      this.logger.log(
+        `Mobile money payment already processed for shopping offer ${offer.id}`,
+      );
+      return;
+    }
+
+    const rewardCurrency = (offer.reward_currency || 'XAF').toUpperCase();
+    const productPrice = Number(offer.shopping_request.product_price || 0);
+    const additionalFees = Number(offer.additional_fees || 0);
+    const rewardAmount = Number(offer.reward_amount || 0);
+    const baseAmount = productPrice + additionalFees + rewardAmount;
+
+    let travelerPrice: number;
+    let currency: string;
+    if (rewardCurrency === 'XAF') {
+      const conversion = this.currencyService.convertCurrency(
+        baseAmount,
+        'XAF',
+        'EUR',
+      );
+      travelerPrice = conversion.convertedAmount;
+      currency = 'EUR';
+    } else {
+      travelerPrice = baseAmount;
+      currency = rewardCurrency;
+    }
+
+    const totalPaid = Number(transaction.amount_paid);
+
+    await this.prisma.offer.update({
+      where: { id: offer.id },
+      data: {
+        payment_status: PaymentStatus.SUCCEEDED,
+        paid_at: new Date(),
+        payment_intent_id: transactionId,
+      },
+    });
+
+    await this.prisma.shoppingRequest.update({
+      where: { id: offer.shopping_request_id },
+      data: { status: 'PAID', paid_at: new Date() },
+    });
+
+    const provider = transaction.provider === 'MTN' ? 'MTN' : 'ORANGE';
+
+    await this.creditTravelerWallet(
+      offer.traveler_id,
+      travelerPrice,
+      currency,
+      transactionId,
+      {
+        source: 'SHOPPING_EARNING',
+        offer_id: offer.id,
+        description: `Earnings from shopping offer ${offer.id} (mobile money, pending delivery)`,
+        orderId: offer.id,
+        feeOverride: 0,
+        provider: provider as any,
+      },
+    );
+
+    this.logger.log(
+      `Mobile money shopping offer payment processed for offer ${offer.id}`,
+    );
+
+    await this.sendPaymentNotifications(
+      offer.traveler_id,
+      offer.shopping_request.user_id,
+      currency,
+      travelerPrice,
+      totalPaid,
+      { offer_id: offer.id, shopping_request_id: offer.shopping_request_id },
+      { metadata: transaction.metadata },
+      'shopping_offer',
+    );
+  }
+
+  async handleMobileMoneyShippingOfferPaymentSuccess(
+    transactionId: string,
+  ): Promise<void> {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        shipping_offer: {
+          include: {
+            shipping_request: { include: { user: true } },
+            traveler: true,
+          },
+        },
+      },
+    });
+
+    if (!transaction?.shipping_offer) {
+      this.logger.warn(
+        `Shipping offer not found for mobile money transaction: ${transactionId}`,
+      );
+      return;
+    }
+
+    const offer = transaction.shipping_offer;
+
+    if (offer.payment_status === PaymentStatus.SUCCEEDED) {
+      this.logger.log(
+        `Mobile money payment already processed for shipping offer ${offer.id}`,
+      );
+      return;
+    }
+
+    const rewardCurrency = (offer.reward_currency || 'XAF').toUpperCase();
+    const rewardAmount = Number(offer.reward_amount || 0);
+
+    let travelerPrice: number;
+    let currency: string;
+    if (rewardCurrency === 'XAF') {
+      const conversion = this.currencyService.convertCurrency(
+        rewardAmount,
+        'XAF',
+        'EUR',
+      );
+      travelerPrice = conversion.convertedAmount;
+      currency = 'EUR';
+    } else {
+      travelerPrice = rewardAmount;
+      currency = rewardCurrency;
+    }
+
+    const totalPaid = Number(transaction.amount_paid);
+
+    await this.prisma.shippingOffer.update({
+      where: { id: offer.id },
+      data: {
+        payment_status: PaymentStatus.SUCCEEDED,
+        paid_at: new Date(),
+        payment_intent_id: transactionId,
+      },
+    });
+
+    await this.prisma.shippingRequest.update({
+      where: { id: offer.shipping_request_id },
+      data: { status: 'BOOKED' },
+    });
+
+    const provider = transaction.provider === 'MTN' ? 'MTN' : 'ORANGE';
+
+    await this.creditTravelerWallet(
+      offer.traveler_id,
+      travelerPrice,
+      currency,
+      transactionId,
+      {
+        source: 'SHIPPING_EARNING',
+        shipping_offer_id: offer.id,
+        description: `Earnings from shipping offer ${offer.id} (mobile money, pending delivery)`,
+        orderId: offer.id,
+        feeOverride: 0,
+        provider: provider as any,
+      },
+    );
+
+    this.logger.log(
+      `Mobile money shipping offer payment processed for offer ${offer.id}`,
+    );
+
+    await this.sendPaymentNotifications(
+      offer.traveler_id,
+      offer.shipping_request.user_id,
+      currency,
+      travelerPrice,
+      totalPaid,
+      {
+        shipping_offer_id: offer.id,
+        shipping_request_id: offer.shipping_request_id,
+      },
+      { metadata: transaction.metadata },
+      'shipping_offer',
+    );
+  }
+
+  async creditTravelerWallet(
     travelerId: string,
     travelerPrice: number,
     paymentCurrency: string,
@@ -1125,6 +1331,8 @@ export class PaymentService {
       shipping_offer_id?: string;
       description: string;
       orderId: string;
+      feeOverride?: number;
+      provider?: TransactionProvider;
     },
   ): Promise<void> {
     const wallet = await this.prisma.wallet.findUnique({
@@ -1143,13 +1351,17 @@ export class PaymentService {
       });
     }
 
-    let stripeFee = 0;
-    try {
-      stripeFee = await this.stripeService.getStripeFee(paymentIntentId);
-    } catch (error) {
-      this.logger.warn(
-        `Could not retrieve Stripe fee for ${paymentIntentId}: ${error.message}`,
-      );
+    let externalFee = 0;
+    if (opts.feeOverride !== undefined) {
+      externalFee = opts.feeOverride;
+    } else {
+      try {
+        externalFee = await this.stripeService.getStripeFee(paymentIntentId);
+      } catch (error) {
+        this.logger.warn(
+          `Could not retrieve Stripe fee for ${paymentIntentId}: ${error.message}`,
+        );
+      }
     }
 
     const platformCommission = this.calculatePlatformCommission(travelerPrice);
@@ -1167,6 +1379,7 @@ export class PaymentService {
     });
 
     const currentBalance = Number(wallet[currencyColumns.hold] || 0);
+    const provider: TransactionProvider = opts.provider || 'STRIPE';
 
     await this.prisma.transaction.create({
       data: {
@@ -1175,19 +1388,19 @@ export class PaymentService {
         type: 'CREDIT',
         source: opts.source,
         amount_requested: travelerPrice,
-        fee_applied: stripeFee + platformCommission,
+        fee_applied: externalFee + platformCommission,
         amount_paid: pendingEarnings,
         currency: paymentCurrency,
         request_id: opts.request_id,
         offer_id: opts.offer_id,
         shipping_offer_id: opts.shipping_offer_id,
         status: 'ONHOLD',
-        provider: 'STRIPE',
+        provider,
         description: opts.description,
         balance_after: currentBalance + pendingEarnings,
         metadata: {
           orderId: opts.orderId,
-          stripeFee,
+          externalFee,
           platformCommission,
           paymentCurrency,
         },
@@ -1195,18 +1408,19 @@ export class PaymentService {
     });
   }
 
-  private async sendPaymentNotifications(
+  async sendPaymentNotifications(
     travelerId: string,
     payerId: string,
     paymentCurrency: string,
     travelerPrice: number,
     totalPaid: number,
     dataContext: Record<string, any>,
-    paymentIntent: any,
+    paymentIntentOrMetadata: any,
     orderType: string,
   ): Promise<void> {
+    const metadata = paymentIntentOrMetadata?.metadata ?? paymentIntentOrMetadata;
     const payerDeviceId: string | null =
-      (paymentIntent.metadata as any)?.payerDeviceId || null;
+      metadata?.payerDeviceId || null;
 
     const traveler = await this.prisma.user.findUnique({
       where: { id: travelerId },

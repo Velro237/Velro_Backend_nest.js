@@ -5,6 +5,7 @@ import { SchedulerController } from './scheduler.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationModule } from '../notification/notification.module';
 import { AuthModule } from '../auth/auth.module';
+import { VelroDashboardModule } from '../velro-dashboard/velro-dashboard.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { AuthModule } from '../auth/auth.module';
     PrismaModule,
     NotificationModule,
     AuthModule,
+    VelroDashboardModule,
   ],
   controllers: [SchedulerController],
   providers: [SchedulerService],

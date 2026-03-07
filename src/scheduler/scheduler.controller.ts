@@ -186,4 +186,106 @@ export class SchedulerController {
       message: 'Update pending requests triggered successfully',
     };
   }
+
+  @Post('trigger-financial-rollup')
+  @ApiOperation({
+    summary: 'Manually trigger financial rollup sync (Admin only)',
+    description:
+      'Manually trigger the financial summary rollup sync. Recomputes aggregated financial data from transactions and wallets.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Financial rollup sync triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Financial rollup sync triggered successfully',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async triggerFinancialRollup() {
+    await this.schedulerService.triggerFinancialRollup();
+    return {
+      message: 'Financial rollup sync triggered successfully',
+    };
+  }
+
+  @Post('trigger-payment-method-rollup')
+  @ApiOperation({
+    summary: 'Manually trigger payment method rollup sync (Admin only)',
+    description:
+      'Manually trigger the payment method rollup sync. Recomputes per-provider per-currency transaction aggregates.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Payment method rollup sync triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Payment method rollup sync triggered successfully',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async triggerPaymentMethodRollup() {
+    await this.schedulerService.triggerPaymentMethodRollup();
+    return {
+      message: 'Payment method rollup sync triggered successfully',
+    };
+  }
+
+  @Post('trigger-feature-summary-rollup')
+  @ApiOperation({
+    summary: 'Manually trigger feature summary rollup sync (Admin only)',
+    description:
+      'Manually trigger the feature summary rollup sync. Recomputes per-feature per-currency transaction aggregates.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Feature summary rollup sync triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Feature summary rollup sync triggered successfully',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async triggerFeatureSummaryRollup() {
+    await this.schedulerService.triggerFeatureSummaryRollup();
+    return {
+      message: 'Feature summary rollup sync triggered successfully',
+    };
+  }
 }

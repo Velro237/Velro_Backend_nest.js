@@ -4,6 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { I18nService } from 'nestjs-i18n';
 import { TripStatus } from 'generated/prisma/client';
+import { FinancialRollupService } from '../velro-dashboard/financial/financial-rollup.service';
+import { PaymentMethodRollupService } from '../velro-dashboard/financial/payment-method-rollup.service';
+import { FeatureSummaryRollupService } from '../velro-dashboard/financial/feature-summary-rollup.service';
 
 @Injectable()
 export class SchedulerService {
@@ -13,6 +16,9 @@ export class SchedulerService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly i18n: I18nService,
+    private readonly financialRollupService: FinancialRollupService,
+    private readonly paymentMethodRollupService: PaymentMethodRollupService,
+    private readonly featureSummaryRollupService: FeatureSummaryRollupService,
   ) {}
 
   /**
@@ -605,5 +611,53 @@ export class SchedulerService {
         error,
       );
     }
+  }
+
+  @Cron('0 0 */6 * * *')
+  async syncFinancialRollup(): Promise<void> {
+    this.logger.log('[CRON] Financial rollup sync triggered');
+    try {
+      await this.financialRollupService.syncFinancial();
+    } catch (error) {
+      this.logger.error('[CRON ERROR] Financial rollup sync failed:', error);
+    }
+  }
+
+  async triggerFinancialRollup(): Promise<void> {
+    this.logger.log('[MANUAL TRIGGER] Financial rollup sync - Initiated manually');
+    await this.financialRollupService.syncFinancial();
+    this.logger.log('[MANUAL TRIGGER] Financial rollup sync - Completed');
+  }
+
+  @Cron('0 0 */6 * * *')
+  async syncPaymentMethodRollup(): Promise<void> {
+    this.logger.log('[CRON] Payment method rollup sync triggered');
+    try {
+      await this.paymentMethodRollupService.syncPaymentMethods();
+    } catch (error) {
+      this.logger.error('[CRON ERROR] Payment method rollup sync failed:', error);
+    }
+  }
+
+  @Cron('0 0 */6 * * *')
+  async syncFeatureSummaryRollup(): Promise<void> {
+    this.logger.log('[CRON] Feature summary rollup sync triggered');
+    try {
+      await this.featureSummaryRollupService.syncFeatureSummary();
+    } catch (error) {
+      this.logger.error('[CRON ERROR] Feature summary rollup sync failed:', error);
+    }
+  }
+
+  async triggerPaymentMethodRollup(): Promise<void> {
+    this.logger.log('[MANUAL TRIGGER] Payment method rollup sync - Initiated manually');
+    await this.paymentMethodRollupService.syncPaymentMethods();
+    this.logger.log('[MANUAL TRIGGER] Payment method rollup sync - Completed');
+  }
+
+  async triggerFeatureSummaryRollup(): Promise<void> {
+    this.logger.log('[MANUAL TRIGGER] Feature summary rollup sync - Initiated manually');
+    await this.featureSummaryRollupService.syncFeatureSummary();
+    this.logger.log('[MANUAL TRIGGER] Feature summary rollup sync - Completed');
   }
 }
