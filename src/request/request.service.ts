@@ -1411,9 +1411,29 @@ export class RequestService {
     }
 
     try {
+      const updateData: Record<string, unknown> = {};
+      if (updateTripRequestDto.status !== undefined) {
+        updateData.status = updateTripRequestDto.status;
+      }
+      if (updateTripRequestDto.message !== undefined) {
+        updateData.message = updateTripRequestDto.message;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        const message = await this.i18n.translate(
+          'translation.trip.request.updateFailed',
+          {
+            lang,
+            defaultValue:
+              'No valid fields were provided to update this request',
+          },
+        );
+        throw new BadRequestException(message);
+      }
+
       const request = await this.prisma.tripRequest.update({
         where: { id: requestId },
-        data: updateTripRequestDto,
+        data: updateData,
         select: {
           id: true,
           trip_id: true,
@@ -1436,6 +1456,18 @@ export class RequestService {
         request,
       };
     } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      if ((error as any)?.code === 'P2025') {
+        const message = await this.i18n.translate(
+          'translation.trip.request.notFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      console.error('Failed to update trip request:', error);
       const message = await this.i18n.translate(
         'translation.trip.request.updateFailed',
         {
@@ -1490,6 +1522,17 @@ export class RequestService {
       if (adminEditRequestDto.payment_intent_id !== undefined) {
         updateData.payment_intent_id = adminEditRequestDto.payment_intent_id;
       }
+      if (Object.keys(updateData).length === 0) {
+        const message = await this.i18n.translate(
+          'translation.trip.request.updateFailed',
+          {
+            lang,
+            defaultValue:
+              'No valid fields were provided to update this request',
+          },
+        );
+        throw new BadRequestException(message);
+      }
 
       const request = await this.prisma.tripRequest.update({
         where: { id: requestId },
@@ -1534,6 +1577,18 @@ export class RequestService {
       if (error instanceof NotFoundException) {
         throw error;
       }
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      if ((error as any)?.code === 'P2025') {
+        const message = await this.i18n.translate(
+          'translation.trip.request.notFound',
+          { lang },
+        );
+        throw new NotFoundException(message);
+      }
+
+      console.error('Failed to admin-edit trip request:', error);
       const message = await this.i18n.translate(
         'translation.trip.request.updateFailed',
         {
@@ -1543,7 +1598,6 @@ export class RequestService {
       throw new InternalServerErrorException(message);
     }
   }
-
   /**
    * Admin delete request - soft delete by setting is_deleted to true
    */
