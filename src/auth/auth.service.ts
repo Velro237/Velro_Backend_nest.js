@@ -165,27 +165,10 @@ export class AuthService {
       companyName,
       currency: currencyFromDto,
     } = signupDto;
-
-    // Determine currency: use DTO currency if provided, otherwise detect from phone number
-    let currency = currencyFromDto;
-    if (!currency && phone) {
-      try {
-        // Extract country code from phone number
-        const countryCode = this.extractCountryCodeFromPhone(phone);
-        if (countryCode) {
-          // Get currency for the detected country
-          currency =
-            this.currencyService.getDisplayCurrencyForCountry(countryCode);
-        }
-      } catch (error) {
-        // If detection fails, fall back to default
-        console.error('Failed to detect currency from phone:', error);
-      }
-    }
-
-    // Default to XAF if no currency could be determined
-    if (!currency) {
-      currency = 'XAF';
+    // Signup currency rule: default EUR, only XAF for +237 numbers.
+    let currency = this.getPreferredCurrencyFromPhone(phone);
+    if (!phone && currencyFromDto) {
+      currency = currencyFromDto.toUpperCase() === 'XAF' ? 'XAF' : 'EUR';
     }
 
     // Check if user already exists (non-deleted users only)
@@ -519,6 +502,7 @@ export class AuthService {
           name: oauth.name,
           picture: oauth.picture,
           country: oauth.country || null, // Store country from OAuth token
+          currency: this.getPreferredCurrencyFromPhone(null),
           otpCode: otpHash,
           last_seen: new Date(), // Set last_seen on user creation
         },
@@ -563,7 +547,7 @@ export class AuthService {
           hold_balance: 0.0,
           total_balance: 0.0,
           state: 'BLOCKED',
-          currency: 'XAF',
+          currency: user.currency || 'EUR',
         },
       });
     }
@@ -1094,25 +1078,8 @@ export class AuthService {
       // Hash the password
       const saltRounds = 10;
       const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-      // Determine currency: detect from phone number if available
-      let currency = 'XAF'; // Default to XAF
-      if (pendingUser.phone) {
-        try {
-          // Extract country code from phone number
-          const countryCode = this.extractCountryCodeFromPhone(
-            pendingUser.phone,
-          );
-          if (countryCode) {
-            // Get currency for the detected country
-            currency =
-              this.currencyService.getDisplayCurrencyForCountry(countryCode);
-          }
-        } catch (error) {
-          // If detection fails, fall back to default
-          console.error('Failed to detect currency from phone:', error);
-        }
-      }
+      // Signup currency rule: default EUR, only XAF for +237 numbers.
+      const currency = this.getPreferredCurrencyFromPhone(pendingUser.phone);
 
       // Create the user
       const user = await this.prisma.user.create({
@@ -1802,6 +1769,22 @@ export class AuthService {
       console.error('Failed to get country from locale/code:', error);
       return null;
     }
+  }
+
+  /**
+   * Currency rule for signup/profile defaults:
+   * - XAF only for Cameroon numbers (+237)
+   * - EUR for all other cases
+   */
+  private getPreferredCurrencyFromPhone(
+    phoneNumber?: string | null,
+  ): 'EUR' | 'XAF' {
+    if (!phoneNumber) return 'EUR';
+
+    const digits = phoneNumber.replace(/\D/g, '');
+    const normalized = digits.startsWith('00') ? digits.slice(2) : digits;
+
+    return normalized.startsWith('237') ? 'XAF' : 'EUR';
   }
 
   /**

@@ -1444,7 +1444,7 @@ export class TripService {
         where: { id: userId },
         select: { currency: true },
       });
-      const userCurrency = (user?.currency || 'XAF') as Currency;
+      const userCurrency = (user?.currency || 'EUR') as Currency;
 
       // Build where clause
       const whereClause: any = {
@@ -1625,7 +1625,7 @@ export class TripService {
         where: { id: userId },
         select: { currency: true },
       });
-      const userCurrency = (user?.currency || 'XAF') as Currency;
+      const userCurrency = (user?.currency || 'EUR') as Currency;
 
       // Fetch the trip with all relations (exclude deleted trips)
       const trip: any = await this.prisma.trip.findFirst({

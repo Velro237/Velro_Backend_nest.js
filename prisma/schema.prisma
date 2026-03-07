@@ -89,7 +89,7 @@ model User {
   stripe_account_id          String?                @unique
   stripe_onboarding_complete Boolean                @default(false)
   transfers_capability       String?                @default("inactive")
-  currency                   String?                @default("XAF")
+  currency                   String?                @default("EUR")
   username                   String?
   date_of_birth              DateTime?
   lang                       String?                @default("en")
@@ -562,7 +562,7 @@ model Wallet {
   hold_balance          Decimal       @default(0.00) @db.Decimal(10, 2)
   total_balance         Decimal       @default(0.00) @db.Decimal(10, 2)
   state                 WalletState   @default(BLOCKED)
-  currency              String        @default("XAF")
+  currency              String        @default("EUR")
   updatedAt             DateTime      @updatedAt
   createdAt             DateTime      @default(now())
   available_balance_cad Decimal       @default(0) @db.Decimal(10, 2)
