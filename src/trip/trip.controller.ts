@@ -648,7 +648,7 @@ export class TripController {
               {
                 id: '123e4567-e89b-12d3-a456-426614174000',
                 user_id: '123e4567-e89b-12d3-a456-426614174001',
-                status: 'APPROVED',
+                status: 'ACCEPTED',
                 cost: 150.0,
                 message: 'Please handle with care',
                 created_at: '2024-01-20T10:00:00.000Z',
