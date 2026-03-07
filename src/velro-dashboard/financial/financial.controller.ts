@@ -15,7 +15,10 @@ import {
   GetFinancialSummaryOfPaymentMethodsQueryDto,
 } from './dto';
 import { AdminGuard } from 'src/auth/guards/admin.guard';
-import { RecentFinancialActivityItemDto } from './dto/financial-summary.dto';
+import {
+  QuickActionStatsResponseDto,
+  RecentFinancialActivityItemDto,
+} from './dto/financial-summary.dto';
 
 @Controller('financial')
 @ApiTags('Dashboard - Financial')
@@ -86,5 +89,20 @@ export class FinancialController {
   })
   getRecentFinancialActivities(): Promise<RecentFinancialActivityItemDto[]> {
     return this.financialService.getRecentFinancialActivities();
+  }
+
+  @Get('summary/quick-action-stats')
+  @ApiOperation({
+    summary: 'Get quick action stats',
+    description:
+      'Get quick action stats. Returns an array of aggregated data. To be placed in the 4th row, 2nd card.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Quick action stats retrieved successfully',
+    type: QuickActionStatsResponseDto,
+  })
+  getQuickActionStats(): Promise<QuickActionStatsResponseDto> {
+    return this.financialService.getQuickActionStats();
   }
 }

@@ -5,13 +5,19 @@ import {
   FinancialSummaryItemDto,
   FinancialSummaryForPaymentMethodResponseDto,
 } from './dto';
-import { Currency, FinancialSummaryRollup } from 'generated/prisma/client';
+import {
+  Currency,
+  FinancialSummaryRollup,
+  PaymentStatus,
+  TransactionStatus,
+} from 'generated/prisma/client';
 import {
   FinancialSummaryForFeatureResponseDto,
   FinancialSummaryOfFeatureItemDto,
   FinancialSummaryOfPaymentMethodItemDto,
   GetFinancialSummaryOfFeaturesQueryDto,
   GetFinancialSummaryOfPaymentMethodsQueryDto,
+  QuickActionStatsResponseDto,
   RecentFinancialActivityItemDto,
 } from './dto/financial-summary.dto';
 
@@ -190,6 +196,38 @@ export class FinancialService {
       ...item,
       currency: item.currency as Currency,
     }));
+  }
+
+  async getQuickActionStats(): Promise<QuickActionStatsResponseDto> {
+    const [
+      pending,
+      onHold,
+      shoppingOfferDisputes,
+      shippingOfferDisputes,
+      tripDisputes,
+    ] = await Promise.all([
+      await this.prisma.transaction.count({
+        where: { status: TransactionStatus.PENDING },
+      }),
+      this.prisma.transaction.count({
+        where: { status: TransactionStatus.ONHOLD },
+      }),
+      this.prisma.offer.count({
+        where: { payment_status: PaymentStatus.DISPUTED },
+      }),
+      this.prisma.shippingOffer.count({
+        where: { payment_status: PaymentStatus.DISPUTED },
+      }),
+      this.prisma.tripRequest.count({
+        where: { payment_status: PaymentStatus.DISPUTED },
+      }),
+    ]);
+
+    return {
+      pending,
+      onHold,
+      disputes: shoppingOfferDisputes + shippingOfferDisputes + tripDisputes,
+    };
   }
 
   private dayRange(days: number): { startKey: string; endKey: string } {

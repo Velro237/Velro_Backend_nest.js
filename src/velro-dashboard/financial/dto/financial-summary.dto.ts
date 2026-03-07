@@ -124,3 +124,12 @@ export class RecentFinancialActivityItemDto {
   @ApiProperty({ type: Date })
   createdAt: Date;
 }
+
+export class QuickActionStatsResponseDto {
+  @ApiProperty()
+  pending: number;
+  @ApiProperty()
+  onHold: number;
+  @ApiProperty()
+  disputes: number;
+}
