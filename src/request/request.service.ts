@@ -1643,7 +1643,11 @@ export class RequestService {
           created_at: true,
           updated_at: true,
           request_items: {
-            include: {
+            select: {
+              request_id: true,
+              trip_item_id: true,
+              quantity: true,
+              special_notes: true,
               trip_item: true,
             },
           },
@@ -1667,7 +1671,11 @@ export class RequestService {
               currency: true,
               user: true,
               trip_items: {
-                include: {
+                select: {
+                  trip_id: true,
+                  trip_item_id: true,
+                  price: true,
+                  avalailble_kg: true,
                   trip_item: true,
                 },
               },

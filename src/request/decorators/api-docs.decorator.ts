@@ -233,7 +233,7 @@ export const ApiGetTripRequests = () =>
       name: 'status',
       required: false,
       description: 'Filter by request status',
-      enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
+      enum: ['PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED', 'CONFIRMED', 'SENT', 'RECEIVED', 'IN_TRANSIT', 'PENDING_DELIVERY', 'DELIVERED', 'EXPIRED', 'REVIEWED', 'REFUNDED'],
       example: 'PENDING',
     }),
     ApiQuery({
@@ -368,7 +368,7 @@ export const ApiGetTripRequests = () =>
                 property: 'status',
                 constraints: {
                   isEnum:
-                    'status must be one of the following values: PENDING, APPROVED, REJECTED, CANCELLED',
+                    'status must be one of the following values: PENDING, ACCEPTED, DECLINED, CANCELLED, CONFIRMED, SENT, RECEIVED, IN_TRANSIT, PENDING_DELIVERY, DELIVERED, EXPIRED, REVIEWED, REFUNDED',
                 },
               },
             ],
@@ -439,7 +439,7 @@ export const ApiUpdateTripRequest = () =>
               id: '123e4567-e89b-12d3-a456-426614174000',
               trip_id: '123e4567-e89b-12d3-a456-426614174001',
               user_id: '123e4567-e89b-12d3-a456-426614174002',
-              status: 'APPROVED',
+              status: 'ACCEPTED',
               message: 'I would like to request these items',
               updated_at: '2024-01-15T11:00:00.000Z',
             },
@@ -477,7 +477,7 @@ export const ApiUpdateTripRequest = () =>
                 property: 'status',
                 constraints: {
                   isEnum:
-                    'status must be one of the following values: PENDING, APPROVED, REJECTED, CANCELLED',
+                    'status must be one of the following values: PENDING, ACCEPTED, DECLINED, CANCELLED, CONFIRMED, SENT, RECEIVED, IN_TRANSIT, PENDING_DELIVERY, DELIVERED, EXPIRED, REVIEWED, REFUNDED',
                 },
               },
             ],
