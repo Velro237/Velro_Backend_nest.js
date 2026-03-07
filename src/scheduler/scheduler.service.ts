@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { I18nService } from 'nestjs-i18n';
 import { TripStatus } from 'generated/prisma/client';
+import { FinancialRollupService } from '../velro-dashboard/financial/financial-rollup.service';
 
 @Injectable()
 export class SchedulerService {
@@ -13,6 +14,7 @@ export class SchedulerService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly i18n: I18nService,
+    private readonly financialRollupService: FinancialRollupService,
   ) {}
 
   /**
@@ -605,5 +607,21 @@ export class SchedulerService {
         error,
       );
     }
+  }
+
+  @Cron('0 0 */6 * * *')
+  async syncFinancialRollup(): Promise<void> {
+    this.logger.log('[CRON] Financial rollup sync triggered');
+    try {
+      await this.financialRollupService.syncFinancial();
+    } catch (error) {
+      this.logger.error('[CRON ERROR] Financial rollup sync failed:', error);
+    }
+  }
+
+  async triggerFinancialRollup(): Promise<void> {
+    this.logger.log('[MANUAL TRIGGER] Financial rollup sync - Initiated manually');
+    await this.financialRollupService.syncFinancial();
+    this.logger.log('[MANUAL TRIGGER] Financial rollup sync - Completed');
   }
 }

@@ -186,4 +186,38 @@ export class SchedulerController {
       message: 'Update pending requests triggered successfully',
     };
   }
+
+  @Post('trigger-financial-rollup')
+  @ApiOperation({
+    summary: 'Manually trigger financial rollup sync (Admin only)',
+    description:
+      'Manually trigger the financial summary rollup sync. Recomputes aggregated financial data from transactions and wallets.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Financial rollup sync triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Financial rollup sync triggered successfully',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin access required',
+  })
+  async triggerFinancialRollup() {
+    await this.schedulerService.triggerFinancialRollup();
+    return {
+      message: 'Financial rollup sync triggered successfully',
+    };
+  }
 }

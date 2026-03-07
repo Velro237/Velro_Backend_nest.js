@@ -1155,3 +1155,32 @@ enum ProductSource {
   EBAY
   OTHER
 }
+
+model FinancialSummaryRollup {
+  id                       String   @id @default(cuid())
+  periodKey                String   @unique
+  totalVolume_eur          Decimal  @default(0) @db.Decimal(14, 2)
+  totalVolume_usd          Decimal  @default(0) @db.Decimal(14, 2)
+  totalVolume_xaf          Decimal  @default(0) @db.Decimal(14, 2)
+  totalVolume_cad          Decimal  @default(0) @db.Decimal(14, 2)
+  escrowHeld_eur           Decimal  @default(0) @db.Decimal(14, 2)
+  escrowHeld_usd           Decimal  @default(0) @db.Decimal(14, 2)
+  escrowHeld_xaf           Decimal  @default(0) @db.Decimal(14, 2)
+  escrowHeld_cad           Decimal  @default(0) @db.Decimal(14, 2)
+  availableToWithdraw_eur  Decimal  @default(0) @db.Decimal(14, 2)
+  availableToWithdraw_usd  Decimal  @default(0) @db.Decimal(14, 2)
+  availableToWithdraw_xaf  Decimal  @default(0) @db.Decimal(14, 2)
+  availableToWithdraw_cad  Decimal  @default(0) @db.Decimal(14, 2)
+  pendingWithdrawals_eur   Decimal  @default(0) @db.Decimal(14, 2)
+  pendingWithdrawals_usd   Decimal  @default(0) @db.Decimal(14, 2)
+  pendingWithdrawals_xaf   Decimal  @default(0) @db.Decimal(14, 2)
+  pendingWithdrawals_cad   Decimal  @default(0) @db.Decimal(14, 2)
+  commissionEarned_eur     Decimal  @default(0) @db.Decimal(14, 2)
+  commissionEarned_usd     Decimal  @default(0) @db.Decimal(14, 2)
+  commissionEarned_xaf     Decimal  @default(0) @db.Decimal(14, 2)
+  commissionEarned_cad     Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([periodKey])
+}
