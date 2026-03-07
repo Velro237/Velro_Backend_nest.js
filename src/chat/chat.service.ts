@@ -12,7 +12,7 @@ import { I18nService } from 'nestjs-i18n';
 import { RedisService } from '../redis/redis.service';
 import { CreateChatDto, CreateChatResponseDto } from './dto/create-chat.dto';
 import { MessageResponseDto } from './dto/send-message.dto';
-import { MessageType as PrismaMessageType } from 'generated/prisma';
+import { MessageType as PrismaMessageType, NotificationType } from 'generated/prisma';
 import {
   GetChatsQueryDto,
   GetChatsResponseDto,
@@ -59,6 +59,7 @@ export class ChatService {
       messageType,
       messageReplyToId,
       messageRequestId,
+      forceNewChat,
     } = createChatDto;
 
     // Prevent users from creating a chat with themselves
@@ -84,8 +85,151 @@ export class ChatService {
       throw new NotFoundException(message);
     }
 
-    // Allow users to create multiple chats on the same trip
-    // Removed validation that prevented creating multiple chats for the same trip
+    // Reuse existing chat for same two users and trip context unless forceNewChat is requested
+    if (!forceNewChat) {
+      const findExistingChat = async (tripContextId: string | null) =>
+        this.prisma.chat.findFirst({
+          where: {
+            trip_id: tripContextId,
+            type: 'TRIP',
+            shopping_request_id: null,
+            shipping_request_id: null,
+            AND: [
+              {
+                members: {
+                  some: {
+                    user_id: userId,
+                  },
+                },
+              },
+              {
+                members: {
+                  some: {
+                    user_id: otherUserId,
+                  },
+                },
+              },
+              {
+                members: {
+                  none: {
+                    user_id: {
+                      notIn: [userId, otherUserId],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          include: {
+            members: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              include: {
+                sender: {
+                  select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+      let existingChat = await findExistingChat(tripId || null);
+
+      // Fallback for legacy chats created without trip_id to avoid duplicate rooms.
+      if (!existingChat && tripId) {
+        existingChat = await findExistingChat(null);
+      }
+      if (existingChat) {
+        let responseMessage: any = existingChat.messages[0] || null;
+
+        if (messageContent) {
+          responseMessage = await this.prisma.message.create({
+            data: {
+              content: messageContent,
+              type: messageType
+                ? (messageType as PrismaMessageType)
+                : PrismaMessageType.TEXT,
+              chat_id: existingChat.id,
+              sender_id: userId,
+              reply_to_id: null,
+              request_id: messageRequestId || null,
+            },
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+          });
+
+          this.sendPushNotificationToChatMembers(
+            existingChat.id,
+            userId,
+            responseMessage,
+          ).catch((error) => {
+            console.error('Push notification error (non-blocking):', error);
+          });
+        }
+
+        const message = await this.i18n.translate(
+          'translation.chat.existingChatRetrieved',
+          { lang },
+        );
+
+        return {
+          message,
+          chat: {
+            id: existingChat.id,
+            name: existingChat.name,
+            createdAt: existingChat.createdAt,
+            members: existingChat.members.map((member) => ({
+              id: member.user.id,
+              email: member.user.email,
+              firstName: member.user.firstName,
+              lastName: member.user.lastName,
+              role: member.user.role,
+            })),
+          },
+          lastMessage: responseMessage
+            ? {
+                id: responseMessage.id,
+                content: responseMessage.content,
+                type: responseMessage.type,
+                createdAt: responseMessage.createdAt,
+                sender: {
+                  id: responseMessage.sender.id,
+                  email: responseMessage.sender.email,
+                  firstName: responseMessage.sender.firstName,
+                  lastName: responseMessage.sender.lastName,
+                },
+              }
+            : null,
+          isExistingChat: true,
+        };
+      }
+    }
 
     try {
       const { chat, lastMessage } = await this.prisma.$transaction(
@@ -201,6 +345,7 @@ export class ChatService {
               },
             }
           : null,
+        isExistingChat: false,
       };
     } catch (error) {
       console.log(error);
@@ -211,7 +356,6 @@ export class ChatService {
       throw new InternalServerErrorException(message);
     }
   }
-
   /**
    * Initiate or retrieve existing chat for a request (shopping/shipping)
    * Used when traveler clicks "Message" button on request details before creating an offer
@@ -265,13 +409,31 @@ export class ChatService {
       const existingChat = await this.prisma.chat.findFirst({
         where: {
           [requestIdField]: requestId,
-          members: {
-            every: {
-              user_id: {
-                in: [userId, requesterId],
+          AND: [
+            {
+              members: {
+                some: {
+                  user_id: userId,
+                },
               },
             },
-          },
+            {
+              members: {
+                some: {
+                  user_id: requesterId,
+                },
+              },
+            },
+            {
+              members: {
+                none: {
+                  user_id: {
+                    notIn: [userId, requesterId],
+                  },
+                },
+              },
+            },
+          ],
         },
         include: {
           members: {
@@ -498,6 +660,7 @@ export class ChatService {
               },
             }
           : null,
+        isExistingChat: false,
       };
     } catch (error) {
       if (
@@ -573,14 +736,6 @@ export class ChatService {
           );
         });
 
-      // Check if user is admin
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { role: true },
-      });
-
-      const isAdmin = user?.role === 'ADMIN';
-
       // Delete all chats with no messages (cleanup)
       // This runs in the background and doesn't block the request
       this.deleteEmptyChats().catch((error) => {
@@ -606,14 +761,7 @@ export class ChatService {
         },
       };
 
-      // If admin, show only SUPPORT chats. If regular user, exclude SUPPORT chats
-      if (isAdmin) {
-        whereClause.type = 'SUPPORT';
-      } else {
-        whereClause.type = {
-          not: 'SUPPORT',
-        };
-      }
+      // Include support chats in the normal chat list for all users.
 
       if (search) {
         whereClause.name = {
@@ -4117,7 +4265,6 @@ export class ChatService {
           ? `${departureLocation} -> ${destinationLocation}`
           : null;
       const departureDate = chat?.trip?.departure_date || null;
-      const chatUrl = this.notificationService.getAppUrl(`/chat/${chatId}`);
 
       // Send notifications to each other member
       for (const member of otherMembers) {
@@ -4182,6 +4329,29 @@ export class ChatService {
           // Send message content directly in body (no translation)
           const notificationBody = messageContent;
 
+          // Always create an in-app notification, even if push is unavailable.
+          await this.notificationService
+            .createNotificationForUser(
+              member.user_id,
+              notificationTitle,
+              notificationBody,
+              NotificationType.ALERT,
+              {
+                chatId,
+                messageId: message?.id,
+                senderId: sender.id,
+                senderName: sender.name || sender.email,
+                type: notificationType,
+              },
+              normalizedUserLang,
+            )
+            .catch((error) => {
+              console.error(
+                `Failed to create in-app chat notification for user ${member.user_id}:`,
+                error,
+              );
+            });
+
           if (user.push_notification && user.device_id) {
             // Send push notification with user's language
             await this.notificationService.sendPushNotification(
@@ -4210,11 +4380,6 @@ export class ChatService {
                 route: routeText,
                 departureDate,
                 message: notificationBody,
-                appUrl: chatUrl,
-                requestId: chat?.request?.id || null,
-                requestStatus: chat?.request?.status
-                  ? String(chat.request.status)
-                  : null,
               });
 
             await this.notificationService.sendEmail(

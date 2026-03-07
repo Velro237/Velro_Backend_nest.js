@@ -173,17 +173,21 @@ export class RequestService {
     }
 
     // Check if a request already exists between this user and this trip
-    // Exclude cancelled, expired, and refunded requests
+    // Block duplicates only while an active lifecycle request is in progress
     const existingRequest = await this.prisma.tripRequest.findFirst({
       where: {
         trip_id: trip_id,
         user_id: userId,
         is_deleted: false, // Exclude deleted requests when checking for duplicates
         status: {
-          notIn: [
-            RequestStatus.CANCELLED,
-            RequestStatus.EXPIRED,
-            RequestStatus.REFUNDED,
+          in: [
+            RequestStatus.PENDING,
+            RequestStatus.ACCEPTED,
+            RequestStatus.CONFIRMED,
+            RequestStatus.SENT,
+            RequestStatus.RECEIVED,
+            RequestStatus.IN_TRANSIT,
+            RequestStatus.PENDING_DELIVERY,
           ],
         },
       },
@@ -258,7 +262,7 @@ export class RequestService {
 
     try {
       // Calculate total cost using prices in user's currency
-      // Sum of (quantity × price) for each requested item, using price in user's currency
+      // Sum of (quantity x price) for each requested item, using price in user's currency
       let totalCost = 0;
       for (const requestedItem of request_items) {
         const tripItem = trip.trip_items.find(
@@ -381,6 +385,15 @@ export class RequestService {
                 },
               },
             },
+            {
+              members: {
+                none: {
+                  user_id: {
+                    notIn: [userId, trip.user_id],
+                  },
+                },
+              },
+            },
           ],
         },
         include: {
@@ -414,6 +427,7 @@ export class RequestService {
                 name: finalChatName,
                 otherUserId: trip.user_id,
                 tripId: trip.id,
+                forceNewChat: true,
               },
               userId,
               lang,
@@ -481,6 +495,7 @@ export class RequestService {
                     name: finalChatName,
                     otherUserId: trip.user_id,
                     tripId: trip.id,
+                    forceNewChat: true,
                   },
                   userId,
                   lang,
@@ -2557,9 +2572,6 @@ export class RequestService {
 
       // Send email notification when enabled by caller
       if (sendEmail && recipient?.email_notification && recipient?.email) {
-        const requestUrl = requestId
-          ? this.notificationService.getAppUrl(`/requests/${requestId}`)
-          : this.notificationService.getAppUrl('/requests');
 
         const departureLocation =
           (requestData?.trip?.departure as any)?.city ||
@@ -2601,7 +2613,6 @@ export class RequestService {
             departureDate,
             weightKg,
             itemType: itemType || 'Package',
-            appUrl: requestUrl,
           });
         } else {
           emailContent = this.notificationService.buildRequestStatusEmailContent({
@@ -2609,9 +2620,7 @@ export class RequestService {
             userName: recipient.name || recipient.email,
             route,
             departureDate,
-            requestId,
             status: requestData?.status ? String(requestData.status) : null,
-            appUrl: requestUrl,
           });
         }
 

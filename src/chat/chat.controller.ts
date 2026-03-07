@@ -66,7 +66,7 @@ export class ChatController {
     );
 
     // Notify users about the new chat only if it has a message (not empty)
-    if (result.lastMessage) {
+    if (result.lastMessage && !result.isExistingChat) {
       await this.chatGateway.notifyChatCreated(
         result.chat.id,
         [user.id, createChatDto.otherUserId],
