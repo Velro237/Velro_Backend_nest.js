@@ -48,8 +48,6 @@ interface VelroEmailTemplateParams {
   title: string;
   subtitle: string;
   message: string;
-  ctaLabel: string;
-  ctaUrl: string;
   contextItems?: VelroEmailContextItem[];
 }
 
@@ -111,6 +109,39 @@ export class NotificationService {
     return date.toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US');
   }
 
+  private formatRequestStatusForEmail(
+    status: string | null | undefined,
+    lang: string = 'en',
+  ): string {
+    if (!status) return lang === 'fr' ? 'Mis a jour' : 'Updated';
+
+    const normalized = status.toString().trim().toUpperCase();
+    const englishLabel = normalized
+      .split('_')
+      .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+      .join(' ');
+
+    if (lang !== 'fr') return englishLabel;
+
+    const frenchLabels: Record<string, string> = {
+      PENDING: 'En attente',
+      ACCEPTED: 'Acceptee',
+      DECLINED: 'Refusee',
+      CANCELLED: 'Annulee',
+      REFUNDED: 'Remboursee',
+      EXPIRED: 'Expiree',
+      CONFIRMED: 'Confirmee',
+      SENT: 'Envoyee',
+      RECEIVED: 'Recue',
+      IN_TRANSIT: 'En transit',
+      PENDING_DELIVERY: 'Livraison en attente',
+      DELIVERED: 'Livree',
+      REVIEWED: 'Evaluee',
+    };
+
+    return frenchLabels[normalized] || englishLabel;
+  }
+
   public buildVelroEmailTemplate(params: VelroEmailTemplateParams): string {
     const safeTitle = this.escapeHtml(params.title);
     const safeSubtitle = this.escapeHtml(params.subtitle);
@@ -118,8 +149,6 @@ export class NotificationService {
       /\r?\n/g,
       '<br/>',
     );
-    const safeCtaLabel = this.escapeHtml(params.ctaLabel);
-    const safeCtaUrl = this.escapeHtml(params.ctaUrl);
 
     const contextSection =
       params.contextItems && params.contextItems.length > 0
@@ -149,12 +178,7 @@ export class NotificationService {
             <p style="margin:0 0 14px 0; color:#334155; font-size:14px; line-height:1.5;">${safeSubtitle}</p>
             <p style="margin:0; color:#0f172a; font-size:15px; line-height:1.6;">${safeMessage}</p>
             ${contextSection}
-            <div style="margin-top: 22px;">
-              <a href="${safeCtaUrl}" style="display:inline-block; background:#0b5fff; color:#ffffff; text-decoration:none; padding:11px 18px; border-radius:8px; font-size:14px; font-weight:600;">
-                ${safeCtaLabel}
-              </a>
-            </div>
-            <p style="margin:14px 0 0 0; color:#64748b; font-size:12px;">Velro - ${safeCtaUrl}</p>
+            <p style="margin:18px 0 0 0; color:#475569; font-size:13px;">Velro</p>
           </div>
         </div>
       </div>
@@ -168,15 +192,10 @@ export class NotificationService {
     route?: string | null;
     departureDate?: Date | string | null;
     message: string;
-    appUrl: string;
-    requestId?: string | null;
-    requestStatus?: string | null;
   }): VelroEmailContent {
     const lang = this.normalizeLanguage(params.lang);
     const route = params.route || 'N/A';
     const departureDate = this.formatDateForEmail(params.departureDate, lang);
-    const requestId = params.requestId || null;
-    const requestStatus = params.requestStatus || null;
 
     if (lang === 'fr') {
       const subject = 'Nouveau message sur Velro';
@@ -188,14 +207,7 @@ export class NotificationService {
         'Details du voyage',
         `Trajet: ${route}`,
         `Date de depart: ${departureDate}`,
-        ...(requestId
-          ? [
-              '',
-              'Details de la demande',
-              `ID de la demande: ${requestId}`,
-              ...(requestStatus ? [`Statut actuel: ${requestStatus}`] : []),
-            ]
-          : []),
+
         '',
         'Message',
         params.message,
@@ -203,22 +215,15 @@ export class NotificationService {
         'Connectez-vous a votre compte Velro pour lire le message et repondre.',
         '',
         'Velro',
-        params.appUrl,
       ].join('\n');
 
       const html = this.buildVelroEmailTemplate({
         title: subject,
         subtitle: `Vous avez recu un nouveau message de ${params.senderName}.`,
         message: params.message,
-        ctaLabel: 'Ouvrir Velro',
-        ctaUrl: params.appUrl,
         contextItems: [
           { label: 'Trajet', value: route },
           { label: 'Date de depart', value: departureDate },
-          ...(requestId ? [{ label: 'ID de la demande', value: requestId }] : []),
-          ...(requestStatus
-            ? [{ label: 'Statut actuel', value: requestStatus }]
-            : []),
         ],
       });
 
@@ -234,14 +239,7 @@ export class NotificationService {
       'Trip details',
       `Route: ${route}`,
       `Departure date: ${departureDate}`,
-      ...(requestId
-        ? [
-            '',
-            'Request details',
-            `Request ID: ${requestId}`,
-            ...(requestStatus ? [`Current status: ${requestStatus}`] : []),
-          ]
-        : []),
+
       '',
       'Message',
       params.message,
@@ -249,20 +247,15 @@ export class NotificationService {
       'Log in to your Velro account to read the message and reply.',
       '',
       'Velro',
-      params.appUrl,
     ].join('\n');
 
     const html = this.buildVelroEmailTemplate({
       title: subject,
       subtitle: `You received a new message from ${params.senderName}.`,
       message: params.message,
-      ctaLabel: 'Open Velro',
-      ctaUrl: params.appUrl,
       contextItems: [
         { label: 'Route', value: route },
         { label: 'Departure date', value: departureDate },
-        ...(requestId ? [{ label: 'Request ID', value: requestId }] : []),
-        ...(requestStatus ? [{ label: 'Current status', value: requestStatus }] : []),
       ],
     });
 
@@ -277,7 +270,6 @@ export class NotificationService {
     departureDate?: Date | string | null;
     weightKg?: number | null;
     itemType?: string | null;
-    appUrl: string;
   }): VelroEmailContent {
     const lang = this.normalizeLanguage(params.lang);
     const route = params.route || 'N/A';
@@ -299,7 +291,6 @@ export class NotificationService {
         `Trajet: ${route}`,
         `Date de depart: ${departureDate}`,
         '',
-        'Details de la demande',
         `Expediteur: ${params.senderName}`,
         `Poids demande: ${weight} kg`,
         `Type d article: ${itemType}`,
@@ -307,7 +298,6 @@ export class NotificationService {
         'Connectez-vous a votre compte Velro pour consulter la demande et decider de l accepter ou la refuser.',
         '',
         'Velro',
-        params.appUrl,
       ].join('\n');
 
       const html = this.buildVelroEmailTemplate({
@@ -315,8 +305,6 @@ export class NotificationService {
         subtitle: `Vous avez recu une nouvelle demande de ${params.senderName}.`,
         message:
           'Connectez-vous a votre compte Velro pour consulter la demande et decider de l accepter ou la refuser.',
-        ctaLabel: 'Ouvrir Velro',
-        ctaUrl: params.appUrl,
         contextItems: [
           { label: 'Trajet', value: route },
           { label: 'Date de depart', value: departureDate },
@@ -339,7 +327,6 @@ export class NotificationService {
       `Route: ${route}`,
       `Departure date: ${departureDate}`,
       '',
-      'Request details',
       `Sender: ${params.senderName}`,
       `Weight requested: ${weight} kg`,
       `Item type: ${itemType}`,
@@ -347,7 +334,6 @@ export class NotificationService {
       'Please log in to your Velro account to review the request and decide whether to accept or decline it.',
       '',
       'Velro',
-      params.appUrl,
     ].join('\n');
 
     const html = this.buildVelroEmailTemplate({
@@ -355,8 +341,6 @@ export class NotificationService {
       subtitle: `You received a new request from ${params.senderName}.`,
       message:
         'Please log in to your Velro account to review the request and decide whether to accept or decline it.',
-      ctaLabel: 'Open Velro',
-      ctaUrl: params.appUrl,
       contextItems: [
         { label: 'Route', value: route },
         { label: 'Departure date', value: departureDate },
@@ -374,15 +358,12 @@ export class NotificationService {
     userName: string;
     route?: string | null;
     departureDate?: Date | string | null;
-    requestId?: string | null;
     status?: string | null;
-    appUrl: string;
   }): VelroEmailContent {
     const lang = this.normalizeLanguage(params.lang);
     const route = params.route || 'N/A';
     const departureDate = this.formatDateForEmail(params.departureDate, lang);
-    const requestId = params.requestId || 'N/A';
-    const status = params.status || 'UPDATED';
+    const statusLabel = this.formatRequestStatusForEmail(params.status, lang);
 
     if (lang === 'fr') {
       const subject = 'Mise a jour du statut de la demande sur Velro';
@@ -395,27 +376,21 @@ export class NotificationService {
         `Trajet: ${route}`,
         `Date de depart: ${departureDate}`,
         '',
-        'Details de la demande',
-        `ID de la demande: ${requestId}`,
-        `Nouveau statut: ${status}`,
+        `Nouveau statut: ${statusLabel}`,
         '',
         'Connectez-vous a votre compte Velro pour voir tous les details.',
         '',
         'Velro',
-        params.appUrl,
       ].join('\n');
 
       const html = this.buildVelroEmailTemplate({
         title: subject,
         subtitle: 'Le statut de votre demande a change.',
         message: 'Connectez-vous a votre compte Velro pour voir tous les details.',
-        ctaLabel: 'Ouvrir Velro',
-        ctaUrl: params.appUrl,
         contextItems: [
           { label: 'Trajet', value: route },
           { label: 'Date de depart', value: departureDate },
-          { label: 'ID de la demande', value: requestId },
-          { label: 'Nouveau statut', value: status },
+          { label: 'Nouveau statut', value: statusLabel },
         ],
       });
 
@@ -432,27 +407,21 @@ export class NotificationService {
       `Route: ${route}`,
       `Departure date: ${departureDate}`,
       '',
-      'Request details',
-      `Request ID: ${requestId}`,
-      `Current status: ${status}`,
+      `Current status: ${statusLabel}`,
       '',
       'Please log in to your Velro account to view all details.',
       '',
       'Velro',
-      params.appUrl,
     ].join('\n');
 
     const html = this.buildVelroEmailTemplate({
       title: subject,
       subtitle: 'The status of your request has changed.',
       message: 'Please log in to your Velro account to view all details.',
-      ctaLabel: 'Open Velro',
-      ctaUrl: params.appUrl,
       contextItems: [
         { label: 'Route', value: route },
         { label: 'Departure date', value: departureDate },
-        { label: 'Request ID', value: requestId },
-        { label: 'Current status', value: status },
+        { label: 'Current status', value: statusLabel },
       ],
     });
 

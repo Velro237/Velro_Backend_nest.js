@@ -1,5 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsArray, IsUUID, IsEnum } from 'class-validator';
+import { ApiHideProperty, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsOptional, IsUUID, IsEnum, IsBoolean } from 'class-validator';
 import { MessageType } from './send-message.dto';
 
 export class CreateChatDto {
@@ -29,6 +29,11 @@ export class CreateChatDto {
   @IsString()
   @IsUUID('4')
   tripId?: string;
+
+  @ApiHideProperty()
+  @IsOptional()
+  @IsBoolean()
+  forceNewChat?: boolean;
 
   @ApiProperty({
     description:
@@ -145,4 +150,10 @@ export class CreateChatResponseDto {
       lastName: string | null;
     };
   } | null;
+
+  @ApiPropertyOptional({
+    description: 'True when existing chat was returned instead of creating a new one',
+    default: false,
+  })
+  isExistingChat?: boolean;
 }

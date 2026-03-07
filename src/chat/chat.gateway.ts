@@ -18,7 +18,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { SendMessageDto, MessageType } from './dto/send-message.dto';
-import { MessageType as PrismaMessageType, loggerType } from 'generated/prisma';
+import { MessageType as PrismaMessageType, NotificationType, loggerType } from 'generated/prisma';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
@@ -1446,7 +1446,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           ? 'SUPPORT'
           : 'CHAT_MESSAGE';
 
-      const chatUrl = this.notificationService.getAppUrl(`/chat/${chatId}`);
       const departureDate = trip?.departure_date || null;
       const departureLocation =
         (trip?.departure as any)?.city || (trip?.departure as any)?.country || null;
@@ -1607,6 +1606,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             }
           }
 
+          // Always create an in-app notification, even if push is unavailable.
+          await this.notificationService
+            .createNotificationForUser(
+              member.user_id,
+              notificationTitle,
+              messageContent,
+              NotificationType.ALERT,
+              {
+                chatId,
+                messageId: message?.id,
+                senderId: sender.id,
+                senderName: sender.name || sender.email,
+                type: notificationType,
+              },
+              normalizedUserLang,
+            )
+            .catch((error) => {
+              this.logError(
+                error instanceof Error ? error : new Error(String(error)),
+                member.user_id,
+                'sendPushNotificationToChatMembers - createNotificationForUser',
+                { chatId, senderId },
+              );
+            });
+
           if (user.push_notification) {
             // Send push notification using notification service method
             // This is non-blocking - sendPushNotificationToUser handles missing device_id gracefully
@@ -1640,11 +1664,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                   : routeText,
                 departureDate,
                 message: messageContent,
-                appUrl: chatUrl,
-                requestId: chat?.request?.id || null,
-                requestStatus: chat?.request?.status
-                  ? String(chat.request.status)
-                  : null,
               });
 
             await this.notificationService.sendEmail(
