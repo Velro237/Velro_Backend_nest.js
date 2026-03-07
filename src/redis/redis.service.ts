@@ -5,6 +5,7 @@ import { createClient, RedisClientType } from 'redis';
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private client: RedisClientType;
+  private static readonly PRESENCE_TTL_SECONDS = 90;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -141,32 +142,129 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Online users tracking
+  private userSocketsKey(userId: string): string {
+    return `user:${userId}:sockets`;
+  }
+
+  private socketPresenceKey(socketId: string): string {
+    return `socket:${socketId}:presence`;
+  }
+
+  private async pruneUserSockets(userId: string): Promise<number> {
+    const socketSetKey = this.userSocketsKey(userId);
+    const socketIds = await this.client.sMembers(socketSetKey);
+
+    if (!socketIds.length) {
+      await this.client.sRem(`online:users`, userId);
+      await this.client.del(socketSetKey);
+      return 0;
+    }
+
+    const socketKeys = socketIds.map((id) => this.socketPresenceKey(id));
+    const socketValues = await this.client.mGet(socketKeys);
+
+    const activeSocketIds: string[] = [];
+    const staleSocketIds: string[] = [];
+
+    socketIds.forEach((id, index) => {
+      if (socketValues[index]) {
+        activeSocketIds.push(id);
+      } else {
+        staleSocketIds.push(id);
+      }
+    });
+
+    if (staleSocketIds.length > 0) {
+      await this.client.sRem(socketSetKey, staleSocketIds);
+    }
+
+    if (!activeSocketIds.length) {
+      await this.client.sRem(`online:users`, userId);
+      await this.client.del(socketSetKey);
+      return 0;
+    }
+
+    await this.client.sAdd(`online:users`, userId);
+    return activeSocketIds.length;
+  }
+
   async setUserOnline(userId: string, socketId: string): Promise<void> {
     if (!userId || !socketId) {
       throw new Error('userId and socketId are required');
     }
     await this.client.sAdd(`online:users`, userId);
-    await this.client.setEx(`user:${userId}:socket`, 3600, socketId); // 1 hour TTL
+    await this.client.sAdd(this.userSocketsKey(userId), socketId);
+    await this.client.setEx(
+      this.socketPresenceKey(socketId),
+      RedisService.PRESENCE_TTL_SECONDS,
+      userId,
+    );
   }
 
-  async setUserOffline(userId: string): Promise<void> {
+  async refreshUserOnline(userId: string, socketId: string): Promise<void> {
+    if (!userId || !socketId) {
+      throw new Error('userId and socketId are required');
+    }
+    await this.client.sAdd(`online:users`, userId);
+    await this.client.sAdd(this.userSocketsKey(userId), socketId);
+    await this.client.setEx(
+      this.socketPresenceKey(socketId),
+      RedisService.PRESENCE_TTL_SECONDS,
+      userId,
+    );
+  }
+
+  async setUserOffline(userId: string, socketId?: string): Promise<void> {
     if (!userId) {
       throw new Error('userId is required');
     }
+
+    const socketSetKey = this.userSocketsKey(userId);
+
+    if (socketId) {
+      await this.client.del(this.socketPresenceKey(socketId));
+      await this.client.sRem(socketSetKey, socketId);
+      await this.pruneUserSockets(userId);
+      return;
+    }
+
+    const socketIds = await this.client.sMembers(socketSetKey);
+    if (socketIds.length > 0) {
+      await this.client.del(socketIds.map((id) => this.socketPresenceKey(id)));
+    }
+    await this.client.del(socketSetKey);
     await this.client.sRem(`online:users`, userId);
-    await this.client.del(`user:${userId}:socket`);
   }
 
   async getOnlineUsers(): Promise<string[]> {
-    return await this.client.sMembers(`online:users`);
+    try {
+      const userIds = await this.client.sMembers(`online:users`);
+      if (!userIds.length) {
+        return [];
+      }
+
+      const statuses = await Promise.all(
+        userIds.map((id) => this.isUserOnline(id)),
+      );
+      return userIds.filter((_, index) => statuses[index]);
+    } catch (error) {
+      console.error('Failed to get online users:', error);
+      return [];
+    }
   }
 
   async isUserOnline(userId: string): Promise<boolean> {
     if (!userId) {
       return false;
     }
-    const result = await this.client.sIsMember(`online:users`, userId);
-    return Boolean(result);
+
+    try {
+      const activeSockets = await this.pruneUserSockets(userId);
+      return activeSockets > 0;
+    } catch (error) {
+      console.error(`Failed to check online status for user ${userId}:`, error);
+      return false;
+    }
   }
 
   // Message read status
@@ -259,3 +357,4 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return data ? JSON.parse(data as string) : null;
   }
 }
+

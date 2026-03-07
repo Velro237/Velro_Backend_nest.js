@@ -16,6 +16,7 @@ import {
   ExecutionContext,
   Inject,
   forwardRef,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { SendMessageDto, MessageType } from './dto/send-message.dto';
 import { MessageType as PrismaMessageType, NotificationType, loggerType } from 'generated/prisma';
@@ -32,11 +33,13 @@ import { I18nService } from 'nestjs-i18n';
   namespace: 'chat',
   transports: ['websocket', 'polling'],
 })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer() server: Server;
 
   // Map socketId -> userId to help with cleanup (optional)
   private socketUser = new Map<string, string>();
+  private static readonly PRESENCE_HEARTBEAT_MS = 30000;
+  private presenceHeartbeat: NodeJS.Timeout | null = null;
 
   constructor(
     @Inject(forwardRef(() => ChatService))
@@ -52,6 +55,51 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   afterInit(server: Server) {
     this.server = server;
+    this.startPresenceHeartbeat();
+  }
+
+  onModuleDestroy() {
+    if (this.presenceHeartbeat) {
+      clearInterval(this.presenceHeartbeat);
+      this.presenceHeartbeat = null;
+    }
+  }
+
+  private startPresenceHeartbeat(): void {
+    if (this.presenceHeartbeat) {
+      return;
+    }
+
+    this.presenceHeartbeat = setInterval(() => {
+      this.refreshConnectedUsersPresence().catch((error) => {
+        this.logError(
+          error instanceof Error ? error : new Error(String(error)),
+          undefined,
+          'startPresenceHeartbeat',
+        );
+      });
+    }, ChatGateway.PRESENCE_HEARTBEAT_MS);
+  }
+
+  private async refreshConnectedUsersPresence(): Promise<void> {
+    if (this.socketUser.size === 0) {
+      return;
+    }
+
+    await Promise.all(
+      Array.from(this.socketUser.entries()).map(async ([socketId, userId]) => {
+        try {
+          await this.redis.refreshUserOnline(userId, socketId);
+        } catch (error) {
+          await this.logError(
+            error instanceof Error ? error : new Error(String(error)),
+            userId,
+            'refreshConnectedUsersPresence',
+            { socketId },
+          );
+        }
+      }),
+    );
   }
 
   /**
@@ -176,7 +224,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = this.socketUser.get(client.id);
     if (userId) {
       // Set user as offline in Redis
-      await this.redis.setUserOffline(userId);
+      await this.redis.setUserOffline(userId, client.id);
 
       // Get user's chat rooms and notify others that user went offline
       try {
@@ -1697,3 +1745,4 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 }
+
