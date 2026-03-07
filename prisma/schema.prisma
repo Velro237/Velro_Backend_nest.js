@@ -1050,6 +1050,7 @@ enum TransactionProvider {
   MTN
   ORANGE
   STRIPE
+  PAYPAL
 }
 
 enum WalletState {
@@ -1154,6 +1155,71 @@ enum ProductSource {
   APPLE
   EBAY
   OTHER
+}
+
+model PaymentMethodRollup {
+  id           String   @id @default(cuid())
+  periodKey    String   @unique
+  stripe_eur   Decimal  @default(0) @db.Decimal(14, 2)
+  stripe_xaf   Decimal  @default(0) @db.Decimal(14, 2)
+  stripe_usd   Decimal  @default(0) @db.Decimal(14, 2)
+  stripe_cad   Decimal  @default(0) @db.Decimal(14, 2)
+  stripe_count Int      @default(0)
+  mtn_eur      Decimal  @default(0) @db.Decimal(14, 2)
+  mtn_xaf      Decimal  @default(0) @db.Decimal(14, 2)
+  mtn_usd      Decimal  @default(0) @db.Decimal(14, 2)
+  mtn_cad      Decimal  @default(0) @db.Decimal(14, 2)
+  mtn_count    Int      @default(0)
+  orange_eur   Decimal  @default(0) @db.Decimal(14, 2)
+  orange_xaf   Decimal  @default(0) @db.Decimal(14, 2)
+  orange_usd   Decimal  @default(0) @db.Decimal(14, 2)
+  orange_cad   Decimal  @default(0) @db.Decimal(14, 2)
+  orange_count Int      @default(0)
+  paypal_eur   Decimal  @default(0) @db.Decimal(14, 2)
+  paypal_xaf   Decimal  @default(0) @db.Decimal(14, 2)
+  paypal_usd   Decimal  @default(0) @db.Decimal(14, 2)
+  paypal_cad   Decimal  @default(0) @db.Decimal(14, 2)
+  paypal_count Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([periodKey])
+}
+
+model FeatureSummaryRollup {
+  id                       String   @id @default(cuid())
+  periodKey                String   @unique
+  sales_total_eur          Decimal  @default(0) @db.Decimal(14, 2)
+  sales_total_xaf          Decimal  @default(0) @db.Decimal(14, 2)
+  sales_total_usd          Decimal  @default(0) @db.Decimal(14, 2)
+  sales_total_cad          Decimal  @default(0) @db.Decimal(14, 2)
+  sales_commission_eur     Decimal  @default(0) @db.Decimal(14, 2)
+  sales_commission_xaf     Decimal  @default(0) @db.Decimal(14, 2)
+  sales_commission_usd     Decimal  @default(0) @db.Decimal(14, 2)
+  sales_commission_cad     Decimal  @default(0) @db.Decimal(14, 2)
+  sales_count              Int      @default(0)
+  shopping_total_eur       Decimal  @default(0) @db.Decimal(14, 2)
+  shopping_total_xaf       Decimal  @default(0) @db.Decimal(14, 2)
+  shopping_total_usd       Decimal  @default(0) @db.Decimal(14, 2)
+  shopping_total_cad       Decimal  @default(0) @db.Decimal(14, 2)
+  shopping_commission_eur  Decimal  @default(0) @db.Decimal(14, 2)
+  shopping_commission_xaf  Decimal  @default(0) @db.Decimal(14, 2)
+  shopping_commission_usd  Decimal  @default(0) @db.Decimal(14, 2)
+  shopping_commission_cad  Decimal  @default(0) @db.Decimal(14, 2)
+  shopping_count           Int      @default(0)
+  shipping_total_eur       Decimal  @default(0) @db.Decimal(14, 2)
+  shipping_total_xaf       Decimal  @default(0) @db.Decimal(14, 2)
+  shipping_total_usd       Decimal  @default(0) @db.Decimal(14, 2)
+  shipping_total_cad       Decimal  @default(0) @db.Decimal(14, 2)
+  shipping_commission_eur  Decimal  @default(0) @db.Decimal(14, 2)
+  shipping_commission_xaf  Decimal  @default(0) @db.Decimal(14, 2)
+  shipping_commission_usd  Decimal  @default(0) @db.Decimal(14, 2)
+  shipping_commission_cad  Decimal  @default(0) @db.Decimal(14, 2)
+  shipping_count           Int      @default(0)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([periodKey])
 }
 
 model FinancialSummaryRollup {
