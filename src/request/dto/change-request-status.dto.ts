@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsUUID } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { RequestStatus } from 'generated/prisma';
 import { Transform } from 'class-transformer';
 
@@ -10,6 +10,13 @@ export class ChangeRequestStatusDto {
   })
   @IsUUID('4')
   requestId: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional chat ID (resolved automatically if not provided)',
+  })
+  @IsOptional()
+  @IsString()
+  chatId?: string;
 
   @ApiProperty({
     description: 'New status for the request',

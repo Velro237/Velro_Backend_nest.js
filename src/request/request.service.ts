@@ -2352,6 +2352,10 @@ export class RequestService {
       ) {
         throw error;
       }
+      console.error(
+        `changeRequestStatus failed for request ${requestId}, status ${status}:`,
+        error,
+      );
       const message = await this.i18n.translate(
         'translation.trip.request.statusChangeFailed',
         { lang },
